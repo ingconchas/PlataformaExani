@@ -1,0 +1,82 @@
+<!-- @dsCard group="Components" viewport="700x640" subtitle="Modal, Toast, Breadcrumb, Avatar, Stepper" name="Overlays y navegación" -->
+<!DOCTYPE html><html><head><meta charset="utf-8">
+<link rel="stylesheet" href="../../styles.css">
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+</head>
+<body style="margin:0;font-family:var(--unx-font-sans);background:var(--unx-bg);padding:20px;">
+<div id="root"></div>
+<script type="text/babel">
+const NAMES = ['Modal', 'Toast', 'Breadcrumb', 'Avatar', 'Stepper'];
+
+function findNS() {
+  for (const k of Object.getOwnPropertyNames(window)) {
+    try {
+      const v = window[k];
+      if (v && typeof v === 'object' && NAMES.every(n => typeof v[n] === 'function')) return v;
+    } catch (e) {}
+  }
+  return null;
+}
+
+async function loadBundle() {
+  await new Promise(res => {
+    const s = document.createElement('script');
+    s.src = '../../_ds_bundle' + '.js';
+    s.onload = res; s.onerror = res;
+    document.head.appendChild(s);
+  });
+  return findNS();
+}
+
+async function loadLocal() {
+  const ex = {};
+  for (const n of NAMES) {
+    let src = await (await fetch(n + '.jsx')).text();
+    src = src.replace(/^import .*$/gm, '').replace(/export function (\w+)/g, 'ex.$1 = function $1');
+    eval(Babel.transform(src, { presets: [['react', { runtime: 'classic' }]] }).code);
+  }
+  return ex;
+}
+
+async function init() {
+  const NS = findNS() || (await loadBundle()) || (await loadLocal());
+  const { Modal, Toast, Breadcrumb, Avatar, Stepper } = NS;
+
+  function Demo() {
+    return (
+      <div style={{ display: 'grid', gap: 20 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+          <Breadcrumb items={[{ label: 'Exámenes' }, { label: 'Simulacro General 3' }, { label: 'Asignar' }]} />
+          <Avatar name="Mayra Torres" role="Administradora" showMenu />
+        </div>
+        <Stepper steps={['Subir archivo', 'Revisar datos', 'Confirmar']} current={1} />
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+          <Toast variant="success" onClose={() => {}}>38 alumnos importados. Invitaciones enviadas.</Toast>
+          <Toast variant="error" onClose={() => {}}>Tu respuesta no se guardó. Revisa tu conexión.</Toast>
+          <Toast variant="info">El simulacro se abre el lunes a las 9:00 h.</Toast>
+        </div>
+        <div style={{ position: 'relative', height: 240, borderRadius: 12, overflow: 'hidden', border: '1px solid var(--unx-border)' }}>
+          <Modal
+            contained
+            title="¿Desactivar a este alumno?"
+            onClose={() => {}}
+            actions={
+              <React.Fragment>
+                <button style={{ height: 44, padding: '0 24px', border: '1.5px solid var(--unx-blue)', borderRadius: 8, background: '#fff', color: 'var(--unx-blue)', fontFamily: 'var(--unx-font-sans)', fontWeight: 600, fontSize: 16, cursor: 'pointer' }}>Cancelar</button>
+                <button style={{ height: 44, padding: '0 24px', border: 'none', borderRadius: 8, background: 'var(--unx-error)', color: '#fff', fontFamily: 'var(--unx-font-sans)', fontWeight: 600, fontSize: 16, cursor: 'pointer' }}>Desactivar</button>
+              </React.Fragment>
+            }
+          >
+            El alumno no podrá ingresar a la plataforma. Su historial de simulacros se conserva.
+          </Modal>
+        </div>
+      </div>
+    );
+  }
+  ReactDOM.createRoot(document.getElementById('root')).render(<Demo />);
+}
+init();
+</script>
+</body></html>

@@ -1,0 +1,134 @@
+<!-- @dsCard group="Pantallas" viewport="1440x900" name="Diseño 09 — Gestión de grupos" subtitle="Administradora · Desktop · armada con componentes" -->
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Diseño 09 — Gestión de grupos</title>
+<link rel="stylesheet" href="../styles.css">
+<style>
+  html, body { margin: 0; background: var(--unx-bg); }
+  body { font-family: var(--unx-font-sans); color: var(--unx-text); -webkit-font-smoothing: antialiased; }
+  * { box-sizing: border-box; }
+</style>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+<script src="_load.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const MAYRA = [
+  { id: 'inicio', label: 'Inicio', icon: 'inicio' },
+  { id: 'alumnos', label: 'Alumnos', icon: 'alumnos' },
+  { id: 'grupos', label: 'Grupos', icon: 'grupos' },
+  { id: 'permisos', label: 'Usuarios y permisos', icon: 'permisos' },
+  { id: 'temario', label: 'Temario', icon: 'temario' },
+  { id: 'resumen', label: 'Resumen de exámenes', icon: 'resumen' },
+];
+const TINTS = { CG: ['var(--unx-blue-tint)', 'var(--unx-blue)'], CL: ['var(--unx-purple-tint)', 'var(--unx-purple)'], DP: ['var(--unx-green-tint)', 'var(--unx-green)'] };
+
+async function init() {
+  const { SidebarNav, PageHeader, Breadcrumb, Tabs, Select, DataTable, Badge, Button, Modal, Input, MultiSelect, MetricCard } =
+    await UNXScreen.load(['SidebarNav', 'PageHeader', 'Breadcrumb', 'Tabs', 'Select', 'DataTable', 'Badge', 'Button', 'Modal', 'Input', 'MultiSelect', 'MetricCard']);
+
+  const Label = ({ children }) => (
+    <div style={{ fontFamily: 'var(--unx-font-condensed)', fontWeight: 600, fontSize: 13, letterSpacing: '0.06em', color: 'var(--unx-text-muted)', textTransform: 'uppercase', padding: '0 40px 10px' }}>{children}</div>
+  );
+  const Shell = ({ children }) => (
+    <div style={{ position: 'relative', display: 'flex', height: 860, background: 'var(--unx-bg)', overflow: 'hidden', border: '1px solid var(--unx-border)' }}>
+      <SidebarNav user={{ name: 'Mayra Torres', role: 'Administradora' }} items={MAYRA} activeId="grupos" />
+      <main style={{ flex: 1, overflow: 'auto', padding: 32 }}>{children}</main>
+    </div>
+  );
+  const Ava = ({ ini }) => {
+    const [bg, fg] = TINTS[ini] || TINTS.CG;
+    return <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 28, borderRadius: '50%', background: bg, color: fg, fontSize: 11, fontWeight: 600, marginRight: -6, border: '2px solid #fff' }}>{ini}</span>;
+  };
+  const inst = (avatars, names) => <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}><span style={{ display: 'inline-flex' }}>{avatars.map((a, i) => <Ava key={i} ini={a} />)}</span><span style={{ color: 'var(--unx-text)' }}>{names}</span></span>;
+
+  const COLS = [
+    { key: 'nombre', label: 'Nombre del grupo', sortable: true },
+    { key: 'ciclo', label: 'Ciclo' }, { key: 'turno', label: 'Turno' },
+    { key: 'instructores', label: 'Instructores' }, { key: 'alumnos', label: 'Alumnos', align: 'right' }, { key: 'estado', label: 'Estado' },
+  ];
+  const G = (n, ci, tu, av, na, al, act) => ({ nombre: <span style={{ fontWeight: 600, color: 'var(--unx-ink)' }}>{n}</span>, ciclo: ci, turno: tu, instructores: inst(av, na), alumnos: <span style={{ fontVariantNumeric: 'tabular-nums' }}>{al}</span>, estado: act ? <Badge variant="success">Activo</Badge> : <Badge variant="neutral">Cerrado</Badge> });
+  const ROWS = [
+    G('Matutino A', '2026-B', 'Matutino', ['CG', 'CL'], 'Cristian Gómez, Carlos Lora', 32, true),
+    G('Matutino B', '2026-B', 'Matutino', ['CG', 'DP'], 'Cristian Gómez, Diana Peña', 28, true),
+    G('Vespertino A', '2026-B', 'Vespertino', ['DP'], 'Diana Peña', 30, true),
+    G('Vespertino B', '2026-B', 'Vespertino', ['CL', 'DP'], 'Carlos Lora, Diana Peña', 26, true),
+    G('Intensivo Sabatino', '2026-B', 'Sabatino', ['CG', 'CL', 'DP'], 'Cristian, Carlos y Diana', 38, true),
+    G('Matutino A', '2026-A', 'Matutino', ['CG'], 'Cristian Gómez', 30, false),
+  ];
+
+  function App() {
+    return (
+      <div style={{ display: 'grid', gap: 40, padding: '24px 0 48px' }}>
+        <div>
+          <Label>01 · Lista de grupos</Label>
+          <Shell>
+            <PageHeader title="Grupos" subtitle="6 grupos en el ciclo actual" actionLabel="Crear grupo" />
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <Tabs tabs={[{ id: 't', label: 'Todos' }, { id: 'a', label: 'Activos' }, { id: 'c', label: 'Cerrados' }]} activeId="t" />
+              <div style={{ width: 200 }}><Select options={[{ value: 'todos', label: 'Todos los ciclos' }, { value: 'b', label: '2026-B' }, { value: 'a', label: '2026-A' }]} value="todos" /></div>
+            </div>
+            <DataTable columns={COLS} rows={ROWS} />
+          </Shell>
+        </div>
+
+        <div>
+          <Label>02 · Modal "Crear grupo"</Label>
+          <Shell>
+            <PageHeader title="Grupos" subtitle="6 grupos en el ciclo actual" actionLabel="Crear grupo" />
+            <DataTable columns={COLS} rows={ROWS.slice(0, 4)} />
+            <Modal contained title="Crear grupo"
+              actions={<><Button variant="secondary">Cancelar</Button><Button variant="primary">Crear grupo</Button></>}>
+              <div style={{ display: 'grid', gap: 16 }}>
+                <Input label="Nombre" placeholder="Matutino C" />
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                  <Select label="Ciclo" options={[{ value: 'b', label: '2026-B' }, { value: 'a', label: '2026-A' }]} value="b" />
+                  <Select label="Turno" options={[{ value: 'm', label: 'Matutino' }, { value: 'v', label: 'Vespertino' }, { value: 's', label: 'Sabatino' }]} value="m" />
+                </div>
+                <MultiSelect label="Instructores" value={['cg', 'cl']} options={[{ value: 'cg', label: 'Cristian Gómez — Matemáticas' }, { value: 'cl', label: 'Carlos Lora — Español' }, { value: 'dp', label: 'Diana Peña — Física' }]} />
+                <p style={{ margin: '-4px 0 0', font: 'var(--unx-small)', color: 'var(--unx-text-muted)' }}>Puedes asignar varios instructores, uno por materia.</p>
+              </div>
+            </Modal>
+          </Shell>
+        </div>
+
+        <div>
+          <Label>03 · Detalle de grupo</Label>
+          <Shell>
+            <Breadcrumb items={[{ label: 'Grupos', href: '#' }, { label: 'Matutino A' }]} />
+            <div style={{ marginTop: 8 }}><PageHeader title="Matutino A" subtitle="Ciclo 2026-B · Turno matutino" actionLabel="Editar grupo" /></div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+              <div style={{ background: '#fff', border: '1px solid var(--unx-border)', borderRadius: 10, boxShadow: 'var(--unx-shadow-sm)', padding: 16, display: 'grid', gap: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><Ava ini="CG" /><span><b style={{ color: 'var(--unx-ink)' }}>Cristian Gómez</b> · Matemáticas</span></div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><Ava ini="CL" /><span><b style={{ color: 'var(--unx-ink)' }}>Carlos Lora</b> · Español</span></div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                <MetricCard value="32" label="Alumnos" accent="var(--unx-blue)" tint="var(--unx-blue-tint)" icon={<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="12" cy="8" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg>} />
+                <MetricCard value="4" label="Exámenes aplicados" accent="var(--unx-green)" tint="var(--unx-green-tint)" icon={<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>} />
+              </div>
+            </div>
+            <h2 style={{ margin: '8px 0 12px', font: 'var(--unx-h3)', color: 'var(--unx-ink)' }}>Alumnos del grupo</h2>
+            <DataTable
+              columns={[{ key: 'nombre', label: 'Nombre' }, { key: 'correo', label: 'Correo' }, { key: 'estado', label: 'Estado' }, { key: 'acceso', label: 'Último acceso' }]}
+              rows={[
+                { nombre: <b style={{ color: 'var(--unx-ink)' }}>Ana López Ramírez</b>, correo: <span style={{ color: 'var(--unx-text-muted)' }}>ana.lopez@correo.com</span>, estado: <Badge variant="success">Activo</Badge>, acceso: <span style={{ color: 'var(--unx-text-muted)' }}>hace 2 días</span> },
+                { nombre: <b style={{ color: 'var(--unx-ink)' }}>Diego Martín Soto</b>, correo: <span style={{ color: 'var(--unx-text-muted)' }}>diego.soto@correo.com</span>, estado: <Badge variant="success">Activo</Badge>, acceso: <span style={{ color: 'var(--unx-text-muted)' }}>hace 3 días</span> },
+                { nombre: <b style={{ color: 'var(--unx-ink)' }}>Santiago Herrera Luna</b>, correo: <span style={{ color: 'var(--unx-text-muted)' }}>santiago.herrera@correo.com</span>, estado: <Badge variant="neutral">Inactivo</Badge>, acceso: <span style={{ color: 'var(--unx-text-muted)' }}>hace 3 semanas</span> },
+              ]}
+            />
+          </Shell>
+        </div>
+      </div>
+    );
+  }
+  ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+}
+init();
+</script>
+</body>
+</html>

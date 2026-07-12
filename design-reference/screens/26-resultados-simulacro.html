@@ -1,0 +1,93 @@
+<!-- @dsCard group="Pantallas" viewport="390x844" name="Diseño 26 — Resultados del simulacro" subtitle="Alumna · Móvil · armada con componentes" -->
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Diseño 26 — Resultados del simulacro</title>
+<link rel="stylesheet" href="../styles.css">
+<style>
+  html, body { margin: 0; background: var(--unx-bg); }
+  body { font-family: var(--unx-font-sans); color: var(--unx-text); -webkit-font-smoothing: antialiased; }
+  * { box-sizing: border-box; }
+</style>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+<script src="_load.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+async function init() {
+  const { Card, ProgressBar, Badge, Button, CelebrationToast, AchievementBadge } =
+    await UNXScreen.load(['Card', 'ProgressBar', 'Badge', 'Button', 'CelebrationToast', 'AchievementBadge']);
+
+  const Stage = ({ children }) => <div style={{ display: 'flex', flexWrap: 'wrap', gap: 32, padding: '24px 40px 48px', alignItems: 'flex-start' }}>{children}</div>;
+  const Cell = ({ label, children }) => <div><div style={{ fontFamily: 'var(--unx-font-condensed)', fontWeight: 600, fontSize: 12, letterSpacing: '0.06em', color: 'var(--unx-text-muted)', textTransform: 'uppercase', marginBottom: 10 }}>{label}</div>{children}</div>;
+  const Phone = ({ children }) => <div style={{ width: 390, height: 800, background: 'var(--unx-bg)', border: '1px solid var(--unx-border-strong)', borderRadius: 28, boxShadow: 'var(--unx-shadow-md)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}><div style={{ padding: '20px 20px 4px' }}><h1 style={{ margin: 0, font: 'var(--unx-h1)', color: 'var(--unx-ink)' }}>Tus resultados</h1></div><div style={{ flex: 1, overflow: 'auto', padding: '8px 20px 20px', display: 'grid', gap: 16, alignContent: 'start' }}>{children}</div></div>;
+
+  const secBar = (label, a) => (
+    <div style={{ marginBottom: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', font: 'var(--unx-small)', marginBottom: 4 }}><span style={{ color: 'var(--unx-text)' }}>{label}</span><span style={{ color: 'var(--unx-ink)', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{a} de 30</span></div>
+      <ProgressBar value={a} max={30} color="var(--unx-blue)" />
+    </div>
+  );
+  const areaRow = (label, txt, estudiar) => (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--unx-border)' }}>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: 'var(--unx-text)', fontSize: 14 }}>{label}{estudiar && <Badge variant="warning">A estudiar</Badge>}</span>
+      <span style={{ color: 'var(--unx-text-muted)', fontSize: 14, fontVariantNumeric: 'tabular-nums' }}>{txt}</span>
+    </div>
+  );
+
+  function App() {
+    return (
+      <Stage>
+        <Cell label="01 · Resultado principal">
+          <Phone>
+            <Card>
+              <div style={{ font: 'var(--unx-caption)', color: 'var(--unx-text-muted)' }}>Simulacro General 2 — primer intento</div>
+              <div style={{ fontFamily: 'var(--unx-font-condensed)', fontWeight: 600, fontSize: 56, color: 'var(--unx-ink)', lineHeight: '58px', fontVariantNumeric: 'tabular-nums', marginTop: 4 }}>1082</div>
+              <div style={{ font: 'var(--unx-caption)', color: 'var(--unx-text-muted)', marginBottom: 12 }}>escala 700–1300</div>
+              <ProgressBar value={382} max={600} goal={450} goalLabel="Meta 1150" color="var(--unx-blue)" />
+              <div style={{ font: 'var(--unx-small)', color: 'var(--unx-green)', fontWeight: 600, marginTop: 10 }}>¡A 68 puntos de tu meta, Fer!</div>
+            </Card>
+            <Card title="Aciertos por sección">
+              <div style={{ marginTop: 4 }}>{secBar('Pensamiento matemático', 17)}{secBar('Comprensión lectora', 24)}{secBar('Redacción indirecta', 21)}</div>
+            </Card>
+            <Card>
+              <div style={{ font: 'var(--unx-h3)', color: 'var(--unx-ink)' }}>Detalle por área temática</div>
+              <p style={{ font: 'var(--unx-caption)', color: 'var(--unx-text-muted)', margin: '2px 0 10px' }}>Para saber exactamente qué estudiar</p>
+              <div style={{ fontWeight: 600, color: 'var(--unx-ink)', fontSize: 14, display: 'flex', justifyContent: 'space-between' }}>▾ Pensamiento matemático <span style={{ color: 'var(--unx-text-muted)' }}>17 de 30</span></div>
+              {areaRow('Álgebra', '3 de 8', true)}{areaRow('Aritmética', '7 de 9')}{areaRow('Geometría', '4 de 7')}{areaRow('Probabilidad', '3 de 6')}
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0 2px', color: 'var(--unx-text)', fontSize: 14 }}>▸ Comprensión lectora <span style={{ color: 'var(--unx-text-muted)' }}>24 de 30</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', color: 'var(--unx-text)', fontSize: 14 }}>▸ Redacción indirecta <span style={{ color: 'var(--unx-text-muted)' }}>21 de 30</span></div>
+            </Card>
+            <Button variant="primary" fullWidth>Revisar mis respuestas</Button>
+            <div style={{ display: 'flex', gap: 12 }}><Button variant="secondary" fullWidth>Repetir como repaso</Button><Button variant="ghost" fullWidth>Ver mi progreso</Button></div>
+            <p style={{ font: 'var(--unx-caption)', color: 'var(--unx-text-muted)', margin: 0, textAlign: 'center' }}>El repaso no cambia tu puntaje: cuenta el primer intento.</p>
+          </Phone>
+        </Cell>
+
+        <Cell label="02 · Variante · meta alcanzada">
+          <Phone>
+            <Card style={{ textAlign: 'center' }}>
+              <div style={{ font: 'var(--unx-caption)', color: 'var(--unx-text-muted)' }}>Simulacro General 3 — primer intento</div>
+              <div style={{ fontFamily: 'var(--unx-font-condensed)', fontWeight: 600, fontSize: 56, color: 'var(--unx-green)', lineHeight: '58px', fontVariantNumeric: 'tabular-nums', marginTop: 4 }}>1178</div>
+              <div style={{ font: 'var(--unx-caption)', color: 'var(--unx-text-muted)', marginBottom: 8 }}>escala 700–1300</div>
+              <Badge variant="success">¡Superaste tu meta!</Badge>
+              <p style={{ font: 'var(--unx-small)', color: 'var(--unx-text)', margin: '12px 0 0' }}>Tu meta era 1150 y lograste 1178. Así se ve el camino a Medicina, Fer.</p>
+            </Card>
+            <CelebrationToast sticker="estrella" title="Nueva insignia: Meta superada">Se sumó a tu colección en el perfil.</CelebrationToast>
+            <Button variant="primary" fullWidth>Revisar mis respuestas</Button>
+            <Button variant="ghost" fullWidth>Ver mi progreso</Button>
+          </Phone>
+        </Cell>
+      </Stage>
+    );
+  }
+  ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+}
+init();
+</script>
+</body>
+</html>

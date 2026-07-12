@@ -1,0 +1,126 @@
+<!-- @dsCard group="Pantallas" viewport="1440x900" name="Diseño 19 — Asignar examen" subtitle="Instructor · Desktop · armada con componentes" -->
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Diseño 19 — Asignar examen</title>
+<link rel="stylesheet" href="../styles.css">
+<style>
+  html, body { margin: 0; background: var(--unx-bg); }
+  body { font-family: var(--unx-font-sans); color: var(--unx-text); -webkit-font-smoothing: antialiased; }
+  * { box-sizing: border-box; }
+</style>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+<script src="_load.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const ALEJANDRO = [
+  { id: 'inicio', label: 'Inicio', icon: 'inicio' },
+  { id: 'reactivos', label: 'Banco de reactivos', icon: 'reactivos' },
+  { id: 'examenes', label: 'Exámenes', icon: 'examenes' },
+];
+
+async function init() {
+  const { SidebarNav, PageHeader, Breadcrumb, Card, Badge, Button, Input, Alert, Toast } =
+    await UNXScreen.load(['SidebarNav', 'PageHeader', 'Breadcrumb', 'Card', 'Badge', 'Button', 'Input', 'Alert', 'Toast']);
+
+  const Label = ({ children }) => (
+    <div style={{ fontFamily: 'var(--unx-font-condensed)', fontWeight: 600, fontSize: 13, letterSpacing: '0.06em', color: 'var(--unx-text-muted)', textTransform: 'uppercase', padding: '0 40px 10px' }}>{children}</div>
+  );
+  const Shell = ({ children }) => (
+    <div style={{ display: 'flex', minHeight: 900, background: 'var(--unx-bg)', overflow: 'hidden', border: '1px solid var(--unx-border)' }}>
+      <SidebarNav user={{ name: 'Alejandro Ruiz', role: 'Instructor' }} items={ALEJANDRO} activeId="examenes" />
+      <main style={{ flex: 1, overflow: 'auto', padding: 32 }}><div style={{ maxWidth: 760 }}>{children}</div></main>
+    </div>
+  );
+  const RadioCard = ({ title, sub, sel, children }) => (
+    <div style={{ border: `1.5px solid ${sel ? 'var(--unx-blue)' : 'var(--unx-border-strong)'}`, background: sel ? 'var(--unx-blue-tint)' : '#fff', borderRadius: 10, padding: 16, marginBottom: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <span style={{ width: 18, height: 18, borderRadius: '50%', border: `2px solid ${sel ? 'var(--unx-blue)' : 'var(--unx-border-strong)'}`, background: '#fff', flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{sel && <span style={{ width: 9, height: 9, borderRadius: '50%', background: 'var(--unx-blue)' }} />}</span>
+        <span style={{ flex: 1 }}><b style={{ color: 'var(--unx-ink)' }}>{title}</b><span style={{ font: 'var(--unx-small)', color: 'var(--unx-text-muted)', marginLeft: 8 }}>{sub}</span></span>
+      </div>
+      {children && <div style={{ marginTop: 12, paddingLeft: 30 }}>{children}</div>}
+    </div>
+  );
+  const chip = (t) => <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#fff', border: '1px solid var(--unx-blue)', color: 'var(--unx-blue)', borderRadius: 999, padding: '4px 12px', fontSize: 13, fontWeight: 600, marginRight: 8 }}>{t} ✕</span>;
+  const Field = ({ label, children }) => <div><div style={{ font: 'var(--unx-small)', fontWeight: 600, color: 'var(--unx-ink)', marginBottom: 8 }}>{label}</div>{children}</div>;
+  const ExamSummary = () => (
+    <Card style={{ marginBottom: 20 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 44, height: 44, borderRadius: 10, background: 'var(--unx-blue-tint)', color: 'var(--unx-blue)', flexShrink: 0 }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M14 2.5H6.5a2 2 0 0 0-2 2v15a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V8z"/><path d="M14 2.5V8h5.5"/></svg></span>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontWeight: 600, fontSize: 16, color: 'var(--unx-ink)' }}>Simulacro General 3 — 90 reactivos · 3 h 00 min</div>
+          <div style={{ font: 'var(--unx-caption)', color: 'var(--unx-text-muted)' }}>Autor: Alejandro Ruiz · Simulacro general (núcleo)</div>
+        </div>
+        <Badge variant="success">Publicado</Badge>
+      </div>
+    </Card>
+  );
+
+  function App() {
+    return (
+      <div style={{ display: 'grid', gap: 40, padding: '24px 0 48px' }}>
+        <div>
+          <Label>01 · Asignar examen + toast de éxito</Label>
+          <Shell>
+            <Breadcrumb items={[{ label: 'Exámenes', href: '#' }, { label: 'Simulacro General 3', href: '#' }, { label: 'Asignar' }]} />
+            <div style={{ marginTop: 8 }}><PageHeader title="Asignar examen" /></div>
+            <ExamSummary />
+            <Field label="¿A quién va dirigido?">
+              <RadioCard title="Todos los grupos" sub="246 alumnos" />
+              <RadioCard title="Grupos específicos" sub="Elige uno o varios" sel>
+                <div>{chip('Matutino A')}{chip('Vespertino B')}<a href="#" style={{ font: 'var(--unx-small)', color: 'var(--unx-blue)', fontWeight: 600, textDecoration: 'none' }}>+ Agregar grupo…</a></div>
+                <p style={{ margin: '10px 0 0', font: 'var(--unx-small)', color: 'var(--unx-text-muted)' }}>60 alumnos recibirán este examen</p>
+              </RadioCard>
+              <RadioCard title="Alumnos individuales" sub="Búsqueda por nombre" />
+            </Field>
+            <div style={{ marginTop: 20 }}>
+              <Field label="Ventana de aplicación">
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                  <Input label="Apertura" type="datetime-local" value="2026-07-08T07:00" />
+                  <Input label="Cierre" type="datetime-local" value="2026-07-12T23:59" />
+                </div>
+              </Field>
+              <p style={{ font: 'var(--unx-small)', color: 'var(--unx-text-muted)', margin: '10px 0 0' }}>Los alumnos podrán contestar solo dentro de esta ventana; dentro de ella pueden repetirlo como repaso (solo el primer intento cuenta para resultados).</p>
+            </div>
+            <div style={{ marginTop: 24 }}>
+              <div style={{ fontFamily: 'var(--unx-font-condensed)', fontWeight: 600, fontSize: 12, letterSpacing: '0.06em', color: 'var(--unx-text-muted)', textTransform: 'uppercase', marginBottom: 10 }}>Asignaciones existentes de este examen</div>
+              <Card padding={0}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 18px', borderBottom: '1px solid var(--unx-border)' }}><span><b style={{ color: 'var(--unx-ink)' }}>Matutino A</b><span style={{ color: 'var(--unx-text-muted)', marginLeft: 10 }}>1 al 5 de junio</span></span><Badge variant="neutral">Cerrada</Badge></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 18px' }}><span><b style={{ color: 'var(--unx-ink)' }}>Intensivo Sabatino</b><span style={{ color: 'var(--unx-text-muted)', marginLeft: 10 }}>5 al 11 de julio</span></span><Badge variant="success">En curso</Badge></div>
+              </Card>
+              <p style={{ font: 'var(--unx-small)', color: 'var(--unx-text-muted)', margin: '10px 0 0' }}>Un mismo examen puede tener varias asignaciones con ventanas distintas.</p>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 20 }}><Button variant="secondary">Cancelar</Button><Button variant="primary">Confirmar asignación</Button></div>
+            <div style={{ marginTop: 24, display: 'flex', justifyContent: 'flex-end' }}><Toast variant="success">Examen asignado. Estará disponible para 60 alumnos del 8 al 12 de julio.</Toast></div>
+          </Shell>
+        </div>
+
+        <div>
+          <Label>02 · Validación · cierre anterior a la apertura</Label>
+          <Shell>
+            <PageHeader title="Asignar examen" />
+            <ExamSummary />
+            <Field label="Ventana de aplicación">
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                <Input label="Apertura" type="datetime-local" value="2026-07-08T07:00" />
+                <Input label="Cierre" type="datetime-local" value="2026-07-06T23:59" error="La fecha de cierre debe ser posterior a la apertura." />
+              </div>
+            </Field>
+            <div style={{ marginTop: 16 }}><Alert variant="error">La fecha de cierre debe ser posterior a la apertura.</Alert></div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 20 }}><Button variant="secondary">Cancelar</Button><Button variant="primary" disabled>Confirmar asignación</Button></div>
+          </Shell>
+        </div>
+      </div>
+    );
+  }
+  ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+}
+init();
+</script>
+</body>
+</html>

@@ -1,0 +1,70 @@
+<!-- @dsCard group="Components" viewport="700x360" subtitle="Card, Badge, Alert, Tabs" name="Display" -->
+<!DOCTYPE html><html><head><meta charset="utf-8">
+<link rel="stylesheet" href="../../styles.css">
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+</head>
+<body style="margin:0;font-family:var(--unx-font-sans);background:var(--unx-bg);padding:20px;">
+<div id="root"></div>
+<script type="text/babel">
+const NAMES = ['Card', 'Badge', 'Alert', 'Tabs'];
+
+function findNS() {
+  for (const k of Object.getOwnPropertyNames(window)) {
+    try {
+      const v = window[k];
+      if (v && typeof v === 'object' && NAMES.every(n => typeof v[n] === 'function')) return v;
+    } catch (e) {}
+  }
+  return null;
+}
+
+async function loadBundle() {
+  await new Promise(res => {
+    const s = document.createElement('script');
+    s.src = '../../_ds_bundle' + '.js';
+    s.onload = res; s.onerror = res;
+    document.head.appendChild(s);
+  });
+  return findNS();
+}
+
+async function loadLocal() {
+  const ex = {};
+  for (const n of NAMES) {
+    let src = await (await fetch(n + '.jsx')).text();
+    src = src.replace(/^import .*$/gm, '').replace(/export function (\w+)/g, 'ex.$1 = function $1');
+    eval(Babel.transform(src, { presets: [['react', { runtime: 'classic' }]] }).code);
+  }
+  return ex;
+}
+
+async function init() {
+  const NS = findNS() || (await loadBundle()) || (await loadLocal());
+  const { Card, Badge, Alert, Tabs } = NS;
+
+  function Demo() {
+    const [tab, setTab] = React.useState('res');
+    return (
+      <div style={{ display: 'grid', gap: 16 }}>
+        <Card title="Resultados por área">
+          <Tabs tabs={[{id:'res',label:'Resultados'},{id:'areas',label:'Por área'},{id:'hist',label:'Historial'}]} activeId={tab} onChange={setTab} />
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 16 }}>
+            <Badge variant="info">En curso</Badge>
+            <Badge variant="success">Acierto</Badge>
+            <Badge variant="warning">Por reforzar</Badge>
+            <Badge variant="review">Modo repaso</Badge>
+            <Badge variant="achievement">Nuevo logro</Badge>
+          </div>
+        </Card>
+        <Alert variant="error">Tu respuesta no se guardó. Revisa tu conexión.</Alert>
+        <Alert variant="info">El simulacro se abre el lunes 13 de julio a las 9:00 h.</Alert>
+      </div>
+    );
+  }
+  ReactDOM.createRoot(document.getElementById('root')).render(<Demo />);
+}
+init();
+</script>
+</body></html>

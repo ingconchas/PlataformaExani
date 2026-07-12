@@ -1,0 +1,104 @@
+<!-- @dsCard group="Components" viewport="700x820" subtitle="DataTable, MetricCard, ShortcutCard, ExamCard, ProgressBar" name="Datos y tarjetas" -->
+<!DOCTYPE html><html><head><meta charset="utf-8">
+<link rel="stylesheet" href="../../styles.css">
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+</head>
+<body style="margin:0;font-family:var(--unx-font-sans);background:var(--unx-bg);padding:20px;">
+<div id="root"></div>
+<script type="text/babel">
+const NAMES = ['DataTable', 'MetricCard', 'ShortcutCard', 'ExamCard', 'ProgressBar'];
+
+function findNS() {
+  for (const k of Object.getOwnPropertyNames(window)) {
+    try {
+      const v = window[k];
+      if (v && typeof v === 'object' && NAMES.every(n => typeof v[n] === 'function')) return v;
+    } catch (e) {}
+  }
+  return null;
+}
+
+async function loadBundle() {
+  await new Promise(res => {
+    const s = document.createElement('script');
+    s.src = '../../_ds_bundle' + '.js';
+    s.onload = res; s.onerror = res;
+    document.head.appendChild(s);
+  });
+  return findNS();
+}
+
+async function loadLocal() {
+  const ex = {};
+  for (const n of NAMES) {
+    let src = await (await fetch(n + '.jsx')).text();
+    src = src.replace(/^import .*$/gm, '').replace(/export function (\w+)/g, 'ex.$1 = function $1');
+    eval(Babel.transform(src, { presets: [['react', { runtime: 'classic' }]] }).code);
+  }
+  return ex;
+}
+
+const userIcon = (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" />
+  </svg>
+);
+const examIcon = (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="9" y1="13" x2="15" y2="13" /><line x1="9" y1="17" x2="13" y2="17" />
+  </svg>
+);
+
+async function init() {
+  const NS = findNS() || (await loadBundle()) || (await loadLocal());
+  const { DataTable, MetricCard, ShortcutCard, ExamCard, ProgressBar } = NS;
+
+  const badge = (text, color, bg) => (
+    <span style={{ fontFamily: 'var(--unx-font-condensed)', fontWeight: 600, fontSize: 12, letterSpacing: '0.06em', textTransform: 'uppercase', color, background: bg, borderRadius: 999, padding: '5px 12px' }}>{text}</span>
+  );
+
+  function Demo() {
+    const [sortBy, setSortBy] = React.useState('nombre');
+    const [page, setPage] = React.useState(1);
+    return (
+      <div style={{ display: 'grid', gap: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+          <MetricCard value="246" label="Alumnos registrados" icon={userIcon} />
+          <MetricCard value="12" label="Exámenes este mes" icon={examIcon} />
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, alignItems: 'start' }}>
+          <ShortcutCard title="Alumnos" description="Alta, baja y edición" icon={userIcon} />
+          <ExamCard name="Simulacro General 3" meta="90 preguntas · 3 h" deadline="Cierra el 12 de julio, 23:59" status="pendiente" ctaText="Comenzar" />
+        </div>
+        <div style={{ background: '#fff', border: '1px solid var(--unx-border)', borderRadius: 10, padding: 20, display: 'grid', gap: 14 }}>
+          <ProgressBar label="Matutino A — 24 de 32 completaron" value={24} max={32} showPercent />
+          <ProgressBar label="Tu avance hacia la meta (1150)" value={1082} max={1300} goal={1150} goalLabel="Meta" />
+        </div>
+        <DataTable
+          columns={[
+            { key: 'nombre', label: 'Nombre', sortable: true },
+            { key: 'grupo', label: 'Grupo' },
+            { key: 'estado', label: 'Estado' },
+            { key: 'acciones', label: '' },
+          ]}
+          rows={[
+            { nombre: 'Fernanda López', grupo: 'Matutino A', estado: badge('Activo', 'var(--unx-green)', 'var(--unx-green-tint)'), acciones: <a href="#" style={{ color: 'var(--unx-blue)', fontWeight: 600, fontSize: 14, textDecoration: 'none' }}>Editar</a> },
+            { nombre: 'Luis Pérez', grupo: 'Vespertino B', estado: badge('Activo', 'var(--unx-green)', 'var(--unx-green-tint)'), acciones: <a href="#" style={{ color: 'var(--unx-blue)', fontWeight: 600, fontSize: 14, textDecoration: 'none' }}>Editar</a> },
+            { nombre: 'Ana Ramírez', grupo: 'Matutino A', estado: badge('Inactivo', 'var(--unx-text-muted)', 'var(--unx-disabled-bg)'), acciones: <a href="#" style={{ color: 'var(--unx-blue)', fontWeight: 600, fontSize: 14, textDecoration: 'none' }}>Editar</a> },
+          ]}
+          sortBy={sortBy}
+          onSort={setSortBy}
+          page={page}
+          pageCount={3}
+          onPageChange={setPage}
+        />
+      </div>
+    );
+  }
+  ReactDOM.createRoot(document.getElementById('root')).render(<Demo />);
+}
+init();
+</script>
+</body></html>

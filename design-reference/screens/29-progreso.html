@@ -1,0 +1,89 @@
+<!-- @dsCard group="Pantallas" viewport="390x844" name="Diseño 29 — Mi progreso" subtitle="Alumna · Móvil · armada con componentes" -->
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Diseño 29 — Mi progreso</title>
+<link rel="stylesheet" href="../styles.css">
+<style>
+  html, body { margin: 0; background: var(--unx-bg); }
+  body { font-family: var(--unx-font-sans); color: var(--unx-text); -webkit-font-smoothing: antialiased; }
+  * { box-sizing: border-box; }
+</style>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+<script src="_load.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+async function init() {
+  const { BottomNav, Card, Tabs, Badge, Button, LineChart } = await UNXScreen.load(['BottomNav', 'Card', 'Tabs', 'Badge', 'Button', 'LineChart']);
+
+  const TABS = [{ id: 'inicio', label: 'Inicio', icon: 'inicio' }, { id: 'examenes', label: 'Mis exámenes', icon: 'examenes' }, { id: 'historial', label: 'Historial', icon: 'historial' }, { id: 'progreso', label: 'Progreso', icon: 'progreso' }];
+  const XL = ['Diag.', 'Gen 1', 'Gen 2', 'Gen 3'];
+  const Stage = ({ children }) => <div style={{ display: 'flex', flexWrap: 'wrap', gap: 32, padding: '24px 40px 48px', alignItems: 'flex-start' }}>{children}</div>;
+  const Cell = ({ label, children }) => <div><div style={{ fontFamily: 'var(--unx-font-condensed)', fontWeight: 600, fontSize: 12, letterSpacing: '0.06em', color: 'var(--unx-text-muted)', textTransform: 'uppercase', marginBottom: 10 }}>{label}</div>{children}</div>;
+  const Phone = ({ tab, children }) => (
+    <div style={{ width: 390, height: 800, background: 'var(--unx-bg)', border: '1px solid var(--unx-border-strong)', borderRadius: 28, boxShadow: 'var(--unx-shadow-md)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ padding: '20px 20px 0' }}><h1 style={{ margin: '0 0 12px', font: 'var(--unx-h1)', color: 'var(--unx-ink)' }}>Mi progreso</h1><Tabs tabs={[{ id: 'g', label: 'Puntaje global' }, { id: 's', label: 'Por sección' }]} activeId={tab} /></div>
+      <div style={{ flex: 1, overflow: 'auto', padding: 20, display: 'grid', gap: 16, alignContent: 'start' }}>{children}</div>
+      <BottomNav items={TABS} activeId="progreso" />
+    </div>
+  );
+  const chip = (label, color, sel) => <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 999, border: `1.5px solid ${sel ? color : 'var(--unx-border)'}`, background: sel ? (color === 'var(--unx-green)' ? 'var(--unx-green-tint)' : 'var(--unx-blue-tint)') : '#fff', font: 'var(--unx-small)', fontWeight: 600, color: 'var(--unx-ink)', marginRight: 8 }}><span style={{ width: 8, height: 8, borderRadius: '50%', background: color }} />{label}</span>;
+
+  function App() {
+    return (
+      <Stage>
+        <Cell label="1 · Puntaje global">
+          <Phone tab="g">
+            <Card>
+              <LineChart width={330} height={220} yMin={700} yMax={1300} goal={1150} goalLabel="Meta 1150" xLabels={XL}
+                series={[{ label: 'Puntaje', color: 'var(--unx-blue)', points: [940, 987, 1024, 1082] }]} />
+              <p style={{ font: 'var(--unx-caption)', color: 'var(--unx-text-muted)', margin: '10px 0 0' }}>Solo cuentan tus intentos diagnósticos (el primero de cada simulacro).</p>
+            </Card>
+            <div style={{ background: 'var(--unx-green-tint)', borderRadius: 10, padding: 16, textAlign: 'center' }}>
+              <Badge variant="achievement">+100 puntos</Badge>
+              <div style={{ font: 'var(--unx-h3)', color: 'var(--unx-ink)', margin: '8px 0 4px' }}>Has subido 142 puntos desde tu primer simulacro</div>
+              <p style={{ font: 'var(--unx-small)', color: 'var(--unx-text)', margin: 0 }}>De 940 a 1082 en siete semanas.</p>
+            </div>
+          </Phone>
+        </Cell>
+
+        <Cell label="2 · Por sección">
+          <Phone tab="s">
+            <div>{chip('Matemático', 'var(--unx-blue)', false)}{chip('Lectora', 'var(--unx-green)', true)}{chip('Redacción', 'var(--unx-purple)', false)}</div>
+            <Card>
+              <LineChart width={330} height={220} yMin={0} yMax={100} xLabels={XL}
+                series={[
+                  { label: 'Matemático', color: 'var(--unx-blue)', points: [53, 54, 55, 55] },
+                  { label: 'Lectora', color: 'var(--unx-green)', points: [63, 70, 78, 82] },
+                  { label: 'Redacción', color: 'var(--unx-purple)', points: [57, 60, 68, 72] },
+                ]} />
+              <p style={{ font: 'var(--unx-caption)', color: 'var(--unx-text-muted)', margin: '10px 0 0' }}>% de aciertos por sección · toca un chip para aislar su línea. Si un examen no incluye una sección, su punto se omite.</p>
+            </Card>
+            <div style={{ background: 'var(--unx-blue-tint)', borderRadius: 10, padding: 14, font: 'var(--unx-small)', color: 'var(--unx-text)' }}>Comprensión lectora va subiendo; Pensamiento matemático se ha estancado — dale prioridad.</div>
+          </Phone>
+        </Cell>
+
+        <Cell label="3 · Estado vacío">
+          <Phone tab="g">
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '40px 16px' }}>
+              <img src="../assets/illustrations/dificultometro.svg" alt="" style={{ width: 96, marginBottom: 16 }} />
+              <div style={{ font: 'var(--unx-h3)', color: 'var(--unx-ink)', marginBottom: 6 }}>Cuando contestes tu primer simulacro, aquí verás tu evolución</div>
+              <p style={{ font: 'var(--unx-small)', color: 'var(--unx-text-muted)', margin: '0 0 18px' }}>Cada punto de la gráfica será un paso hacia tu meta.</p>
+              <Button variant="primary" fullWidth>Ir a mis exámenes</Button>
+            </div>
+          </Phone>
+        </Cell>
+      </Stage>
+    );
+  }
+  ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+}
+init();
+</script>
+</body>
+</html>

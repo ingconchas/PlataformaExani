@@ -1,0 +1,128 @@
+<!-- @dsCard group="Pantallas" viewport="1440x900" name="Diseño 13 — Panel del instructor" subtitle="Instructor · Desktop · armada con componentes" -->
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Diseño 13 — Panel del instructor</title>
+<link rel="stylesheet" href="../styles.css">
+<style>
+  html, body { margin: 0; background: var(--unx-bg); }
+  body { font-family: var(--unx-font-sans); color: var(--unx-text); -webkit-font-smoothing: antialiased; }
+  * { box-sizing: border-box; }
+</style>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+<script src="_load.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const ALEJANDRO = [
+  { id: 'inicio', label: 'Inicio', icon: 'inicio' },
+  { id: 'reactivos', label: 'Banco de reactivos', icon: 'reactivos' },
+  { id: 'examenes', label: 'Exámenes', icon: 'examenes' },
+];
+
+async function init() {
+  const { SidebarNav, PageHeader, Card, Badge, Button, ProgressBar, DataTable } =
+    await UNXScreen.load(['SidebarNav', 'PageHeader', 'Card', 'Badge', 'Button', 'ProgressBar', 'DataTable']);
+
+  const Label = ({ children }) => (
+    <div style={{ fontFamily: 'var(--unx-font-condensed)', fontWeight: 600, fontSize: 13, letterSpacing: '0.06em', color: 'var(--unx-text-muted)', textTransform: 'uppercase', padding: '0 40px 10px' }}>{children}</div>
+  );
+  const Shell = ({ children }) => (
+    <div style={{ display: 'flex', height: 900, background: 'var(--unx-bg)', overflow: 'hidden', border: '1px solid var(--unx-border)' }}>
+      <SidebarNav user={{ name: 'Alejandro Ruiz', role: 'Instructor' }} items={ALEJANDRO} activeId="inicio" />
+      <main style={{ flex: 1, overflow: 'auto', padding: 32 }}><div style={{ maxWidth: 1040 }}>{children}</div></main>
+    </div>
+  );
+
+  const Activo = ({ name, cierra, grupos }) => (
+    <Card style={{ marginBottom: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 14 }}>
+        <span style={{ font: 'var(--unx-h3)', color: 'var(--unx-ink)' }}>{name}</span>
+        <Badge variant="achievement">Cierra el {cierra}</Badge>
+      </div>
+      <div style={{ display: 'grid', gap: 12 }}>
+        {grupos.map((g) => <ProgressBar key={g.n} value={g.done} max={g.total} label={`${g.n} · ${g.done} de ${g.total} completaron`} color={g.color} />)}
+      </div>
+      <div style={{ marginTop: 14 }}><a href="#" style={{ font: 'var(--unx-small)', color: 'var(--unx-blue)', fontWeight: 600, textDecoration: 'none' }}>Ver resultados →</a></div>
+    </Card>
+  );
+
+  const pend = (n, g, e) => ({ alumno: <b style={{ color: 'var(--unx-ink)' }}>{n}</b>, grupo: g, examen: <span style={{ color: 'var(--unx-text-muted)' }}>{e}</span>, estado: <Badge variant="warning">No ha iniciado</Badge> });
+
+  function App() {
+    return (
+      <div style={{ display: 'grid', gap: 40, padding: '24px 0 48px' }}>
+        <div>
+          <Label>01 · Inicio del instructor</Label>
+          <Shell>
+            <PageHeader title="Hola, Alejandro" subtitle="Lunes 6 de julio de 2026" />
+            <h2 style={{ margin: '0 0 12px', font: 'var(--unx-h3)', color: 'var(--unx-ink)' }}>Exámenes activos</h2>
+            <Activo name="Simulacro General 3" cierra="12 de julio, 23:59" grupos={[
+              { n: 'Matutino A', done: 24, total: 32, color: 'var(--unx-green)' },
+              { n: 'Vespertino B', done: 9, total: 28, color: 'var(--unx-orange)' },
+            ]} />
+            <Activo name="Práctica · Comprensión lectora" cierra="9 de julio, 23:59" grupos={[
+              { n: 'Intensivo Sabatino', done: 35, total: 38, color: 'var(--unx-green)' },
+              { n: 'Vespertino B', done: 22, total: 28, color: 'var(--unx-green)' },
+            ]} />
+
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '24px 0 12px' }}>
+              <h2 style={{ margin: 0, font: 'var(--unx-h3)', color: 'var(--unx-ink)' }}>Pendientes de participación</h2>
+              <a href="#" style={{ font: 'var(--unx-small)', color: 'var(--unx-blue)', fontWeight: 600, textDecoration: 'none' }}>Ver todos</a>
+            </div>
+            <DataTable
+              columns={[{ key: 'alumno', label: 'Alumno' }, { key: 'grupo', label: 'Grupo' }, { key: 'examen', label: 'Examen' }, { key: 'estado', label: 'Estado', align: 'right' }]}
+              rows={[
+                pend('Luis Pérez Ibáñez', 'Vespertino B', 'Simulacro General 3'),
+                pend('Karla Domínguez Ruiz', 'Vespertino B', 'Simulacro General 3'),
+                pend('Óscar Treviño Lara', 'Vespertino B', 'Simulacro General 3'),
+                pend('Paola Zúñiga Mena', 'Matutino A', 'Simulacro General 3'),
+                pend('Héctor Molina Cea', 'Vespertino B', 'Práctica · Comprensión lectora'),
+              ]}
+            />
+
+            <h2 style={{ margin: '24px 0 12px', font: 'var(--unx-h3)', color: 'var(--unx-ink)' }}>Tu material</h2>
+            <Card>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 48, height: 48, borderRadius: 10, background: 'var(--unx-blue-tint)', color: 'var(--unx-blue)', flexShrink: 0 }}>
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><ellipse cx="12" cy="5" rx="8.5" ry="3"/><path d="M3.5 5v14c0 1.66 3.8 3 8.5 3s8.5-1.34 8.5-3V5"/><path d="M3.5 12c0 1.66 3.8 3 8.5 3s8.5-1.34 8.5-3"/></svg>
+                </span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 600, fontSize: 16, color: 'var(--unx-ink)' }}>Banco de reactivos</div>
+                  <div style={{ font: 'var(--unx-small)', color: 'var(--unx-text-muted)' }}>312 reactivos institucionales</div>
+                </div>
+                <Button variant="secondary">Ir al banco</Button>
+              </div>
+            </Card>
+          </Shell>
+        </div>
+
+        <div>
+          <Label>02 · Variante · sin exámenes activos</Label>
+          <Shell>
+            <PageHeader title="Hola, Alejandro" subtitle="Lunes 6 de julio de 2026" />
+            <Card>
+              <div style={{ textAlign: 'center', padding: '32px 16px' }}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 56, height: 56, borderRadius: '50%', background: 'var(--unx-blue-tint)', color: 'var(--unx-blue)', marginBottom: 14 }}>
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M14 2.5H6.5a2 2 0 0 0-2 2v15a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V8z"/><path d="M14 2.5V8h5.5"/></svg>
+                </span>
+                <div style={{ font: 'var(--unx-h3)', color: 'var(--unx-ink)', marginBottom: 6 }}>No tienes exámenes en aplicación</div>
+                <p style={{ font: 'var(--unx-small)', color: 'var(--unx-text-muted)', margin: '0 0 18px' }}>Crea un examen y asígnalo a tus grupos para verlo aquí.</p>
+                <Button variant="primary">Crear examen</Button>
+              </div>
+            </Card>
+          </Shell>
+        </div>
+      </div>
+    );
+  }
+  ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+}
+init();
+</script>
+</body>
+</html>

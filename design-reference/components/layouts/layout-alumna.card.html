@@ -1,0 +1,102 @@
+<!-- @dsCard group="Layouts" viewport="390x844" subtitle="Saludo + racha + avatar arriba; navegación inferior de 4 pestañas (móvil 390)" name="App de la alumna" -->
+<!DOCTYPE html><html><head><meta charset="utf-8">
+<link rel="stylesheet" href="../../styles.css">
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+</head>
+<body style="margin:0;font-family:var(--unx-font-sans);background:var(--unx-bg);">
+<div id="root"></div>
+<script type="text/babel">
+const NAMES = ['StudentHeader', 'BottomNav'];
+
+function findNS() {
+  for (const k of Object.getOwnPropertyNames(window)) {
+    try {
+      const v = window[k];
+      if (v && typeof v === 'object' && NAMES.every(n => typeof v[n] === 'function')) return v;
+    } catch (e) {}
+  }
+  return null;
+}
+
+async function loadBundle() {
+  await new Promise(res => {
+    const s = document.createElement('script');
+    s.src = '../../_ds_bundle' + '.js';
+    s.onload = res; s.onerror = res;
+    document.head.appendChild(s);
+  });
+  return findNS();
+}
+
+async function loadLocal() {
+  const ex = {};
+  for (const n of NAMES) {
+    let src = await (await fetch(n + '.jsx')).text();
+    src = src.replace(/^import .*$/gm, '').replace(/export function (\w+)/g, 'ex.$1 = function $1');
+    eval(Babel.transform(src, { presets: [['react', { runtime: 'classic' }]] }).code);
+  }
+  return ex;
+}
+
+async function init() {
+  const NS = findNS() || (await loadBundle()) || (await loadLocal());
+  const { StudentHeader, BottomNav } = NS;
+
+  const TABS = [
+    { id: 'inicio', label: 'Inicio', icon: 'inicio' },
+    { id: 'examenes', label: 'Mis exámenes', icon: 'examenes' },
+    { id: 'historial', label: 'Historial', icon: 'historial' },
+    { id: 'progreso', label: 'Progreso', icon: 'progreso' },
+  ];
+
+  function Demo() {
+    const [tab, setTab] = React.useState('inicio');
+    const card = { background: 'var(--unx-surface)', border: '1px solid var(--unx-border)', borderRadius: 'var(--unx-radius-card)', boxShadow: 'var(--unx-shadow-sm)', padding: 20 };
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', width: 390, height: 844, background: 'var(--unx-bg)', overflow: 'hidden' }}>
+        <StudentHeader name="Fer" message="Faltan 33 días para tu examen" streakDays={5} />
+        <main style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: '4px 20px 20px', display: 'grid', gap: 16, alignContent: 'start' }}>
+          <div style={{ ...card, display: 'flex', alignItems: 'center', gap: 16 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ font: 'var(--unx-caption)', color: 'var(--unx-text-muted)', textTransform: 'uppercase', fontFamily: 'var(--unx-font-condensed)', fontWeight: 600, letterSpacing: 'var(--unx-badge-tracking)' }}>Tu siguiente simulacro</div>
+              <div style={{ font: 'var(--unx-h3)', color: 'var(--unx-ink)', marginTop: 4 }}>Simulacro EXANI II — 3</div>
+              <div style={{ font: 'var(--unx-small)', color: 'var(--unx-text-muted)', marginTop: 2 }}>Disponible hasta el 12 de julio</div>
+              <button type="button" style={{ marginTop: 14, height: 44, padding: '0 24px', border: 'none', borderRadius: 'var(--unx-radius-control)', background: 'var(--unx-blue)', color: '#FFFFFF', fontFamily: 'var(--unx-font-sans)', fontWeight: 600, fontSize: 16, cursor: 'pointer' }}>
+                Comenzar
+              </button>
+            </div>
+            <img src="../../assets/illustrations/caja-examenes.svg" alt="" style={{ width: 84, flexShrink: 0 }} />
+          </div>
+
+          <div style={card}>
+            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+              <span style={{ font: 'var(--unx-small)', color: 'var(--unx-text-muted)' }}>Tu último puntaje</span>
+              <span style={{ font: 'var(--unx-caption)', color: 'var(--unx-text-muted)' }}>Meta: 1100</span>
+            </div>
+            <div style={{ fontFamily: 'var(--unx-font-condensed)', fontWeight: 600, fontSize: 44, lineHeight: '48px', color: 'var(--unx-ink)', fontVariantNumeric: 'tabular-nums', marginTop: 4 }}>1024</div>
+            <div style={{ position: 'relative', height: 8, borderRadius: 4, background: '#F3F4F6', marginTop: 12 }}>
+              <div style={{ width: '76%', height: '100%', background: 'var(--unx-blue)', borderRadius: 4 }} />
+              <span style={{ position: 'absolute', left: '88%', top: -3, width: 3, height: 14, background: 'var(--unx-yellow)', borderRadius: 2 }} />
+            </div>
+            <div style={{ font: 'var(--unx-caption)', color: 'var(--unx-text-muted)', marginTop: 6 }}>Vas a 76 puntos de tu meta. ¡Sigue así!</div>
+          </div>
+
+          <div style={{ ...card, display: 'flex', alignItems: 'center', gap: 12 }}>
+            <img src="../../assets/illustrations/laurel-estrella.svg" alt="" style={{ width: 48, flexShrink: 0 }} />
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontWeight: 600, fontSize: 15, color: 'var(--unx-ink)' }}>Nuevo logro: constancia</div>
+              <div style={{ font: 'var(--unx-small)', color: 'var(--unx-text-muted)' }}>Practicaste 5 días seguidos</div>
+            </div>
+          </div>
+        </main>
+        <BottomNav items={TABS} activeId={tab} onNavigate={setTab} />
+      </div>
+    );
+  }
+  ReactDOM.createRoot(document.getElementById('root')).render(<Demo />);
+}
+init();
+</script>
+</body></html>

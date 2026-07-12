@@ -1,0 +1,14 @@
+/* UNX Simuladores — Espaciado y forma (retícula 8px, medios pasos 4px) */
+:root {
+  --unx-sp-1: 4px;  --unx-sp-2: 8px;  --unx-sp-3: 12px; --unx-sp-4: 16px;
+  --unx-sp-5: 20px; --unx-sp-6: 24px; --unx-sp-8: 32px; --unx-sp-10: 40px;
+  --unx-sp-12: 48px; --unx-sp-16: 64px; --unx-sp-20: 80px; --unx-sp-24: 96px;
+
+  --unx-radius-control: 8px;   /* inputs y botones */
+  --unx-radius-card: 10px;     /* tarjetas */
+  --unx-radius-modal: 12px;    /* modales */
+  --unx-radius-pill: 999px;    /* badges y chips */
+
+  --unx-control-h: 44px;       /* densidad cómoda */
+  --unx-control-h-lg: 48px;
+}

@@ -1,0 +1,73 @@
+<!-- @dsCard group="Components" viewport="700x480" subtitle="ExamTimer, AnswerOption (4 estados)" name="Examen" -->
+<!DOCTYPE html><html><head><meta charset="utf-8">
+<link rel="stylesheet" href="../../styles.css">
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+</head>
+<body style="margin:0;font-family:var(--unx-font-sans);background:#fff;padding:20px;">
+<div id="root"></div>
+<script type="text/babel">
+const NAMES = ['ExamTimer', 'AnswerOption'];
+
+function findNS() {
+  for (const k of Object.getOwnPropertyNames(window)) {
+    try {
+      const v = window[k];
+      if (v && typeof v === 'object' && NAMES.every(n => typeof v[n] === 'function')) return v;
+    } catch (e) {}
+  }
+  return null;
+}
+
+async function loadBundle() {
+  await new Promise(res => {
+    const s = document.createElement('script');
+    s.src = '../../_ds_bundle' + '.js';
+    s.onload = res; s.onerror = res;
+    document.head.appendChild(s);
+  });
+  return findNS();
+}
+
+async function loadLocal() {
+  const ex = {};
+  for (const n of NAMES) {
+    let src = await (await fetch(n + '.jsx')).text();
+    src = src.replace(/^import .*$/gm, '').replace(/export function (\w+)/g, 'ex.$1 = function $1');
+    eval(Babel.transform(src, { presets: [['react', { runtime: 'classic' }]] }).code);
+  }
+  return ex;
+}
+
+async function init() {
+  const NS = findNS() || (await loadBundle()) || (await loadLocal());
+  const { ExamTimer, AnswerOption } = NS;
+
+  function Demo() {
+    const [sel, setSel] = React.useState('B');
+    return (
+      <div style={{ display: 'grid', gap: 20 }}>
+        <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+          <ExamTimer time="01:47:32" />
+          <ExamTimer time="00:04:59" alert />
+          <span style={{ fontSize: 13, color: 'var(--unx-text-muted)' }}>← alerta en los últimos 5 minutos</span>
+        </div>
+        <div style={{ display: 'grid', gap: 10 }}>
+          <div style={{ fontWeight: 600, fontSize: 15, color: 'var(--unx-ink)' }}>Durante el examen (normal / seleccionada)</div>
+          <AnswerOption letter="A" state={sel === 'A' ? 'selected' : 'normal'} onSelect={() => setSel('A')}>x = 3</AnswerOption>
+          <AnswerOption letter="B" state={sel === 'B' ? 'selected' : 'normal'} onSelect={() => setSel('B')}>x = 5</AnswerOption>
+        </div>
+        <div style={{ display: 'grid', gap: 10 }}>
+          <div style={{ fontWeight: 600, fontSize: 15, color: 'var(--unx-ink)' }}>En la revisión (correcta / incorrecta)</div>
+          <AnswerOption letter="B" state="incorrect">x = 4</AnswerOption>
+          <AnswerOption letter="C" state="correct">x = 5</AnswerOption>
+        </div>
+      </div>
+    );
+  }
+  ReactDOM.createRoot(document.getElementById('root')).render(<Demo />);
+}
+init();
+</script>
+</body></html>

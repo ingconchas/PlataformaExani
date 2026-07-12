@@ -1,0 +1,97 @@
+<!-- @dsCard group="Components" viewport="700x760" subtitle="LineChart (meta y multilínea), HBarChart" name="Gráficas" -->
+<!DOCTYPE html><html><head><meta charset="utf-8">
+<link rel="stylesheet" href="../../styles.css">
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+</head>
+<body style="margin:0;font-family:var(--unx-font-sans);background:#fff;padding:20px;">
+<div id="root"></div>
+<script type="text/babel">
+const NAMES = ['LineChart', 'HBarChart'];
+
+function findNS() {
+  for (const k of Object.getOwnPropertyNames(window)) {
+    try {
+      const v = window[k];
+      if (v && typeof v === 'object' && NAMES.every(n => typeof v[n] === 'function')) return v;
+    } catch (e) {}
+  }
+  return null;
+}
+
+async function loadBundle() {
+  await new Promise(res => {
+    const s = document.createElement('script');
+    s.src = '../../_ds_bundle' + '.js';
+    s.onload = res; s.onerror = res;
+    document.head.appendChild(s);
+  });
+  return findNS();
+}
+
+async function loadLocal() {
+  const ex = {};
+  for (const n of NAMES) {
+    let src = await (await fetch(n + '.jsx')).text();
+    src = src.replace(/^import .*$/gm, '').replace(/export function (\w+)/g, 'ex.$1 = function $1');
+    eval(Babel.transform(src, { presets: [['react', { runtime: 'classic' }]] }).code);
+  }
+  return ex;
+}
+
+async function init() {
+  const NS = findNS() || (await loadBundle()) || (await loadLocal());
+  const { LineChart, HBarChart } = NS;
+
+  function Demo() {
+    return (
+      <div style={{ display: 'grid', gap: 24 }}>
+        <div>
+          <div style={{ fontWeight: 600, fontSize: 15, color: 'var(--unx-ink)', marginBottom: 8 }}>Evolución del puntaje global (meta 1150)</div>
+          <LineChart
+            series={[{ label: 'Puntaje', color: 'var(--unx-blue)', points: [940, 987, 1024, 1082] }]}
+            xLabels={['Sim 1', 'Sim 2', 'Sim 3', 'Sim 4']}
+            yMin={700}
+            yMax={1300}
+            goal={1150}
+            width={620}
+            height={200}
+            tooltip={{ series: 0, index: 3, text: '1082' }}
+          />
+        </div>
+        <div>
+          <div style={{ fontWeight: 600, fontSize: 15, color: 'var(--unx-ink)', marginBottom: 8 }}>Evolución por sección (leyenda interactiva)</div>
+          <LineChart
+            series={[
+              { label: 'Pensamiento matemático', color: 'var(--unx-blue)', points: [52, 54, 55, 55] },
+              { label: 'Comprensión lectora', color: 'var(--unx-green)', points: [60, 68, 73, 80] },
+              { label: 'Redacción indirecta', color: 'var(--unx-purple)', points: [58, 61, 66, 70] },
+            ]}
+            xLabels={['Sim 1', 'Sim 2', 'Sim 3', 'Sim 4']}
+            yMin={0}
+            yMax={100}
+            width={620}
+            height={190}
+          />
+        </div>
+        <div>
+          <div style={{ fontWeight: 600, fontSize: 15, color: 'var(--unx-ink)', marginBottom: 8 }}>Aciertos por área temática</div>
+          <HBarChart
+            width={620}
+            data={[
+              { label: 'Comprensión de textos', value: 78, display: '78%' },
+              { label: 'Aritmética', value: 62, display: '62%' },
+              { label: 'Geometría', value: 55, display: '55%' },
+              { label: 'Álgebra', value: 48, display: '48%', highlight: true },
+            ]}
+          />
+        </div>
+      </div>
+    );
+  }
+  ReactDOM.createRoot(document.getElementById('root')).render(<Demo />);
+}
+init();
+</script>
+</body></html>

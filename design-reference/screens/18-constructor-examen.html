@@ -1,0 +1,154 @@
+<!-- @dsCard group="Pantallas" viewport="1440x900" name="Diseño 18 — Constructor de examen" subtitle="Instructor · Desktop · armada con componentes" -->
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Diseño 18 — Constructor de examen</title>
+<link rel="stylesheet" href="../styles.css">
+<style>
+  html, body { margin: 0; background: var(--unx-bg); }
+  body { font-family: var(--unx-font-sans); color: var(--unx-text); -webkit-font-smoothing: antialiased; }
+  * { box-sizing: border-box; }
+</style>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+<script src="_load.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const ALEJANDRO = [
+  { id: 'inicio', label: 'Inicio', icon: 'inicio' },
+  { id: 'reactivos', label: 'Banco de reactivos', icon: 'reactivos' },
+  { id: 'examenes', label: 'Exámenes', icon: 'examenes' },
+];
+
+async function init() {
+  const { SidebarNav, Breadcrumb, Badge, Button, DifficultyMeter, HBarChart, DataTable, Modal, SearchInput, Select, Checkbox } =
+    await UNXScreen.load(['SidebarNav', 'Breadcrumb', 'Badge', 'Button', 'DifficultyMeter', 'HBarChart', 'DataTable', 'Modal', 'SearchInput', 'Select', 'Checkbox']);
+
+  const Label = ({ children }) => (
+    <div style={{ fontFamily: 'var(--unx-font-condensed)', fontWeight: 600, fontSize: 13, letterSpacing: '0.06em', color: 'var(--unx-text-muted)', textTransform: 'uppercase', padding: '0 40px 10px' }}>{children}</div>
+  );
+  const Shell = ({ children }) => (
+    <div style={{ position: 'relative', display: 'flex', minHeight: 940, background: 'var(--unx-bg)', overflow: 'hidden', border: '1px solid var(--unx-border)' }}>
+      <SidebarNav user={{ name: 'Alejandro Ruiz', role: 'Instructor' }} items={ALEJANDRO} activeId="examenes" />
+      <main style={{ flex: 1, overflow: 'auto' }}>{children}</main>
+    </div>
+  );
+  const remove = <button type="button" style={{ width: 30, height: 30, border: 'none', borderRadius: 6, background: 'var(--unx-error-tint)', color: 'var(--unx-error)', cursor: 'pointer', flexShrink: 0 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" style={{ verticalAlign: 'middle' }}><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg></button>;
+  const RRow = ({ n, q, area, lvl, img }) => (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', borderTop: '1px solid var(--unx-border)' }}>
+      <span style={{ width: 24, textAlign: 'center', font: 'var(--unx-small)', color: 'var(--unx-text-muted)', fontVariantNumeric: 'tabular-nums' }}>{n}</span>
+      <span style={{ flex: 1, color: 'var(--unx-ink)', fontSize: 14 }}>{q} {img && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'var(--unx-blue-tint)', color: 'var(--unx-blue)', borderRadius: 999, padding: '1px 8px', fontSize: 12 }}>▤ Ver imagen</span>}</span>
+      <span style={{ width: 90, font: 'var(--unx-caption)', color: 'var(--unx-text-muted)' }}>{area}</span>
+      <DifficultyMeter level={lvl} size="chip" showLabel={false} />
+      {remove}
+    </div>
+  );
+  const SectionHead = ({ title, count, faltan }) => (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: 'var(--unx-bg)' }}>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--unx-text-muted)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg><b style={{ color: 'var(--unx-ink)' }}>{title}</b> {faltan && <Badge variant="warning">Faltan {faltan}</Badge>}</span>
+      <Button variant="secondary" size="sm">Agregar reactivos</Button>
+    </div>
+  );
+  const balBar = (label, a, b, color) => (
+    <div style={{ marginBottom: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', font: 'var(--unx-small)', marginBottom: 4 }}><span style={{ color: 'var(--unx-text)' }}>{label}</span><span style={{ color: 'var(--unx-text-muted)', fontVariantNumeric: 'tabular-nums' }}>{a}/{b}</span></div>
+      <div style={{ height: 8, borderRadius: 4, background: 'var(--unx-border)', overflow: 'hidden' }}><div style={{ width: (a / b * 100) + '%', height: '100%', background: color }} /></div>
+    </div>
+  );
+  const legend = (b, i, a) => <div style={{ display: 'flex', gap: 12, font: 'var(--unx-caption)', color: 'var(--unx-text-muted)', marginTop: 6 }}><span>● Básico {b}</span><span>● Intermedio {i}</span><span>● Avanzado {a}</span></div>;
+  const areaTitle = (t) => <div style={{ fontFamily: 'var(--unx-font-condensed)', fontWeight: 600, fontSize: 12, letterSpacing: '0.05em', color: 'var(--unx-text-muted)', textTransform: 'uppercase', margin: '18px 0 8px' }}>{t}</div>;
+
+  function App() {
+    return (
+      <div style={{ display: 'grid', gap: 40, padding: '24px 0 48px' }}>
+        <div>
+          <Label>01 · Constructor con panel de balance</Label>
+          <Shell>
+            <div style={{ display: 'flex', gap: 0, minHeight: 940 }}>
+              <div style={{ flex: 1, minWidth: 0, padding: 32, overflow: 'auto' }}>
+                <Breadcrumb items={[{ label: 'Exámenes', href: '#' }, { label: 'Simulacro General 3' }]} />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 16, margin: '12px 0 20px', flexWrap: 'wrap' }}>
+                  <input defaultValue="Simulacro General 3" style={{ font: 'var(--unx-h2)', color: 'var(--unx-ink)', border: 'none', borderBottom: '1.5px solid var(--unx-border)', padding: '2px 4px', background: 'transparent' }} />
+                  <span style={{ font: 'var(--unx-small)', color: 'var(--unx-text-muted)' }}>Tiempo límite</span>
+                  <span style={{ border: '1.5px solid var(--unx-border-strong)', borderRadius: 8, padding: '6px 12px', font: 'var(--unx-small)', fontWeight: 600 }}>3 h 00 min</span>
+                  <Badge variant="neutral">Borrador</Badge>
+                  <span style={{ flex: 1 }} />
+                  <Button variant="secondary" size="sm">Guardar borrador</Button>
+                  <Button variant="primary" size="sm">Publicar</Button>
+                </div>
+
+                <div style={{ background: '#fff', border: '1px solid var(--unx-border)', borderRadius: 10, boxShadow: 'var(--unx-shadow-sm)', overflow: 'hidden', marginBottom: 16 }}>
+                  <SectionHead title="Pensamiento matemático (28 de 30 reactivos)" />
+                  <RRow n={1} q="Si 3x + 5 = 20, ¿cuál es el valor de x?" area="Álgebra" lvl="facil" img />
+                  <RRow n={2} q="Resuelve el sistema: 2x + y = 7; x − y = 2" area="Álgebra" lvl="medio" />
+                  <RRow n={3} q="Un tren recorre 240 km en 3 horas. ¿Cuántos km en 5 horas?" area="Aritmética" lvl="facil" />
+                  <div style={{ background: 'var(--unx-blue-tint)', borderTop: '1px solid var(--unx-border)', padding: '12px 16px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}><b style={{ color: 'var(--unx-blue)' }}>▤ Lectura: El calentamiento global — 5 preguntas</b><span style={{ font: 'var(--unx-caption)', color: 'var(--unx-blue)' }}>se mueve como unidad</span></div>
+                    <div style={{ font: 'var(--unx-caption)', color: 'var(--unx-text)', marginTop: 4 }}>4–8 · Cinco preguntas de comprensión, contiguas y en orden</div>
+                  </div>
+                  <RRow n={9} q="¿Qué figura completa la serie lógica mostrada?" area="Geometría" lvl="dificil" />
+                </div>
+                <div style={{ background: '#fff', border: '1px solid var(--unx-border)', borderRadius: 10, boxShadow: 'var(--unx-shadow-sm)', overflow: 'hidden', marginBottom: 16 }}><SectionHead title="Comprensión lectora (30 de 30)" /></div>
+                <div style={{ background: '#fff', border: '1px solid var(--unx-border)', borderRadius: 10, boxShadow: 'var(--unx-shadow-sm)', overflow: 'hidden' }}><SectionHead title="Redacción indirecta (12 de 30)" faltan="18" /></div>
+              </div>
+
+              <aside style={{ width: 360, flexShrink: 0, background: '#fff', borderLeft: '1px solid var(--unx-border)', padding: 24, overflow: 'auto' }}>
+                <div style={{ fontFamily: 'var(--unx-font-condensed)', fontWeight: 600, fontSize: 12, letterSpacing: '0.06em', color: 'var(--unx-text-muted)', textTransform: 'uppercase' }}>Balance del examen</div>
+                <div style={{ margin: '8px 0 16px' }}><span style={{ fontFamily: 'var(--unx-font-condensed)', fontWeight: 600, fontSize: 44, color: 'var(--unx-ink)', fontVariantNumeric: 'tabular-nums' }}>70</span><span style={{ font: 'var(--unx-body)', color: 'var(--unx-text-muted)', marginLeft: 8 }}>de 90 reactivos en total</span></div>
+                {balBar('Pensamiento matemático', 28, 30, 'var(--unx-blue)')}
+                {balBar('Comprensión lectora', 30, 30, 'var(--unx-green)')}
+                {balBar('Redacción indirecta', 12, 30, 'var(--unx-orange)')}
+                {areaTitle('Pensamiento matemático · por área')}
+                <HBarChart width={310} data={[{ label: 'Álgebra', value: 100, display: '10' }, { label: 'Aritmética', value: 80, display: '8' }, { label: 'Geometría', value: 60, display: '6' }, { label: 'Probabilidad', value: 40, display: '4', highlight: true }]} highlightTag="faltan" />
+                {legend(12, 10, 6)}
+                {areaTitle('Comprensión lectora · por área')}
+                <HBarChart width={310} data={[{ label: 'Expositivos', value: 100, display: '12' }, { label: 'Argumentativos', value: 83, display: '10' }, { label: 'Vocabulario', value: 67, display: '8' }]} />
+                {legend(14, 10, 6)}
+                {areaTitle('Redacción indirecta · por área')}
+                <HBarChart width={310} data={[{ label: 'Puntuación', value: 100, display: '5', highlight: true }, { label: 'Cohesión', value: 80, display: '4', highlight: true }, { label: 'Gramática', value: 60, display: '3', highlight: true }]} highlightTag="pocos" />
+                {legend(6, 4, 2)}
+                <div style={{ marginTop: 16, background: 'var(--unx-orange-tint)', borderRadius: 8, padding: 12, font: 'var(--unx-small)', color: 'var(--unx-orange-text)' }}>Faltan 20 reactivos: 18 de Redacción indirecta y 2 de Pensamiento matemático (Probabilidad).</div>
+              </aside>
+            </div>
+          </Shell>
+        </div>
+
+        <div>
+          <Label>02 · Modal "Agregar reactivos"</Label>
+          <Shell>
+            <div style={{ padding: 32, opacity: 0.4 }}><div style={{ height: 200, background: '#fff', border: '1px solid var(--unx-border)', borderRadius: 10 }} /></div>
+            <Modal contained width={760} title="Agregar reactivos a Pensamiento matemático"
+              actions={<><span style={{ flex: 1, textAlign: 'left', font: 'var(--unx-small)', color: 'var(--unx-text-muted)' }}>12 seleccionados</span><Button variant="secondary">Cancelar</Button><Button variant="primary">Agregar al examen</Button></>}>
+              <div style={{ display: 'flex', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
+                <div style={{ flex: 1, minWidth: 180 }}><SearchInput placeholder="Buscar en el enunciado…" fullWidth /></div>
+                <div style={{ width: 130 }}><Select options={[{ value: 'a', label: 'Álgebra' }]} value="a" /></div>
+                <div style={{ width: 130 }}><Select options={[{ value: 't', label: 'Subtema: todos' }]} value="t" /></div>
+                <div style={{ width: 130 }}><Select options={[{ value: 'd', label: 'Dificultad: todas' }]} value="d" /></div>
+              </div>
+              <DataTable
+                columns={[{ key: 'sel', label: '' }, { key: 'enun', label: 'Enunciado' }, { key: 'area', label: 'Área' }, { key: 'dif', label: 'Dificultad' }, { key: 'autor', label: 'Autor' }]}
+                rows={[
+                  { sel: <Checkbox checked />, enun: <span style={{ color: 'var(--unx-ink)' }}>Desarrolla el producto notable (a + b)²</span>, area: 'Álgebra', dif: <DifficultyMeter level="facil" size="chip" showLabel />, autor: 'Diana Peña' },
+                  { sel: <Checkbox checked />, enun: <span style={{ color: 'var(--unx-ink)' }}>Factoriza x² − 9</span>, area: 'Álgebra', dif: <DifficultyMeter level="medio" size="chip" showLabel />, autor: 'Alejandro Ruiz' },
+                  { sel: <Checkbox />, enun: <span><span style={{ color: 'var(--unx-ink)' }}>Serie: sucesiones aritméticas (texto guía)</span><br/><span style={{ font: 'var(--unx-caption)', color: 'var(--unx-blue)' }}>▤ Lectura · 4 preguntas · se agrega completa</span></span>, area: 'Álgebra', dif: <DifficultyMeter level="medio" size="chip" showLabel />, autor: 'Carlos Lora' },
+                  { sel: <Checkbox />, enun: <span style={{ color: 'var(--unx-ink)' }}>Resuelve la desigualdad 2x − 4 &gt; 10</span>, area: 'Álgebra', dif: <DifficultyMeter level="dificil" size="chip" showLabel />, autor: 'Alejandro Ruiz' },
+                  { sel: <Checkbox checked />, enun: <span style={{ color: 'var(--unx-ink)' }}>Evalúa f(x) = 2x² − 3 para x = −2</span>, area: 'Álgebra', dif: <DifficultyMeter level="medio" size="chip" showLabel />, autor: 'Diana Peña' },
+                ]}
+              />
+              <div style={{ marginTop: 12 }}><a href="#" style={{ font: 'var(--unx-small)', color: 'var(--unx-blue)', fontWeight: 600, textDecoration: 'none' }}>+ Crear reactivo nuevo — se agregará directo a este examen</a></div>
+            </Modal>
+          </Shell>
+        </div>
+      </div>
+    );
+  }
+  ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+}
+init();
+</script>
+</body>
+</html>

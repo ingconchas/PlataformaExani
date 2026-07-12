@@ -1,0 +1,159 @@
+/* ============================================================
+   UNX Simuladores — Design Tokens
+   "Transformar aspirantes en admitidos"
+   Modo claro · v1.0 · Julio 2026
+   ------------------------------------------------------------
+   Uso: importa este archivo en tu proyecto.
+   - Con Tailwind v4: el bloque @theme genera utilidades
+     (bg-unx-blue, text-ink, rounded-card, shadow-sm-unx…).
+   - Sin Tailwind: usa las variables CSS de :root directamente.
+   ============================================================ */
+
+/* ---------- Fuentes (Google Fonts) ----------
+@import url('https://fonts.googleapis.com/css2?family=Barlow:wght@400;600&family=Barlow+Condensed:wght@600&display=swap');
+*/
+
+:root {
+  /* ===== 1. COLOR — Marca ===== */
+  --unx-blue:        #0228C9; /* Primario: CTAs, navegación, elementos activos. Texto encima: SIEMPRE blanco */
+  --unx-blue-hover:  #021E9E; /* Hover/pressed del primario */
+  --unx-blue-tint:   #E9EDFC; /* Fondo activo suave, banners de información, anillo de focus */
+  --unx-yellow:      #FFBF54; /* Acento: logros, destacados, celebraciones. Texto encima: SIEMPRE #1F2937 */
+  --unx-yellow-tint: #FFF6E5;
+  --unx-green:       #0B9944; /* Éxito y aciertos */
+  --unx-green-tint:  #E7F5EC;
+  --unx-orange:      #D64801; /* Advertencia / áreas a reforzar — solo iconos y rellenos */
+  --unx-orange-text: #A83800; /* Naranja para texto (AA sobre blanco y tinte) */
+  --unx-orange-tint: #FBEDE6;
+  --unx-purple:      #600B67; /* Modo repaso e insignias especiales */
+  --unx-purple-tint: #F4EAF5;
+
+  /* ===== Semánticos ===== */
+  --unx-error:       #DC2626; /* SIEMPRE acompañado de icono + texto */
+  --unx-error-tint:  #FDECEC;
+  --unx-info:        var(--unx-blue);      /* Información: azul UNX… */
+  --unx-info-bg:     var(--unx-blue-tint); /* …sobre fondo azul suave */
+
+  /* ===== Neutros (escala fría, 7 pasos) ===== */
+  --unx-bg:          #F9FAFB; /* Fondo de página */
+  --unx-surface:     #FFFFFF; /* Superficie de tarjetas y modales */
+  --unx-border:      #E5E7EB; /* Bordes y divisores */
+  --unx-border-strong:#D1D5DB;/* Bordes de inputs, controles */
+  --unx-text-muted:  #6B7280; /* Texto secundario */
+  --unx-text:        #374151; /* Texto de cuerpo */
+  --unx-ink:         #1F2937; /* Títulos y texto sobre amarillo */
+
+  /* Disabled */
+  --unx-disabled-bg:   #F3F4F6;
+  --unx-disabled-text: #9CA3AF;
+
+  /* ===== 2. TIPOGRAFÍA ===== */
+  --unx-font-sans:      'Barlow', 'Helvetica Neue', sans-serif;
+  --unx-font-condensed: 'Barlow Condensed', 'Arial Narrow', sans-serif;
+  /* Pesos: 400 cuerpo · 600 encabezados y condensed */
+
+  /* Escala tamaño/interlínea */
+  --unx-display: 600 32px/40px var(--unx-font-sans);
+  --unx-h1:      600 24px/32px var(--unx-font-sans);
+  --unx-h2:      600 20px/28px var(--unx-font-sans);
+  --unx-h3:      600 18px/26px var(--unx-font-sans);
+  --unx-body:    400 16px/24px var(--unx-font-sans);
+  --unx-small:   400 14px/20px var(--unx-font-sans);
+  --unx-caption: 400 12px/16px var(--unx-font-sans);
+  /* Cifras grandes, timers, badges, tablas densas:
+     font-family: var(--unx-font-condensed); font-weight: 600;
+     font-variant-numeric: tabular-nums; */
+  --unx-badge-tracking: 0.06em; /* badges en MAYÚSCULAS */
+
+  /* ===== 3. ESPACIADO (retícula 8px, medios pasos 4px) ===== */
+  --unx-sp-1: 4px;  --unx-sp-2: 8px;  --unx-sp-3: 12px; --unx-sp-4: 16px;
+  --unx-sp-5: 20px; --unx-sp-6: 24px; --unx-sp-8: 32px; --unx-sp-10: 40px;
+  --unx-sp-12: 48px;--unx-sp-16: 64px;--unx-sp-20: 80px;--unx-sp-24: 96px;
+
+  /* ===== Radios ===== */
+  --unx-radius-control: 8px;   /* inputs y botones */
+  --unx-radius-card:    10px;  /* tarjetas */
+  --unx-radius-modal:   12px;  /* modales */
+  --unx-radius-pill:    999px; /* badges y chips */
+
+  /* ===== Sombras (neutras, suaves) ===== */
+  --unx-shadow-sm: 0 1px 2px rgba(31,41,55,.05), 0 1px 3px rgba(31,41,55,.06);
+  --unx-shadow-md: 0 4px 6px rgba(31,41,55,.04), 0 10px 24px rgba(31,41,55,.08);
+
+  /* ===== 4. ESTADOS ===== */
+  --unx-focus-ring: 0 0 0 3px var(--unx-blue-tint); /* anillo exterior sólido */
+  --unx-transition: 150ms ease;                      /* hover/focus */
+
+  /* Alturas de control (densidad cómoda) */
+  --unx-control-h:    44px;
+  --unx-control-h-lg: 48px;
+}
+
+/* ============================================================
+   Tailwind v4 — pega este bloque en tu CSS de entrada
+   (requiere `@import "tailwindcss";` antes)
+   ============================================================ */
+@theme {
+  --color-unx-blue: #0228C9;
+  --color-unx-blue-hover: #021E9E;
+  --color-unx-blue-tint: #E9EDFC;
+  --color-unx-yellow: #FFBF54;
+  --color-unx-yellow-tint: #FFF6E5;
+  --color-unx-green: #0B9944;
+  --color-unx-green-tint: #E7F5EC;
+  --color-unx-orange: #D64801;
+  --color-unx-orange-text: #A83800;
+  --color-unx-orange-tint: #FBEDE6;
+  --color-unx-purple: #600B67;
+  --color-unx-purple-tint: #F4EAF5;
+  --color-unx-error: #DC2626;
+  --color-unx-error-tint: #FDECEC;
+  --color-bg: #F9FAFB;
+  --color-surface: #FFFFFF;
+  --color-border: #E5E7EB;
+  --color-border-strong: #D1D5DB;
+  --color-muted: #6B7280;
+  --color-text: #374151;
+  --color-ink: #1F2937;
+  --color-disabled-bg: #F3F4F6;
+  --color-disabled-text: #9CA3AF;
+
+  --font-sans: 'Barlow', 'Helvetica Neue', sans-serif;
+  --font-condensed: 'Barlow Condensed', 'Arial Narrow', sans-serif;
+
+  --text-display: 32px; --text-display--line-height: 40px; --text-display--font-weight: 600;
+  --text-h1: 24px; --text-h1--line-height: 32px; --text-h1--font-weight: 600;
+  --text-h2: 20px; --text-h2--line-height: 28px; --text-h2--font-weight: 600;
+  --text-h3: 18px; --text-h3--line-height: 26px; --text-h3--font-weight: 600;
+  --text-body: 16px; --text-body--line-height: 24px;
+  --text-small: 14px; --text-small--line-height: 20px;
+  --text-caption: 12px; --text-caption--line-height: 16px;
+
+  --radius-control: 8px;
+  --radius-card: 10px;
+  --radius-modal: 12px;
+
+  --shadow-sm: 0 1px 2px rgba(31,41,55,.05), 0 1px 3px rgba(31,41,55,.06);
+  --shadow-md: 0 4px 6px rgba(31,41,55,.04), 0 10px 24px rgba(31,41,55,.08);
+}
+
+/* ============================================================
+   GUÍA RÁPIDA DE USO
+   ------------------------------------------------------------
+   • Azul UNX = acción. Un solo CTA primario por vista; hover
+     #021E9E; elemento de navegación activo = texto azul sobre
+     --unx-blue-tint. Texto sobre azul: siempre blanco.
+   • Amarillo = celebración, nunca acción. Logros, destacados y
+     nivel "medio" del dificultómetro. Texto encima: #1F2937.
+   • Verde = acierto/éxito; naranja = advertencia/área a
+     reforzar (texto en --unx-orange-text); morado = modo
+     repaso e insignias especiales.
+   • Error: color + icono + mensaje, nunca solo color.
+   • Encabezados Barlow 600; cifras/timers/badges/tablas densas
+     Barlow Condensed 600 con tabular-nums.
+   • Badges: MAYÚSCULAS 12px, tracking 0.06em, radio pill.
+   • Tarjetas: superficie blanca + borde --unx-border +
+     --unx-shadow-sm, radio 10px, padding 24px.
+   • Focus visible siempre: box-shadow var(--unx-focus-ring)
+     (+ borde azul en inputs).
+   ============================================================ */

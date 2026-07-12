@@ -1,0 +1,128 @@
+<!-- @dsCard group="Pantallas" viewport="1440x900" name="Diseño 08 — Importar alumnos por CSV" subtitle="Administradora · Desktop · armada con componentes" -->
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Diseño 08 — Importar alumnos por CSV</title>
+<link rel="stylesheet" href="../styles.css">
+<style>
+  html, body { margin: 0; background: var(--unx-bg); }
+  body { font-family: var(--unx-font-sans); color: var(--unx-text); -webkit-font-smoothing: antialiased; }
+  * { box-sizing: border-box; }
+</style>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+<script src="_load.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const MAYRA = [
+  { id: 'inicio', label: 'Inicio', icon: 'inicio' },
+  { id: 'alumnos', label: 'Alumnos', icon: 'alumnos' },
+  { id: 'grupos', label: 'Grupos', icon: 'grupos' },
+  { id: 'permisos', label: 'Usuarios y permisos', icon: 'permisos' },
+  { id: 'temario', label: 'Temario', icon: 'temario' },
+  { id: 'resumen', label: 'Resumen de exámenes', icon: 'resumen' },
+];
+
+async function init() {
+  const { SidebarNav, PageHeader, Breadcrumb, Stepper, FileDrop, DataTable, Badge, Button, Alert, Toast, Card } =
+    await UNXScreen.load(['SidebarNav', 'PageHeader', 'Breadcrumb', 'Stepper', 'FileDrop', 'DataTable', 'Badge', 'Button', 'Alert', 'Toast', 'Card']);
+
+  const Label = ({ children }) => (
+    <div style={{ fontFamily: 'var(--unx-font-condensed)', fontWeight: 600, fontSize: 13, letterSpacing: '0.06em', color: 'var(--unx-text-muted)', textTransform: 'uppercase', padding: '0 40px 10px' }}>{children}</div>
+  );
+  const Shell = ({ children }) => (
+    <div style={{ display: 'flex', height: 860, background: 'var(--unx-bg)', overflow: 'hidden', border: '1px solid var(--unx-border)' }}>
+      <SidebarNav user={{ name: 'Mayra Torres', role: 'Administradora' }} items={MAYRA} activeId="alumnos" />
+      <main style={{ flex: 1, overflow: 'auto', padding: 32 }}>
+        <Breadcrumb items={[{ label: 'Alumnos', href: '#' }, { label: 'Importar CSV' }]} />
+        <div style={{ marginTop: 8 }}><PageHeader title="Importar alumnos por CSV" /></div>
+        <div style={{ maxWidth: 820, marginTop: 8 }}>{children}</div>
+      </main>
+    </div>
+  );
+
+  const ok = <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--unx-green)', fontWeight: 600 }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Listo</span>;
+  const bad = (t) => <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--unx-error)', fontWeight: 600 }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>{t}</span>;
+  const COLS = [{ key: 'nombre', label: 'Nombre' }, { key: 'correo', label: 'Correo' }, { key: 'grupo', label: 'Grupo' }, { key: 'estado', label: 'Estado de fila' }];
+  const ROWS = [
+    { nombre: 'Camila Fuentes Rivas', correo: 'camila.fuentes@correo.com', grupo: 'Matutino A', estado: ok },
+    { nombre: 'Mateo Delgado Cano', correo: 'mateo.delgado@correo.com', grupo: 'Matutino A', estado: ok },
+    { nombre: 'Ana López Ramírez', correo: 'ana.lopez@correo.com', grupo: 'Matutino A', estado: bad('Ya existe en la plataforma') },
+    { nombre: 'Julieta Ramos Ochoa', correo: 'julieta.ramos@correo.com', grupo: 'Vespertino B', estado: ok },
+    { nombre: 'Bruno Castañeda Gil', correo: 'bruno.castaneda@correo,com', grupo: 'Vespertino B', estado: bad('Correo mal escrito') },
+    { nombre: 'Renata Solís Vera', correo: 'renata.solis@correo.com', grupo: 'Sabatino C', estado: ok },
+    { nombre: 'Iker Mendoza Lara', correo: 'iker.mendoza@correo.com', grupo: 'Sabatino C', estado: ok },
+  ];
+
+  function App() {
+    return (
+      <div style={{ display: 'grid', gap: 40, padding: '24px 0 48px' }}>
+        <div>
+          <Label>Paso 1 · Subir archivo</Label>
+          <Shell>
+            <div style={{ marginBottom: 24 }}><Stepper steps={['Subir archivo', 'Revisar datos', 'Confirmar']} current={0} /></div>
+            <Card title="Formato requerido" style={{ marginBottom: 16 }}>
+              <p style={{ margin: '0 0 12px', font: 'var(--unx-small)', color: 'var(--unx-text-muted)' }}>Tu archivo debe tener las columnas <b>nombre</b>, <b>correo</b> y <b>grupo</b>, con una fila por alumno.</p>
+              <div style={{ fontFamily: 'monospace', fontSize: 13, background: 'var(--unx-bg)', border: '1px solid var(--unx-border)', borderRadius: 8, padding: 12, color: 'var(--unx-text)' }}>
+                nombre,correo,grupo<br/>Ana López,ana@correo.com,Matutino A<br/>Diego Soto,diego@correo.com,Vespertino B
+              </div>
+              <div style={{ marginTop: 12 }}><a href="#" style={{ font: 'var(--unx-small)', color: 'var(--unx-blue)', fontWeight: 600, textDecoration: 'none' }}>↓ Descargar plantilla CSV</a></div>
+            </Card>
+            <FileDrop accept=".csv" hint="Arrastra y suelta tu archivo CSV aquí" buttonText="Elegir archivo" />
+          </Shell>
+        </div>
+
+        <div>
+          <Label>Paso 2 · Revisar datos</Label>
+          <Shell>
+            <div style={{ marginBottom: 24 }}><Stepper steps={['Subir archivo', 'Revisar datos', 'Confirmar']} current={1} /></div>
+            <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
+              <Badge variant="info-soft">42 alumnos detectados</Badge>
+              <Badge variant="success">38 listos</Badge>
+              <Badge variant="warning">4 con problemas</Badge>
+            </div>
+            <DataTable columns={COLS} rows={ROWS} />
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 20 }}>
+              <Button variant="secondary">Cancelar y corregir archivo</Button>
+              <Button variant="primary">Continuar con 38 alumnos</Button>
+            </div>
+          </Shell>
+        </div>
+
+        <div>
+          <Label>Paso 3 · Confirmar + toast de éxito</Label>
+          <Shell>
+            <div style={{ marginBottom: 24 }}><Stepper steps={['Subir archivo', 'Revisar datos', 'Confirmar']} current={2} /></div>
+            <Card title="Se darán de alta 38 alumnos en 3 grupos">
+              <div style={{ display: 'grid', gap: 8, marginTop: 4 }}>
+                {[['Grupo Matutino A', '16 alumnos'], ['Grupo Vespertino B', '13 alumnos'], ['Grupo Sabatino C', '9 alumnos']].map(([g, n]) => (
+                  <div key={g} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid var(--unx-border)' }}>
+                    <span style={{ fontWeight: 600, color: 'var(--unx-ink)' }}>{g}</span>
+                    <span style={{ color: 'var(--unx-text-muted)' }}>{n}</span>
+                  </div>
+                ))}
+              </div>
+              <div style={{ marginTop: 16 }}><Alert variant="info">Cada alumno recibirá un correo de invitación para crear su contraseña.</Alert></div>
+            </Card>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 20 }}>
+              <Button variant="secondary">Volver</Button>
+              <Button variant="primary">Confirmar importación</Button>
+            </div>
+            <div style={{ marginTop: 24, display: 'flex', justifyContent: 'flex-end' }}>
+              <Toast variant="success">38 alumnos importados. Invitaciones enviadas.</Toast>
+            </div>
+          </Shell>
+        </div>
+      </div>
+    );
+  }
+  ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+}
+init();
+</script>
+</body>
+</html>

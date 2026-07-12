@@ -1,0 +1,46 @@
+/* UNX Simuladores — Color */
+:root {
+  /* Marca */
+  --unx-blue: #0228C9;        /* Primario: CTAs, navegación, activos. Texto encima: SIEMPRE blanco */
+  --unx-blue-hover: #021E9E;
+  --unx-blue-tint: #E9EDFC;
+  --unx-yellow: #FFBF54;      /* Acento: logros y celebraciones. Texto encima: SIEMPRE #1F2937 */
+  --unx-yellow-tint: #FFF6E5;
+  --unx-green: #0B9944;       /* Éxito y aciertos */
+  --unx-green-tint: #E7F5EC;
+  --unx-orange: #D64801;      /* Advertencia — solo iconos y rellenos */
+  --unx-orange-text: #A83800; /* Naranja para texto (AA) */
+  --unx-orange-tint: #FBEDE6;
+  --unx-purple: #600B67;      /* Modo repaso e insignias especiales */
+  --unx-purple-tint: #F4EAF5;
+
+  /* Semánticos */
+  --unx-error: #DC2626;       /* Siempre con icono + texto */
+  --unx-error-tint: #FDECEC;
+  --unx-info: var(--unx-blue);
+  --unx-info-bg: var(--unx-blue-tint);
+
+  /* Neutros (escala fría, 7 pasos) */
+  --unx-bg: #F9FAFB;
+  --unx-surface: #FFFFFF;
+  --unx-border: #E5E7EB;
+  --unx-border-strong: #D1D5DB;
+  --unx-text-muted: #6B7280;
+  --unx-text: #374151;
+  --unx-ink: #1F2937;
+
+  /* Disabled */
+  --unx-disabled-bg: #F3F4F6;
+  --unx-disabled-text: #9CA3AF;
+
+  /* Aliases semánticos */
+  --color-primary: var(--unx-blue);
+  --color-primary-hover: var(--unx-blue-hover);
+  --surface-page: var(--unx-bg);
+  --surface-card: var(--unx-surface);
+  --text-body: var(--unx-text);
+  --text-heading: var(--unx-ink);
+  --text-secondary: var(--unx-text-muted);
+  --border-default: var(--unx-border);
+  --border-input: var(--unx-border-strong);
+}

@@ -1,0 +1,137 @@
+<!-- @dsCard group="Pantallas" viewport="1440x900" name="Diseño 16 — Crear lectura" subtitle="Instructor · Desktop · armada con componentes" -->
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Diseño 16 — Crear lectura</title>
+<link rel="stylesheet" href="../styles.css">
+<style>
+  html, body { margin: 0; background: var(--unx-bg); }
+  body { font-family: var(--unx-font-sans); color: var(--unx-text); -webkit-font-smoothing: antialiased; }
+  * { box-sizing: border-box; }
+</style>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+<script src="_load.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const ALEJANDRO = [
+  { id: 'inicio', label: 'Inicio', icon: 'inicio' },
+  { id: 'reactivos', label: 'Banco de reactivos', icon: 'reactivos' },
+  { id: 'examenes', label: 'Exámenes', icon: 'examenes' },
+];
+
+async function init() {
+  const { SidebarNav, PageHeader, Breadcrumb, Card, Badge, Button, Input, Select, Textarea, DifficultyMeter } =
+    await UNXScreen.load(['SidebarNav', 'PageHeader', 'Breadcrumb', 'Card', 'Badge', 'Button', 'Input', 'Select', 'Textarea', 'DifficultyMeter']);
+
+  const Label = ({ children }) => (
+    <div style={{ fontFamily: 'var(--unx-font-condensed)', fontWeight: 600, fontSize: 13, letterSpacing: '0.06em', color: 'var(--unx-text-muted)', textTransform: 'uppercase', padding: '0 40px 10px' }}>{children}</div>
+  );
+  const Shell = ({ children }) => (
+    <div style={{ position: 'relative', display: 'flex', minHeight: 900, background: 'var(--unx-bg)', overflow: 'hidden', border: '1px solid var(--unx-border)' }}>
+      <SidebarNav user={{ name: 'Alejandro Ruiz', role: 'Instructor' }} items={ALEJANDRO} activeId="reactivos" />
+      <main style={{ flex: 1, overflow: 'auto', padding: 32 }}><div style={{ maxWidth: 820 }}>{children}</div></main>
+    </div>
+  );
+  const Field = ({ label, children }) => (
+    <div style={{ marginBottom: 18 }}><div style={{ font: 'var(--unx-small)', fontWeight: 600, color: 'var(--unx-ink)', marginBottom: 8 }}>{label}</div>{children}</div>
+  );
+  const RichBox = ({ children, h = 90 }) => (
+    <div style={{ border: '1.5px solid var(--unx-border-strong)', borderRadius: 8 }}>
+      <div style={{ display: 'flex', gap: 4, padding: 6, borderBottom: '1px solid var(--unx-border)', background: 'var(--unx-bg)', borderRadius: '8px 8px 0 0' }}>
+        {['B', 'I', 'x₂', 'x²', 'Ω'].map((t) => <span key={t} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 28, borderRadius: 6, background: 'var(--unx-blue-tint)', color: 'var(--unx-blue)', fontSize: 13, fontWeight: 600 }}>{t}</span>)}
+      </div>
+      <div style={{ padding: 12, minHeight: h, font: 'var(--unx-body)', color: 'var(--unx-ink)', lineHeight: 1.6 }}>{children}</div>
+    </div>
+  );
+  const diffBadge = (lvl) => lvl === 'facil' ? <Badge variant="success">Básico</Badge> : lvl === 'medio' ? <Badge variant="achievement">Intermedio</Badge> : <Badge variant="warning">Avanzado</Badge>;
+  const QRow = ({ n, q, lvl }) => (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', border: '1px solid var(--unx-border)', borderRadius: 8, marginBottom: 8, background: '#fff' }}>
+      <span style={{ width: 26, height: 26, borderRadius: '50%', background: 'var(--unx-blue-tint)', color: 'var(--unx-blue)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600, fontSize: 13, flexShrink: 0 }}>{n}</span>
+      <span style={{ flex: 1, color: 'var(--unx-ink)' }}>{q}</span>
+      {diffBadge(lvl)}
+    </div>
+  );
+
+  const FormBody = () => (
+    <>
+      <Field label="Título de la lectura"><Input value="El calentamiento global y los océanos" /></Field>
+      <Field label="Texto base"><RichBox h={150}>
+        Los océanos absorben cerca del 90% del exceso de calor generado por las emisiones de gases de efecto invernadero. Este papel regulador tiene un costo: el agua marina se expande al calentarse, lo que contribuye al aumento del nivel del mar.<br/><br/>
+        Además, el CO₂ disuelto forma ácido carbónico y reduce el pH del agua. La acidificación dificulta que corales y moluscos construyan sus estructuras de carbonato de calcio, alterando cadenas alimentarias completas.
+      </RichBox></Field>
+      <Field label="Clasificación en el temario">
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 12 }}>
+          <Select options={[{ value: 'cl', label: 'Comprensión lectora' }]} value="cl" />
+          <Select options={[{ value: 'te', label: 'Textos expositivos' }]} value="te" />
+          <Select options={[{ value: 'ip', label: 'Idea principal' }]} value="ip" />
+        </div>
+        <div style={{ display: 'flex', gap: 10 }}>
+          {[['facil', 'Básico'], ['medio', 'Intermedio'], ['dificil', 'Avanzado']].map(([lvl, lab]) => (
+            <div key={lvl} style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', border: `1.5px solid ${lvl === 'medio' ? 'var(--unx-blue)' : 'var(--unx-border)'}`, background: lvl === 'medio' ? 'var(--unx-blue-tint)' : '#fff', borderRadius: 8 }}>
+              <DifficultyMeter level={lvl} showLabel={false} size="chip" /><span style={{ font: 'var(--unx-small)', fontWeight: 600, color: 'var(--unx-ink)' }}>{lab}</span>
+            </div>
+          ))}
+        </div>
+      </Field>
+    </>
+  );
+
+  function App() {
+    return (
+      <div style={{ display: 'grid', gap: 40, padding: '24px 0 48px' }}>
+        <div>
+          <Label>01 · Crear lectura</Label>
+          <Shell>
+            <Breadcrumb items={[{ label: 'Banco de reactivos', href: '#' }, { label: 'Crear lectura' }]} />
+            <div style={{ marginTop: 8 }}><PageHeader title="Crear lectura" /></div>
+            <FormBody />
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '8px 0 12px' }}>
+              <span style={{ font: 'var(--unx-h3)', color: 'var(--unx-ink)' }}>Preguntas de esta lectura</span>
+              <Button variant="secondary">+ Agregar pregunta</Button>
+            </div>
+            <QRow n={1} q="Según el texto, ¿cuál es la idea principal del segundo párrafo?" lvl="medio" />
+            <QRow n={2} q='¿Qué proceso describe el término "acidificación" en la lectura?' lvl="facil" />
+            <QRow n={3} q="A partir del texto, ¿qué se puede inferir sobre las cadenas alimentarias marinas?" lvl="dificil" />
+            <p style={{ font: 'var(--unx-small)', color: 'var(--unx-text-muted)', margin: '12px 0 0' }}>La lectura se agrega completa a los exámenes; sus preguntas aparecen contiguas y en este orden.</p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 20 }}><Button variant="secondary">Cancelar</Button><Button variant="primary">Guardar lectura</Button></div>
+          </Shell>
+        </div>
+
+        <div>
+          <Label>02 · Panel lateral "Agregar pregunta" abierto</Label>
+          <div style={{ position: 'relative', border: '1px solid var(--unx-border)', overflow: 'hidden' }}>
+            <div style={{ display: 'flex', minHeight: 760, background: 'var(--unx-bg)' }}>
+              <SidebarNav user={{ name: 'Alejandro Ruiz', role: 'Instructor' }} items={ALEJANDRO} activeId="reactivos" />
+              <main style={{ flex: 1, overflow: 'hidden', padding: 32, opacity: 0.5 }}><div style={{ maxWidth: 820 }}><PageHeader title="Crear lectura" /><FormBody /></div></main>
+            </div>
+            <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, width: 440, background: '#fff', borderLeft: '1px solid var(--unx-border)', boxShadow: 'var(--unx-shadow-md)', padding: 24, overflow: 'auto' }}>
+              <div style={{ font: 'var(--unx-h3)', color: 'var(--unx-ink)' }}>Agregar pregunta</div>
+              <div style={{ font: 'var(--unx-caption)', color: 'var(--unx-text-muted)', marginBottom: 16 }}>Pregunta 4 · El calentamiento global y los océanos</div>
+              <Field label="Enunciado"><RichBox h={70}>Según la lectura, ¿por qué aumenta el nivel del mar al calentarse el agua?</RichBox></Field>
+              <Field label="Opciones de respuesta">
+                {[['Porque el agua se expande al calentarse', true], ['Porque llueve más sobre los océanos', false], ['Porque el pH del agua disminuye', false], ['Porque los corales desplazan el agua', false]].map(([t, c], i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', border: `1.5px solid ${c ? 'var(--unx-green)' : 'var(--unx-border-strong)'}`, background: c ? 'var(--unx-green-tint)' : '#fff', borderRadius: 8, marginBottom: 8 }}>
+                    <span style={{ width: 16, height: 16, borderRadius: '50%', border: `2px solid ${c ? 'var(--unx-green)' : 'var(--unx-border-strong)'}`, background: c ? 'var(--unx-green)' : '#fff', flexShrink: 0 }} />
+                    <span style={{ flex: 1, font: 'var(--unx-small)', color: 'var(--unx-ink)' }}>{t}</span>
+                  </div>
+                ))}
+              </Field>
+              <Field label="Explicación de la respuesta correcta"><Textarea value="El primer párrafo señala que el agua marina se expande al calentarse (expansión térmica), lo que eleva el nivel del mar." rows={3} helpText="El alumno la verá al revisar sus respuestas." /></Field>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}><Button variant="secondary">Cancelar</Button><Button variant="primary">Agregar a la lectura</Button></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+}
+init();
+</script>
+</body>
+</html>

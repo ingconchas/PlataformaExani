@@ -1,0 +1,120 @@
+<!-- @dsCard group="Pantallas" viewport="1440x900" name="Diseño 06 — Panel de la administradora" subtitle="Administradora · Desktop · armada con componentes" -->
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Diseño 06 — Panel de la administradora</title>
+<link rel="stylesheet" href="../styles.css">
+<style>
+  html, body { margin: 0; padding: 0; background: var(--unx-bg); }
+  body { font-family: var(--unx-font-sans); color: var(--unx-text); -webkit-font-smoothing: antialiased; }
+  * { box-sizing: border-box; }
+</style>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+/* Pantalla armada con los componentes reales del design system.
+   Se cargan directamente sus .jsx (no el bundle) para reflejar siempre la última versión local. */
+const COMPONENTS = {
+  SidebarNav: '../components/layouts/SidebarNav.jsx',
+  PageHeader: '../components/layouts/PageHeader.jsx',
+  MetricCard: '../components/display/MetricCard.jsx',
+  ShortcutCard: '../components/display/ShortcutCard.jsx',
+  DataTable: '../components/display/DataTable.jsx',
+};
+
+async function loadComponents() {
+  const ex = {};
+  for (const [name, path] of Object.entries(COMPONENTS)) {
+    let src = await (await fetch(path)).text();
+    src = src.replace(/^import .*$/gm, '').replace(/export function (\w+)/g, 'ex.$1 = function $1');
+    eval(Babel.transform(src, { presets: [['react', { runtime: 'classic' }]] }).code);
+  }
+  return ex;
+}
+
+/* Iconos Lucide usados en las tarjetas (los del menú los provee SidebarNav). */
+const I = {
+  grupos: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>,
+  alumnos: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>,
+  examenes: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>,
+  permisos: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><circle cx="19" cy="11" r="2"/><path d="M19 8v-2M19 16v-2M22 11h-2M16 11h-2"/></svg>,
+  temario: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>,
+  resumen: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>,
+};
+
+async function init() {
+  const { SidebarNav, PageHeader, MetricCard, ShortcutCard, DataTable } = await loadComponents();
+
+  const MENU = [
+    { id: 'inicio', label: 'Inicio', icon: 'inicio' },
+    { id: 'alumnos', label: 'Alumnos', icon: 'alumnos' },
+    { id: 'grupos', label: 'Grupos', icon: 'grupos' },
+    { id: 'permisos', label: 'Usuarios y permisos', icon: 'permisos' },
+    { id: 'temario', label: 'Temario', icon: 'temario' },
+    { id: 'resumen', label: 'Resumen de exámenes', icon: 'resumen' },
+  ];
+
+  const SHORTCUTS = [
+    { title: 'Alumnos', description: 'Alta, baja y edición', icon: I.alumnos, accent: 'var(--unx-blue)', tint: 'var(--unx-blue-tint)' },
+    { title: 'Grupos', description: 'Ciclos, turnos e instructores', icon: I.grupos, accent: 'var(--unx-green)', tint: 'var(--unx-green-tint)' },
+    { title: 'Usuarios y permisos', description: 'Cuentas del staff', icon: I.permisos, accent: 'var(--unx-purple)', tint: 'var(--unx-purple-tint)' },
+    { title: 'Temario', description: 'Catálogo de contenidos', icon: I.temario, accent: 'var(--unx-orange-text)', tint: 'var(--unx-yellow-tint)' },
+    { title: 'Resumen de exámenes', description: 'Resultados por grupo', icon: I.resumen, accent: 'var(--unx-blue)', tint: 'var(--unx-blue-tint)' },
+  ];
+
+  const score = (n) => (
+    <span style={{ fontFamily: 'var(--unx-font-condensed)', fontWeight: 600, fontSize: 20, color: 'var(--unx-blue)', fontVariantNumeric: 'tabular-nums' }}>{n}</span>
+  );
+  const examName = (t) => <span style={{ fontWeight: 600, color: 'var(--unx-ink)' }}>{t}</span>;
+  const muted = (t) => <span style={{ color: 'var(--unx-text-muted)' }}>{t}</span>;
+
+  const COLS = [
+    { key: 'examen', label: 'Examen' },
+    { key: 'grupo', label: 'Grupo' },
+    { key: 'fecha', label: 'Fecha' },
+    { key: 'puntaje', label: 'Puntaje promedio', align: 'right' },
+  ];
+  const ROWS = [
+    { examen: examName('Simulacro General 2'), grupo: 'Grupo Matutino A', fecha: muted('28 jun'), puntaje: score('1024') },
+    { examen: examName('Simulacro General 2'), grupo: 'Grupo Vespertino B', fecha: muted('27 jun'), puntaje: score('987') },
+    { examen: examName('Diagnóstico por áreas'), grupo: 'Grupo Sabatino C', fecha: muted('21 jun'), puntaje: score('1051') },
+  ];
+
+  function Screen() {
+    const [active, setActive] = React.useState('inicio');
+    return (
+      <div style={{ display: 'flex', height: '100vh', minHeight: 760, background: 'var(--unx-bg)', overflow: 'hidden' }}>
+        <SidebarNav user={{ name: 'Mayra Torres', role: 'Administradora' }} items={MENU} activeId={active} onNavigate={setActive} />
+        <main style={{ flex: 1, overflowY: 'auto', padding: '0 40px 48px' }}>
+          <div style={{ maxWidth: 1040, margin: '0 auto', paddingTop: 28 }}>
+            <PageHeader title="Hola, Mayra" subtitle="Lunes 6 de julio de 2026" />
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 32 }}>
+              <MetricCard value="8" label="Grupos activos" icon={I.grupos} accent="var(--unx-blue)" tint="var(--unx-blue-tint)" />
+              <MetricCard value="246" label="Alumnos registrados" icon={I.alumnos} accent="var(--unx-green)" tint="var(--unx-green-tint)" />
+              <MetricCard value="12" label="Exámenes aplicados este mes" icon={I.examenes} accent="var(--unx-orange-text)" tint="var(--unx-yellow-tint)" />
+            </div>
+
+            <h2 style={{ margin: '0 0 12px', font: 'var(--unx-h3)', color: 'var(--unx-ink)' }}>Accesos directos</h2>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 32 }}>
+              {SHORTCUTS.map((s) => <ShortcutCard key={s.title} {...s} />)}
+            </div>
+
+            <h2 style={{ margin: '0 0 12px', font: 'var(--unx-h3)', color: 'var(--unx-ink)' }}>Últimos exámenes aplicados</h2>
+            <DataTable columns={COLS} rows={ROWS} />
+          </div>
+        </main>
+      </div>
+    );
+  }
+  ReactDOM.createRoot(document.getElementById('root')).render(<Screen />);
+}
+init();
+</script>
+</body>
+</html>

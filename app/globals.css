@@ -1,26 +1,97 @@
 @import "tailwindcss";
 
+/* ============================================================
+   UNX Simuladores — Design tokens (Tailwind v4)
+   Fuente: "UNX Design System v1.2" · Modo claro
+   Azul UNX #0228C9 = acción · Amarillo #FFBF54 = celebración
+   Tipografía: Barlow (cuerpo/encabezados) · Barlow Condensed (cifras)
+   Las utilidades quedan disponibles como bg-unx-blue, text-ink,
+   rounded-card, shadow-card, text-h1, font-condensed, etc.
+   ============================================================ */
+@theme {
+  /* ===== Marca ===== */
+  --color-unx-blue: #0228c9; /* Primario: CTAs, navegación activa. Texto encima: SIEMPRE blanco */
+  --color-unx-blue-hover: #021e9e; /* Hover/pressed del primario */
+  --color-unx-blue-tint: #e9edfc; /* Fondo activo suave, banners, anillo de focus */
+  --color-unx-yellow: #ffbf54; /* Acento: logros y celebraciones. Texto encima: SIEMPRE #1F2937 */
+  --color-unx-yellow-tint: #fff6e5;
+  --color-unx-green: #0b9944; /* Éxito y aciertos */
+  --color-unx-green-tint: #e7f5ec;
+  --color-unx-orange: #d64801; /* Advertencia / áreas a reforzar (solo iconos y rellenos) */
+  --color-unx-orange-text: #a83800; /* Naranja para texto (AA sobre blanco y tinte) */
+  --color-unx-orange-tint: #fbede6;
+  --color-unx-purple: #600b67; /* Modo repaso e insignias especiales */
+  --color-unx-purple-tint: #f4eaf5;
+  --color-unx-error: #dc2626; /* SIEMPRE con icono + texto, nunca solo color */
+  --color-unx-error-tint: #fdecec;
+
+  /* ===== Neutros (escala fría) ===== */
+  --color-bg: #f9fafb; /* Fondo de página */
+  --color-surface: #ffffff; /* Superficie de tarjetas y modales */
+  --color-border: #e5e7eb; /* Bordes y divisores */
+  --color-border-strong: #d1d5db; /* Bordes de inputs y controles */
+  --color-muted: #6b7280; /* Texto secundario */
+  --color-text: #374151; /* Texto de cuerpo */
+  --color-ink: #1f2937; /* Títulos y texto sobre amarillo */
+  --color-disabled-bg: #f3f4f6;
+  --color-disabled-text: #9ca3af;
+
+  /* ===== Tipografía (las variables --font-barlow* las inyecta next/font en layout.tsx) ===== */
+  --font-sans: var(--font-barlow), "Helvetica Neue", sans-serif;
+  --font-condensed: var(--font-barlow-condensed), "Arial Narrow", sans-serif;
+
+  --text-display: 32px;
+  --text-display--line-height: 40px;
+  --text-display--font-weight: 600;
+  --text-h1: 24px;
+  --text-h1--line-height: 32px;
+  --text-h1--font-weight: 600;
+  --text-h2: 20px;
+  --text-h2--line-height: 28px;
+  --text-h2--font-weight: 600;
+  --text-h3: 18px;
+  --text-h3--line-height: 26px;
+  --text-h3--font-weight: 600;
+  --text-body: 16px;
+  --text-body--line-height: 24px;
+  --text-small: 14px;
+  --text-small--line-height: 20px;
+  --text-caption: 12px;
+  --text-caption--line-height: 16px;
+
+  /* ===== Radios ===== */
+  --radius-control: 8px; /* inputs y botones */
+  --radius-card: 10px; /* tarjetas */
+  --radius-modal: 12px; /* modales */
+
+  /* ===== Sombras (neutras, suaves) ===== */
+  --shadow-card: 0 1px 2px rgba(31, 41, 55, 0.05), 0 1px 3px rgba(31, 41, 55, 0.06);
+  --shadow-modal: 0 4px 6px rgba(31, 41, 55, 0.04), 0 10px 24px rgba(31, 41, 55, 0.08);
+}
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --unx-focus-ring: 0 0 0 3px var(--color-unx-blue-tint); /* anillo exterior sólido */
+  --unx-control-h: 44px; /* altura de control (densidad cómoda) */
+  --unx-control-h-lg: 48px;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 24px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Cifras grandes, timers, badges y tablas densas: Condensed + tabular-nums */
+.font-condensed {
+  font-family: var(--font-condensed);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Foco visible siempre (accesibilidad, regla fija del sistema) */
+:focus-visible {
+  outline: none;
+  box-shadow: var(--unx-focus-ring);
 }

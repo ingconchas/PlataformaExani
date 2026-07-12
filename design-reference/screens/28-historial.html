@@ -1,0 +1,107 @@
+<!-- @dsCard group="Pantallas" viewport="390x844" name="Diseño 28 — Historial" subtitle="Alumna · Móvil · armada con componentes" -->
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Diseño 28 — Historial</title>
+<link rel="stylesheet" href="../styles.css">
+<style>
+  html, body { margin: 0; background: var(--unx-bg); }
+  body { font-family: var(--unx-font-sans); color: var(--unx-text); -webkit-font-smoothing: antialiased; }
+  * { box-sizing: border-box; }
+</style>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+<script src="_load.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+async function init() {
+  const { BottomNav, Card, Badge, Button, StreakChip } = await UNXScreen.load(['BottomNav', 'Card', 'Badge', 'Button', 'StreakChip']);
+
+  const TABS = [{ id: 'inicio', label: 'Inicio', icon: 'inicio' }, { id: 'examenes', label: 'Mis exámenes', icon: 'examenes' }, { id: 'historial', label: 'Historial', icon: 'historial' }, { id: 'progreso', label: 'Progreso', icon: 'progreso' }];
+  const Stage = ({ children }) => <div style={{ display: 'flex', flexWrap: 'wrap', gap: 32, padding: '24px 40px 48px', alignItems: 'flex-start' }}>{children}</div>;
+  const Cell = ({ label, children }) => <div><div style={{ fontFamily: 'var(--unx-font-condensed)', fontWeight: 600, fontSize: 12, letterSpacing: '0.06em', color: 'var(--unx-text-muted)', textTransform: 'uppercase', marginBottom: 10 }}>{label}</div>{children}</div>;
+  const Phone = ({ children, sheet }) => (
+    <div style={{ position: 'relative', width: 390, height: 800, background: 'var(--unx-bg)', border: '1px solid var(--unx-border-strong)', borderRadius: 28, boxShadow: 'var(--unx-shadow-md)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ padding: '20px 20px 8px', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+        <div><h1 style={{ margin: 0, font: 'var(--unx-h1)', color: 'var(--unx-ink)' }}>Mi historial</h1><div style={{ font: 'var(--unx-caption)', color: 'var(--unx-text-muted)' }}>4 simulacros presentados</div></div>
+        <StreakChip days={5} />
+      </div>
+      <div style={{ flex: 1, overflow: 'auto', padding: '8px 20px 20px', display: 'grid', gap: 12, alignContent: 'start' }}>{children}</div>
+      <BottomNav items={TABS} activeId="historial" />
+      {sheet}
+    </div>
+  );
+  const entry = (label, badge, date, score) => (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 0' }}>
+      <div><div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>{label && <span style={{ fontWeight: 600, color: 'var(--unx-ink)' }}>{label}</span>}{badge}</div><div style={{ font: 'var(--unx-caption)', color: 'var(--unx-text-muted)' }}>{date}</div></div>
+      <span style={{ fontFamily: 'var(--unx-font-condensed)', fontWeight: 600, fontSize: 22, color: 'var(--unx-blue)', fontVariantNumeric: 'tabular-nums' }}>{score}</span>
+    </div>
+  );
+  const diag = <Badge variant="info-soft">Diagnóstico</Badge>;
+  const rep = <Badge variant="review">Repaso</Badge>;
+
+  function App() {
+    return (
+      <Stage>
+        <Cell label="01 · Mi historial">
+          <Phone>
+            <Card>{entry('Simulacro General 3', diag, '5 jul 2026', '1082')}</Card>
+            <Card>
+              {entry('Simulacro General 2', diag, '28 jun 2026', '1024')}
+              <div style={{ borderLeft: '2px solid var(--unx-purple-tint)', paddingLeft: 12, marginLeft: 4, marginTop: 6 }}>
+                {entry(null, rep, '15 jun 2026', '1104')}
+                {entry(null, rep, '30 jun 2026', '1121')}
+              </div>
+              <p style={{ font: 'var(--unx-caption)', color: 'var(--unx-text-muted)', margin: '8px 0 0' }}>Los repasos no cambian tu puntaje oficial.</p>
+            </Card>
+            <Card>{entry('Simulacro General 1', diag, '7 jun 2026', '987')}</Card>
+            <Card>
+              {entry('Diagnóstico por áreas', diag, '17 may 2026', '940')}
+              <div style={{ borderLeft: '2px solid var(--unx-purple-tint)', paddingLeft: 12, marginLeft: 4, marginTop: 6 }}>{entry(null, rep, '24 may 2026', '978')}</div>
+            </Card>
+            <div style={{ background: 'var(--unx-green-tint)', borderRadius: 10, padding: 14, textAlign: 'center', font: 'var(--unx-small)', fontWeight: 600, color: 'var(--unx-green)' }}>De 940 a 1082 en siete semanas. Sigue así, Fer.</div>
+          </Phone>
+        </Cell>
+
+        <Cell label="02 · Hoja de acciones">
+          <Phone sheet={
+            <>
+              <div style={{ position: 'absolute', inset: 0, background: 'rgba(31,41,55,.35)' }} />
+              <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, background: '#fff', borderRadius: '16px 16px 0 0', padding: 20, boxShadow: 'var(--unx-shadow-md)' }}>
+                <div style={{ width: 40, height: 4, borderRadius: 2, background: 'var(--unx-border-strong)', margin: '0 auto 16px' }} />
+                <div style={{ fontWeight: 600, color: 'var(--unx-ink)' }}>Simulacro General 2</div>
+                <div style={{ font: 'var(--unx-caption)', color: 'var(--unx-text-muted)', marginBottom: 16 }}>28 jun 2026 · Diagnóstico 1024</div>
+                <Button variant="primary" fullWidth>Ver resultados</Button>
+                <div style={{ height: 10 }} />
+                <Button variant="secondary" fullWidth>Revisar respuestas</Button>
+              </div>
+            </>
+          }>
+            <Card>{entry('Simulacro General 2', diag, '28 jun 2026', '1024')}</Card>
+          </Phone>
+        </Cell>
+
+        <Cell label="03 · Estado vacío">
+          <div style={{ width: 390, height: 800, background: 'var(--unx-bg)', border: '1px solid var(--unx-border-strong)', borderRadius: 28, boxShadow: 'var(--unx-shadow-md)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ padding: '20px 20px 8px' }}><h1 style={{ margin: 0, font: 'var(--unx-h1)', color: 'var(--unx-ink)' }}>Mi historial</h1></div>
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: 24 }}>
+              <img src="../assets/illustrations/caja-examenes.svg" alt="" style={{ width: 110, marginBottom: 16 }} />
+              <div style={{ font: 'var(--unx-h3)', color: 'var(--unx-ink)', marginBottom: 6 }}>Aquí verás tus simulacros presentados</div>
+              <p style={{ font: 'var(--unx-small)', color: 'var(--unx-text-muted)', margin: 0 }}>¡Contesta el primero para empezar tu historia!</p>
+            </div>
+            <BottomNav items={TABS} activeId="historial" />
+          </div>
+        </Cell>
+      </Stage>
+    );
+  }
+  ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+}
+init();
+</script>
+</body>
+</html>

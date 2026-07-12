@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="es-MX">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UNX Simuladores — Visor de plantillas</title>
+<link rel="stylesheet" href="styles.css">
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: var(--unx-font-sans);
+    background: var(--unx-bg);
+    color: var(--unx-text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+  header.visor {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    padding: 12px 24px;
+    background: var(--unx-surface);
+    border-bottom: 1px solid var(--unx-border);
+    flex-wrap: wrap;
+  }
+  header.visor img { height: 26px; }
+  header.visor h1 {
+    margin: 0;
+    font: 600 16px/24px var(--unx-font-sans);
+    color: var(--unx-ink);
+    white-space: nowrap;
+  }
+  nav.tabs { display: flex; gap: 4px; flex-wrap: wrap; }
+  nav.tabs button {
+    border: none;
+    background: transparent;
+    color: var(--unx-text);
+    font: 400 14px/20px var(--unx-font-sans);
+    padding: 8px 14px;
+    border-radius: var(--unx-radius-control);
+    cursor: pointer;
+    transition: background var(--unx-transition), color var(--unx-transition);
+  }
+  nav.tabs button:hover { background: #F3F4F6; }
+  nav.tabs button.active {
+    background: var(--unx-blue-tint);
+    color: var(--unx-blue);
+    font-weight: 600;
+  }
+  .hint {
+    padding: 10px 24px 0;
+    font: 400 13px/19px var(--unx-font-sans);
+    color: var(--unx-text-muted);
+    text-align: center;
+  }
+  main.stage {
+    flex: 1;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 20px 24px 32px;
+    overflow: auto;
+  }
+  .frame-wrap { flex-shrink: 0; }
+  .frame {
+    background: var(--unx-surface);
+    border: 1px solid var(--unx-border-strong);
+    border-radius: 12px;
+    box-shadow: var(--unx-shadow-md);
+    overflow: hidden;
+  }
+  .frame iframe { display: block; border: none; }
+</style>
+</head>
+<body>
+<header class="visor">
+  <img src="assets/logo/unx-logotipo.png" alt="UNX">
+  <h1>Visor de plantillas — Diseño 03</h1>
+  <nav class="tabs" id="tabs"></nav>
+</header>
+<p class="hint" id="hint"></p>
+<main class="stage">
+  <div class="frame-wrap" id="wrap">
+    <div class="frame" id="frame">
+      <iframe id="lienzo" title="Plantilla"></iframe>
+    </div>
+  </div>
+</main>
+<script>
+  const PLANTILLAS = [
+    {
+      id: 'admin', label: 'Administradora', w: 1440, h: 900,
+      src: 'components/layouts/layout-admin.card.html',
+      hint: 'Desktop 1440 — sidebar de Mayra con 6 secciones. Haz clic en el menú para cambiar el elemento activo (fondo azul suave + barra indicadora).'
+    },
+    {
+      id: 'instructor', label: 'Instructor', w: 1440, h: 900,
+      src: 'components/layouts/layout-instructor.card.html',
+      hint: 'Desktop 1440 — misma sidebar con el menú de Alejandro: Inicio, Banco de reactivos, Exámenes.'
+    },
+    {
+      id: 'alumna', label: 'App de la alumna', w: 390, h: 844,
+      src: 'components/layouts/layout-alumna.card.html',
+      hint: 'Móvil 390 — saludo + racha + avatar arriba; prueba las 4 pestañas de la navegación inferior.'
+    },
+    {
+      id: 'examen', label: 'Modo examen', w: 390, h: 844,
+      src: 'components/layouts/layout-examen.card.html',
+      hint: 'Móvil 390 — sin navegación: solo sección, contador y temporizador. Prueba seleccionar una respuesta.'
+    },
+    {
+      id: 'responsive', label: 'Responsive', w: 1120, h: 600,
+      src: 'components/layouts/layout-responsive.card.html',
+      hint: 'Nota visual: sidebar colapsada en tablet y app de la alumna en desktop (barra superior, contenido a máx. 720 px).'
+    },
+  ];
+
+  const tabs = document.getElementById('tabs');
+  const hint = document.getElementById('hint');
+  const wrap = document.getElementById('wrap');
+  const frame = document.getElementById('frame');
+  const lienzo = document.getElementById('lienzo');
+  let actual = PLANTILLAS[0];
+
+  PLANTILLAS.forEach(p => {
+    const b = document.createElement('button');
+    b.textContent = p.label;
+    b.id = 'tab-' + p.id;
+    b.onclick = () => mostrar(p);
+    tabs.appendChild(b);
+  });
+
+  function ajustar() {
+    const disponible = document.querySelector('main.stage').clientWidth - 8;
+    const escala = Math.min(1, disponible / (actual.w + 2));
+    frame.style.width = (actual.w + 2) + 'px';
+    lienzo.width = actual.w;
+    lienzo.height = actual.h;
+    lienzo.style.width = actual.w + 'px';
+    lienzo.style.height = actual.h + 'px';
+    frame.style.transform = 'scale(' + escala + ')';
+    frame.style.transformOrigin = 'top center';
+    wrap.style.width = Math.ceil((actual.w + 2) * escala) + 'px';
+    wrap.style.height = Math.ceil((actual.h + 2) * escala) + 'px';
+  }
+
+  function mostrar(p) {
+    actual = p;
+    lienzo.src = p.src;
+    hint.textContent = p.hint;
+    document.querySelectorAll('nav.tabs button').forEach(b => b.classList.remove('active'));
+    document.getElementById('tab-' + p.id).classList.add('active');
+    ajustar();
+  }
+
+  window.addEventListener('resize', ajustar);
+  mostrar(actual);
+</script>
+</body>
+</html>

@@ -1,0 +1,102 @@
+<!-- @dsCard group="Layouts" viewport="1120x560" subtitle="Tablet: sidebar colapsada a iconos · App de la alumna en desktop: barra superior y contenido a máx. 720 px" name="Comportamiento responsive" -->
+<!DOCTYPE html><html><head><meta charset="utf-8">
+<link rel="stylesheet" href="../../styles.css">
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+</head>
+<body style="margin:0;font-family:var(--unx-font-sans);background:#fff;padding:20px;">
+<div id="root"></div>
+<script type="text/babel">
+const NAMES = ['SidebarNav'];
+
+function findNS() {
+  for (const k of Object.getOwnPropertyNames(window)) {
+    try {
+      const v = window[k];
+      if (v && typeof v === 'object' && NAMES.every(n => typeof v[n] === 'function')) return v;
+    } catch (e) {}
+  }
+  return null;
+}
+
+async function loadBundle() {
+  await new Promise(res => {
+    const s = document.createElement('script');
+    s.src = '../../_ds_bundle' + '.js';
+    s.onload = res; s.onerror = res;
+    document.head.appendChild(s);
+  });
+  return findNS();
+}
+
+async function loadLocal() {
+  const ex = {};
+  for (const n of NAMES) {
+    let src = await (await fetch(n + '.jsx')).text();
+    src = src.replace(/^import .*$/gm, '').replace(/export function (\w+)/g, 'ex.$1 = function $1');
+    eval(Babel.transform(src, { presets: [['react', { runtime: 'classic' }]] }).code);
+  }
+  return ex;
+}
+
+async function init() {
+  const NS = findNS() || (await loadBundle()) || (await loadLocal());
+  const { SidebarNav } = NS;
+
+  const MENU = [
+    { id: 'inicio', label: 'Inicio', icon: 'inicio' },
+    { id: 'reactivos', label: 'Banco de reactivos', icon: 'reactivos' },
+    { id: 'examenes', label: 'Exámenes', icon: 'examenes' },
+  ];
+
+  const frame = { border: '1px solid var(--unx-border-strong)', borderRadius: 'var(--unx-radius-card)', overflow: 'hidden', background: 'var(--unx-bg)', boxShadow: 'var(--unx-shadow-sm)' };
+  const caption = { font: 'var(--unx-small)', color: 'var(--unx-text)', marginTop: 12, maxWidth: '100%' };
+  const ghostCard = (h) => ({ background: 'var(--unx-surface)', border: '1px solid var(--unx-border)', borderRadius: 'var(--unx-radius-card)', height: h });
+
+  function Demo() {
+    return (
+      <div style={{ display: 'flex', gap: 36, alignItems: 'flex-start' }}>
+        <div style={{ width: 380, flexShrink: 0 }}>
+          <div style={{ ...frame, display: 'flex', height: 420 }}>
+            <SidebarNav collapsed user={{ name: 'Alejandro Ruiz', role: 'Instructor' }} items={MENU} activeId="inicio" />
+            <div style={{ flex: 1, padding: 16, display: 'grid', gap: 12, alignContent: 'start' }}>
+              <div style={{ height: 22, width: '55%', borderRadius: 6, background: '#E5E7EB' }} />
+              <div style={ghostCard(90)} />
+              <div style={ghostCard(90)} />
+              <div style={ghostCard(120)} />
+            </div>
+          </div>
+          <p style={caption}><strong>Tablet (768–1279 px):</strong> la barra lateral de staff colapsa a 72 px, solo iconos con menú hamburguesa; las etiquetas pasan a tooltips. El contenido conserva su retícula.</p>
+        </div>
+
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ ...frame, height: 420, display: 'flex', flexDirection: 'column' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 24, padding: '0 24px', height: 52, background: 'var(--unx-surface)', borderBottom: '1px solid var(--unx-border)', flexShrink: 0 }}>
+              <img src="../../assets/logo/unx-logotipo.png" alt="UNX" style={{ height: 24 }} />
+              <nav style={{ display: 'flex', gap: 4, flex: 1 }}>
+                {[['Inicio', true], ['Mis exámenes', false], ['Historial', false], ['Progreso', false]].map(([label, active]) => (
+                  <span key={label} style={{ padding: '6px 14px', borderRadius: 'var(--unx-radius-control)', background: active ? 'var(--unx-blue-tint)' : 'transparent', color: active ? 'var(--unx-blue)' : 'var(--unx-text)', fontWeight: active ? 600 : 400, fontSize: 14 }}>{label}</span>
+                ))}
+              </nav>
+              <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 32, height: 32, borderRadius: '50%', background: 'var(--unx-blue-tint)', color: 'var(--unx-blue)', fontWeight: 600, fontSize: 13 }}>FR</span>
+            </div>
+            <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', justifyContent: 'center', padding: '20px 24px' }}>
+              <div style={{ width: '100%', maxWidth: 480, display: 'grid', gap: 14, alignContent: 'start' }}>
+                <div style={{ height: 24, width: '45%', borderRadius: 6, background: '#E5E7EB' }} />
+                <div style={ghostCard(110)} />
+                <div style={ghostCard(90)} />
+                <div style={ghostCard(90)} />
+              </div>
+            </div>
+          </div>
+          <p style={caption}><strong>App de la alumna en desktop (≥ 1024 px):</strong> la navegación inferior se convierte en barra superior con las mismas 4 secciones y el contenido se centra a un máximo de 720 px. El modo examen no cambia: nunca muestra navegación.</p>
+        </div>
+      </div>
+    );
+  }
+  ReactDOM.createRoot(document.getElementById('root')).render(<Demo />);
+}
+init();
+</script>
+</body></html>

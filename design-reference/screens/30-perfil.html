@@ -1,0 +1,104 @@
+<!-- @dsCard group="Pantallas" viewport="390x844" name="Diseño 30 — Mi perfil" subtitle="Alumna · Móvil · armada con componentes" -->
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Diseño 30 — Mi perfil</title>
+<link rel="stylesheet" href="../styles.css">
+<style>
+  html, body { margin: 0; background: var(--unx-bg); }
+  body { font-family: var(--unx-font-sans); color: var(--unx-text); -webkit-font-smoothing: antialiased; }
+  * { box-sizing: border-box; }
+</style>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+<script src="_load.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+async function init() {
+  const { Card, Badge, Button, Input, StreakChip, AchievementBadge, Toast } =
+    await UNXScreen.load(['Card', 'Badge', 'Button', 'Input', 'StreakChip', 'AchievementBadge', 'Toast']);
+
+  const Stage = ({ children }) => <div style={{ display: 'flex', flexWrap: 'wrap', gap: 32, padding: '24px 40px 48px', alignItems: 'flex-start' }}>{children}</div>;
+  const Cell = ({ label, children }) => <div><div style={{ fontFamily: 'var(--unx-font-condensed)', fontWeight: 600, fontSize: 12, letterSpacing: '0.06em', color: 'var(--unx-text-muted)', textTransform: 'uppercase', marginBottom: 10 }}>{label}</div>{children}</div>;
+  const Phone = ({ children, sheet }) => (
+    <div style={{ position: 'relative', width: 390, height: 800, background: 'var(--unx-bg)', border: '1px solid var(--unx-border-strong)', borderRadius: 28, boxShadow: 'var(--unx-shadow-md)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ padding: '20px 20px 8px' }}><h1 style={{ margin: 0, font: 'var(--unx-h1)', color: 'var(--unx-ink)' }}>Mi perfil</h1></div>
+      <div style={{ flex: 1, overflow: 'auto', padding: '8px 20px 20px', display: 'grid', gap: 16, alignContent: 'start' }}>{children}</div>
+      {sheet}
+    </div>
+  );
+
+  function App() {
+    return (
+      <Stage>
+        <Cell label="1 · Mi perfil">
+          <Phone>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 56, height: 56, borderRadius: '50%', background: 'var(--unx-blue-tint)', color: 'var(--unx-blue)', fontWeight: 600, fontSize: 20, flexShrink: 0 }}>FL</span>
+              <div style={{ flex: 1, minWidth: 0 }}><div style={{ font: 'var(--unx-h3)', color: 'var(--unx-ink)' }}>Fernanda López</div><div style={{ font: 'var(--unx-caption)', color: 'var(--unx-text-muted)' }}>Grupo Matutino A · fernanda.gtz@correo.com</div></div>
+            </div>
+            <div><StreakChip days={5} /></div>
+            <Card>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}><span style={{ font: 'var(--unx-h3)', color: 'var(--unx-ink)' }}>Mi meta</span><a href="#" style={{ font: 'var(--unx-small)', color: 'var(--unx-blue)', fontWeight: 600, textDecoration: 'none' }}>Editar meta</a></div>
+              <div style={{ fontWeight: 600, color: 'var(--unx-ink)' }}>Medicina · UDG</div>
+              <p style={{ font: 'var(--unx-caption)', color: 'var(--unx-text-muted)', margin: '2px 0 12px' }}>Tu meta marca la línea de referencia en tus gráficas de progreso.</p>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><span style={{ fontFamily: 'var(--unx-font-condensed)', fontWeight: 600, fontSize: 40, color: 'var(--unx-ink)', fontVariantNumeric: 'tabular-nums' }}>1150</span><Badge variant="achievement">Puntaje objetivo</Badge></div>
+            </Card>
+            <Card>
+              <div style={{ font: 'var(--unx-h3)', color: 'var(--unx-ink)', marginBottom: 12 }}>Mis insignias</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, justifyItems: 'center' }}>
+                <AchievementBadge size={60} label="Primer simulacro" />
+                <AchievementBadge size={60} label="Meta superada" />
+                <AchievementBadge size={60} label="+100 puntos" />
+                <AchievementBadge size={60} locked label="5 simulacros" />
+                <AchievementBadge size={60} locked label="Racha de 14 días" />
+              </div>
+            </Card>
+            <Card>
+              <div style={{ font: 'var(--unx-h3)', color: 'var(--unx-ink)' }}>Módulos de mi admisión <span style={{ font: 'var(--unx-caption)', color: 'var(--unx-text-muted)', fontWeight: 400 }}>Opcional</span></div>
+              <div style={{ marginTop: 10 }}>{['Biología', 'Ciencias de la salud'].map((m) => <span key={m} style={{ display: 'inline-block', background: 'var(--unx-blue-tint)', color: 'var(--unx-blue)', borderRadius: 999, padding: '5px 12px', fontSize: 13, fontWeight: 600, margin: '0 8px 8px 0' }}>{m}</span>)}</div>
+            </Card>
+            <Card>
+              <div style={{ font: 'var(--unx-h3)', color: 'var(--unx-ink)', marginBottom: 6 }}>Mi cuenta</div>
+              <div style={{ font: 'var(--unx-small)', color: 'var(--unx-text)' }}>fernanda.gtz@correo.com</div>
+              <a href="#" style={{ display: 'inline-block', font: 'var(--unx-small)', color: 'var(--unx-blue)', fontWeight: 600, textDecoration: 'none', marginTop: 8 }}>Cambiar contraseña</a>
+              <p style={{ font: 'var(--unx-caption)', color: 'var(--unx-text-muted)', margin: '4px 0 0' }}>Te enviaremos un enlace a tu correo.</p>
+            </Card>
+            <Button variant="secondary" fullWidth>Cerrar sesión</Button>
+          </Phone>
+        </Cell>
+
+        <Cell label="2 · Editar meta + toast">
+          <Phone sheet={
+            <>
+              <div style={{ position: 'absolute', inset: 0, background: 'rgba(31,41,55,.35)' }} />
+              <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, background: '#fff', borderRadius: '16px 16px 0 0', padding: 20, boxShadow: 'var(--unx-shadow-md)', maxHeight: '92%', overflow: 'auto' }}>
+                <div style={{ width: 40, height: 4, borderRadius: 2, background: 'var(--unx-border-strong)', margin: '0 auto 16px' }} />
+                <div style={{ font: 'var(--unx-h3)', color: 'var(--unx-ink)', marginBottom: 16 }}>Editar meta</div>
+                <div style={{ marginBottom: 14 }}><Input label="Institución" value="Universidad de Guadalajara (UDG)" helpText="Escríbela con tus palabras; no necesitas elegirla de una lista." /></div>
+                <div style={{ marginBottom: 14 }}><Input label="Carrera" value="Medicina" /></div>
+                <div style={{ font: 'var(--unx-small)', fontWeight: 600, color: 'var(--unx-ink)', marginBottom: 8 }}>Puntaje objetivo</div>
+                <div style={{ position: 'relative', height: 8, borderRadius: 4, background: 'var(--unx-border)', margin: '4px 0' }}><div style={{ width: '75%', height: '100%', background: 'var(--unx-blue)', borderRadius: 4 }} /><span style={{ position: 'absolute', left: '75%', top: -5, width: 18, height: 18, borderRadius: '50%', background: 'var(--unx-blue)', transform: 'translateX(-50%)', border: '3px solid #fff', boxShadow: 'var(--unx-shadow-sm)' }} /></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', font: 'var(--unx-caption)', color: 'var(--unx-text-muted)' }}><span>700</span><span style={{ fontWeight: 600, color: 'var(--unx-blue)' }}>1150</span><span>1300</span></div>
+                <p style={{ font: 'var(--unx-caption)', color: 'var(--unx-text-muted)', margin: '8px 0 16px' }}>Tú decides tu meta; como referencia, el puntaje de corte que publica tu institución. El cambio actualiza la línea de meta en todas tus gráficas.</p>
+                <div style={{ display: 'flex', gap: 12 }}><Button variant="secondary" fullWidth>Cancelar</Button><Button variant="primary" fullWidth>Guardar cambios</Button></div>
+                <div style={{ marginTop: 16 }}><Toast variant="success">Meta actualizada</Toast></div>
+              </div>
+            </>
+          }>
+            <Card><div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><span style={{ font: 'var(--unx-h3)', color: 'var(--unx-ink)' }}>Mi meta</span><a href="#" style={{ font: 'var(--unx-small)', color: 'var(--unx-blue)', fontWeight: 600, textDecoration: 'none' }}>Editar meta</a></div><div style={{ fontWeight: 600, color: 'var(--unx-ink)', marginTop: 6 }}>Medicina · UDG · 1150</div></Card>
+          </Phone>
+        </Cell>
+      </Stage>
+    );
+  }
+  ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+}
+init();
+</script>
+</body>
+</html>

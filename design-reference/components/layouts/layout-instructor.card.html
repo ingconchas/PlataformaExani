@@ -1,0 +1,102 @@
+<!-- @dsCard group="Layouts" viewport="1440x900" subtitle="Misma sidebar de staff con menú reducido: Inicio, Banco de reactivos, Exámenes (desktop 1440)" name="Layout — Instructor" -->
+<!DOCTYPE html><html><head><meta charset="utf-8">
+<link rel="stylesheet" href="../../styles.css">
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+</head>
+<body style="margin:0;font-family:var(--unx-font-sans);background:var(--unx-bg);">
+<div id="root"></div>
+<script type="text/babel">
+const NAMES = ['SidebarNav', 'PageHeader'];
+
+function findNS() {
+  for (const k of Object.getOwnPropertyNames(window)) {
+    try {
+      const v = window[k];
+      if (v && typeof v === 'object' && NAMES.every(n => typeof v[n] === 'function')) return v;
+    } catch (e) {}
+  }
+  return null;
+}
+
+async function loadBundle() {
+  await new Promise(res => {
+    const s = document.createElement('script');
+    s.src = '../../_ds_bundle' + '.js';
+    s.onload = res; s.onerror = res;
+    document.head.appendChild(s);
+  });
+  return findNS();
+}
+
+async function loadLocal() {
+  const ex = {};
+  for (const n of NAMES) {
+    let src = await (await fetch(n + '.jsx')).text();
+    src = src.replace(/^import .*$/gm, '').replace(/export function (\w+)/g, 'ex.$1 = function $1');
+    eval(Babel.transform(src, { presets: [['react', { runtime: 'classic' }]] }).code);
+  }
+  return ex;
+}
+
+async function init() {
+  const NS = findNS() || (await loadBundle()) || (await loadLocal());
+  const { SidebarNav, PageHeader } = NS;
+
+  const MENU = [
+    { id: 'inicio', label: 'Inicio', icon: 'inicio' },
+    { id: 'reactivos', label: 'Banco de reactivos', icon: 'reactivos' },
+    { id: 'examenes', label: 'Exámenes', icon: 'examenes' },
+  ];
+
+  function ExamRow({ name, date, badge, badgeColor, badgeBg }) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, padding: '16px 20px', borderTop: '1px solid var(--unx-border)' }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontWeight: 600, fontSize: 15, color: 'var(--unx-ink)' }}>{name}</div>
+          <div style={{ font: 'var(--unx-caption)', color: 'var(--unx-text-muted)', marginTop: 2 }}>{date}</div>
+        </div>
+        <span style={{ background: badgeBg, color: badgeColor, borderRadius: 'var(--unx-radius-pill)', padding: '4px 12px', fontFamily: 'var(--unx-font-condensed)', fontWeight: 600, fontSize: 12, letterSpacing: 'var(--unx-badge-tracking)', textTransform: 'uppercase', flexShrink: 0 }}>{badge}</span>
+      </div>
+    );
+  }
+
+  function Demo() {
+    const [active, setActive] = React.useState('inicio');
+    return (
+      <div style={{ display: 'flex', width: 1440, height: 900, background: 'var(--unx-bg)' }}>
+        <SidebarNav
+          user={{ name: 'Alejandro Ruiz', role: 'Instructor' }}
+          items={MENU}
+          activeId={active}
+          onNavigate={setActive}
+        />
+        <main style={{ flex: 1, minWidth: 0, padding: 32, boxSizing: 'border-box', overflow: 'auto' }}>
+          <PageHeader title="Inicio" subtitle="Tus exámenes y banco de reactivos" actionLabel="Crear examen" />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
+            <div style={{ background: 'var(--unx-surface)', border: '1px solid var(--unx-border)', borderRadius: 'var(--unx-radius-card)', boxShadow: 'var(--unx-shadow-sm)' }}>
+              <div style={{ padding: '18px 20px', font: 'var(--unx-h3)', color: 'var(--unx-ink)' }}>Próximos exámenes</div>
+              <ExamRow name="Simulacro EXANI II — 3" date="Sábado 12 de julio · 3 grupos" badge="Publicado" badgeColor="#FFFFFF" badgeBg="var(--unx-green)" />
+              <ExamRow name="Práctica: Pensamiento matemático" date="Miércoles 16 de julio · Grupo A" badge="Borrador" badgeColor="var(--unx-text)" badgeBg="#F3F4F6" />
+              <ExamRow name="Simulacro EXANI II — 4" date="Sábado 26 de julio · Todos los grupos" badge="Borrador" badgeColor="var(--unx-text)" badgeBg="#F3F4F6" />
+            </div>
+            <div style={{ background: 'var(--unx-surface)', border: '1px solid var(--unx-border)', borderRadius: 'var(--unx-radius-card)', boxShadow: 'var(--unx-shadow-sm)', padding: 24 }}>
+              <div style={{ font: 'var(--unx-h3)', color: 'var(--unx-ink)' }}>Banco de reactivos</div>
+              <div style={{ fontFamily: 'var(--unx-font-condensed)', fontWeight: 600, fontSize: 40, lineHeight: '44px', color: 'var(--unx-ink)', fontVariantNumeric: 'tabular-nums', marginTop: 12 }}>330</div>
+              <div style={{ font: 'var(--unx-small)', color: 'var(--unx-text-muted)', marginTop: 4 }}>reactivos en 74 temas del temario canónico</div>
+              <div style={{ height: 8, borderRadius: 4, background: '#F3F4F6', marginTop: 16, overflow: 'hidden' }}>
+                <div style={{ width: '68%', height: '100%', background: 'var(--unx-blue)', borderRadius: 4 }} />
+              </div>
+              <div style={{ font: 'var(--unx-caption)', color: 'var(--unx-text-muted)', marginTop: 6 }}>68% de los temas con 4 o más reactivos</div>
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
+  ReactDOM.createRoot(document.getElementById('root')).render(<Demo />);
+}
+init();
+</script>
+</body></html>

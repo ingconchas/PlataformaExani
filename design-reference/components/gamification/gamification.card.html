@@ -1,0 +1,67 @@
+<!-- @dsCard group="Components" viewport="700x300" subtitle="StreakChip, AchievementBadge, DifficultyMeter" name="Gamificación" -->
+<!DOCTYPE html><html><head><meta charset="utf-8">
+<link rel="stylesheet" href="../../styles.css">
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+</head>
+<body style="margin:0;font-family:var(--unx-font-sans);background:#fff;padding:20px;">
+<div id="root"></div>
+<script type="text/babel">
+const NAMES = ['StreakChip', 'AchievementBadge', 'DifficultyMeter'];
+
+function findNS() {
+  for (const k of Object.getOwnPropertyNames(window)) {
+    try {
+      const v = window[k];
+      if (v && typeof v === 'object' && NAMES.every(n => typeof v[n] === 'function')) return v;
+    } catch (e) {}
+  }
+  return null;
+}
+
+async function loadBundle() {
+  await new Promise(res => {
+    const s = document.createElement('script');
+    s.src = '../../_ds_bundle' + '.js';
+    s.onload = res; s.onerror = res;
+    document.head.appendChild(s);
+  });
+  return findNS();
+}
+
+async function loadLocal() {
+  const ex = {};
+  for (const n of NAMES) {
+    let src = await (await fetch(n + '.jsx')).text();
+    src = src.replace(/^import .*$/gm, '').replace(/export function (\w+)/g, 'ex.$1 = function $1');
+    eval(Babel.transform(src, { presets: [['react', { runtime: 'classic' }]] }).code);
+  }
+  return ex;
+}
+
+async function init() {
+  const NS = findNS() || (await loadBundle()) || (await loadLocal());
+  const { StreakChip, AchievementBadge, DifficultyMeter } = NS;
+
+  function Demo() {
+    return (
+      <div style={{ display: 'grid', gap: 24 }}>
+        <div style={{ display: 'flex', gap: 24, alignItems: 'center', flexWrap: 'wrap' }}>
+          <StreakChip days={5} />
+          <DifficultyMeter level="facil" />
+          <DifficultyMeter level="medio" />
+          <DifficultyMeter level="dificil" />
+        </div>
+        <div style={{ display: 'flex', gap: 32, alignItems: 'flex-start' }}>
+          <AchievementBadge label="Obtenida" />
+          <AchievementBadge locked label="Bloqueada" />
+        </div>
+      </div>
+    );
+  }
+  ReactDOM.createRoot(document.getElementById('root')).render(<Demo />);
+}
+init();
+</script>
+</body></html>

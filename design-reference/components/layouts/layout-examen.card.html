@@ -1,0 +1,122 @@
+<!-- @dsCard group="Layouts" viewport="390x844" subtitle="Sin navegación: encabezado mínimo (sección + contador + temporizador) y área de pregunta (móvil 390)" name="Modo examen" -->
+<!DOCTYPE html><html><head><meta charset="utf-8">
+<link rel="stylesheet" href="../../styles.css">
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+</head>
+<body style="margin:0;font-family:var(--unx-font-sans);background:var(--unx-bg);">
+<div id="root"></div>
+<script type="text/babel">
+const NAMES = ['ExamHeader'];
+
+function findNS() {
+  for (const k of Object.getOwnPropertyNames(window)) {
+    try {
+      const v = window[k];
+      if (v && typeof v === 'object' && NAMES.every(n => typeof v[n] === 'function')) return v;
+    } catch (e) {}
+  }
+  return null;
+}
+
+async function loadBundle() {
+  await new Promise(res => {
+    const s = document.createElement('script');
+    s.src = '../../_ds_bundle' + '.js';
+    s.onload = res; s.onerror = res;
+    document.head.appendChild(s);
+  });
+  return findNS();
+}
+
+async function loadLocal() {
+  const ex = {};
+  for (const n of NAMES) {
+    let src = await (await fetch(n + '.jsx')).text();
+    src = src.replace(/^import .*$/gm, '').replace(/export function (\w+)/g, 'ex.$1 = function $1');
+    eval(Babel.transform(src, { presets: [['react', { runtime: 'classic' }]] }).code);
+  }
+  return ex;
+}
+
+async function init() {
+  const NS = findNS() || (await loadBundle()) || (await loadLocal());
+  const { ExamHeader } = NS;
+
+  function Option({ letter, children, selected }) {
+    return (
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          padding: '14px 16px',
+          background: selected ? 'var(--unx-blue-tint)' : 'var(--unx-surface)',
+          border: selected ? '2px solid var(--unx-blue)' : '1.5px solid var(--unx-border-strong)',
+          borderRadius: 'var(--unx-radius-card)',
+          cursor: 'pointer',
+        }}
+      >
+        <span
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: 30,
+            height: 30,
+            borderRadius: '50%',
+            background: selected ? 'var(--unx-blue)' : '#F3F4F6',
+            color: selected ? '#FFFFFF' : 'var(--unx-text)',
+            fontWeight: 600,
+            fontSize: 14,
+            flexShrink: 0,
+          }}
+        >
+          {letter}
+        </span>
+        <span style={{ font: 'var(--unx-body)', color: 'var(--unx-ink)' }}>{children}</span>
+      </div>
+    );
+  }
+
+  function Demo() {
+    const [sel, setSel] = React.useState('B');
+    const options = [
+      ['A', 'x = 3'],
+      ['B', 'x = 5'],
+      ['C', 'x = 7'],
+      ['D', 'x = 9'],
+    ];
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', width: 390, height: 844, background: 'var(--unx-bg)', overflow: 'hidden' }}>
+        <ExamHeader section="Pensamiento matemático" current={12} total={90} time="01:47:32" />
+        <main style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: 20 }}>
+          <div style={{ font: 'var(--unx-caption)', color: 'var(--unx-text-muted)' }}>Pregunta 12</div>
+          <p style={{ font: 'var(--unx-body)', color: 'var(--unx-ink)', margin: '8px 0 20px' }}>
+            Si 3x − 4 = 11, ¿cuál es el valor de x?
+          </p>
+          <div style={{ display: 'grid', gap: 12 }} onClick={() => {}}>
+            {options.map(([letter, text]) => (
+              <div key={letter} onClick={() => setSel(letter)}>
+                <Option letter={letter} selected={sel === letter}>{text}</Option>
+              </div>
+            ))}
+          </div>
+        </main>
+        <footer style={{ display: 'flex', gap: 12, padding: '12px 20px 20px', background: 'var(--unx-surface)', borderTop: '1px solid var(--unx-border)' }}>
+          <button type="button" style={{ flex: 1, height: 48, background: '#FFFFFF', color: 'var(--unx-blue)', border: '1.5px solid var(--unx-blue)', borderRadius: 'var(--unx-radius-control)', fontFamily: 'var(--unx-font-sans)', fontWeight: 600, fontSize: 16, cursor: 'pointer' }}>
+            Anterior
+          </button>
+          <button type="button" style={{ flex: 1, height: 48, background: 'var(--unx-blue)', color: '#FFFFFF', border: 'none', borderRadius: 'var(--unx-radius-control)', fontFamily: 'var(--unx-font-sans)', fontWeight: 600, fontSize: 16, cursor: 'pointer' }}>
+            Siguiente
+          </button>
+        </footer>
+      </div>
+    );
+  }
+  ReactDOM.createRoot(document.getElementById('root')).render(<Demo />);
+}
+init();
+</script>
+</body></html>

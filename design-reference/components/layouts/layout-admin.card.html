@@ -1,0 +1,110 @@
+<!-- @dsCard group="Layouts" viewport="1440x900" subtitle="Sidebar de staff + encabezado de página + zona de contenido (desktop 1440)" name="Layout — Administradora" -->
+<!DOCTYPE html><html><head><meta charset="utf-8">
+<link rel="stylesheet" href="../../styles.css">
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+</head>
+<body style="margin:0;font-family:var(--unx-font-sans);background:var(--unx-bg);">
+<div id="root"></div>
+<script type="text/babel">
+const NAMES = ['SidebarNav', 'PageHeader'];
+
+function findNS() {
+  for (const k of Object.getOwnPropertyNames(window)) {
+    try {
+      const v = window[k];
+      if (v && typeof v === 'object' && NAMES.every(n => typeof v[n] === 'function')) return v;
+    } catch (e) {}
+  }
+  return null;
+}
+
+async function loadBundle() {
+  await new Promise(res => {
+    const s = document.createElement('script');
+    s.src = '../../_ds_bundle' + '.js';
+    s.onload = res; s.onerror = res;
+    document.head.appendChild(s);
+  });
+  return findNS();
+}
+
+async function loadLocal() {
+  const ex = {};
+  for (const n of NAMES) {
+    let src = await (await fetch(n + '.jsx')).text();
+    src = src.replace(/^import .*$/gm, '').replace(/export function (\w+)/g, 'ex.$1 = function $1');
+    eval(Babel.transform(src, { presets: [['react', { runtime: 'classic' }]] }).code);
+  }
+  return ex;
+}
+
+async function init() {
+  const NS = findNS() || (await loadBundle()) || (await loadLocal());
+  const { SidebarNav, PageHeader } = NS;
+
+  const MENU = [
+    { id: 'inicio', label: 'Inicio', icon: 'inicio' },
+    { id: 'alumnos', label: 'Alumnos', icon: 'alumnos' },
+    { id: 'grupos', label: 'Grupos', icon: 'grupos' },
+    { id: 'permisos', label: 'Usuarios y permisos', icon: 'permisos' },
+    { id: 'temario', label: 'Temario', icon: 'temario' },
+    { id: 'resumen', label: 'Resumen de exámenes', icon: 'resumen' },
+  ];
+
+  function MetricCard({ label, value, caption }) {
+    return (
+      <div style={{ background: 'var(--unx-surface)', border: '1px solid var(--unx-border)', borderRadius: 'var(--unx-radius-card)', boxShadow: 'var(--unx-shadow-sm)', padding: 24 }}>
+        <div style={{ font: 'var(--unx-small)', color: 'var(--unx-text-muted)' }}>{label}</div>
+        <div style={{ fontFamily: 'var(--unx-font-condensed)', fontWeight: 600, fontSize: 40, lineHeight: '44px', color: 'var(--unx-ink)', fontVariantNumeric: 'tabular-nums', marginTop: 6 }}>{value}</div>
+        {caption && <div style={{ font: 'var(--unx-caption)', color: 'var(--unx-text-muted)', marginTop: 4 }}>{caption}</div>}
+      </div>
+    );
+  }
+
+  function SkeletonRow({ w1, w2, w3 }) {
+    const bar = (w) => <span style={{ display: 'inline-block', width: w, height: 12, borderRadius: 6, background: '#F3F4F6' }} />;
+    return (
+      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 24, alignItems: 'center', padding: '16px 20px', borderTop: '1px solid var(--unx-border)' }}>
+        {bar(w1)}{bar(w2)}{bar(w3)}
+      </div>
+    );
+  }
+
+  function Demo() {
+    const [active, setActive] = React.useState('inicio');
+    return (
+      <div style={{ display: 'flex', width: 1440, height: 900, background: 'var(--unx-bg)' }}>
+        <SidebarNav
+          user={{ name: 'Mayra Torres', role: 'Administradora' }}
+          items={MENU}
+          activeId={active}
+          onNavigate={setActive}
+        />
+        <main style={{ flex: 1, minWidth: 0, padding: 32, boxSizing: 'border-box', overflow: 'auto' }}>
+          <PageHeader title="Inicio" subtitle="Resumen general de la preparación" actionLabel="Nuevo alumno" />
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 24 }}>
+            <MetricCard label="Alumnos activos" value="128" caption="6 grupos" />
+            <MetricCard label="Exámenes aplicados" value="42" caption="Este ciclo" />
+            <MetricCard label="Puntaje promedio" value="1024" caption="Meta institucional: 1100" />
+          </div>
+          <div style={{ background: 'var(--unx-surface)', border: '1px solid var(--unx-border)', borderRadius: 'var(--unx-radius-card)', boxShadow: 'var(--unx-shadow-sm)', marginTop: 24 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 20px' }}>
+              <span style={{ font: 'var(--unx-h3)', color: 'var(--unx-ink)' }}>Actividad reciente</span>
+              <span style={{ font: 'var(--unx-small)', color: 'var(--unx-blue)', fontWeight: 600 }}>Ver todo</span>
+            </div>
+            <SkeletonRow w1="55%" w2="70%" w3="45%" />
+            <SkeletonRow w1="70%" w2="50%" w3="60%" />
+            <SkeletonRow w1="45%" w2="65%" w3="40%" />
+            <SkeletonRow w1="60%" w2="45%" w3="55%" />
+          </div>
+        </main>
+      </div>
+    );
+  }
+  ReactDOM.createRoot(document.getElementById('root')).render(<Demo />);
+}
+init();
+</script>
+</body></html>

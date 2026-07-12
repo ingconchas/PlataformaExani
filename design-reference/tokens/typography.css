@@ -1,0 +1,17 @@
+/* UNX Simuladores — Tipografía
+   Barlow 600 encabezados · Barlow 400 cuerpo ·
+   Barlow Condensed 600 cifras, badges, timers y tablas densas (tabular-nums) */
+:root {
+  --unx-font-sans: 'Barlow', 'Helvetica Neue', sans-serif;
+  --unx-font-condensed: 'Barlow Condensed', 'Arial Narrow', sans-serif;
+
+  --unx-display: 600 32px/40px var(--unx-font-sans);
+  --unx-h1: 600 24px/32px var(--unx-font-sans);
+  --unx-h2: 600 20px/28px var(--unx-font-sans);
+  --unx-h3: 600 18px/26px var(--unx-font-sans);
+  --unx-body: 400 16px/24px var(--unx-font-sans);
+  --unx-small: 400 14px/20px var(--unx-font-sans);
+  --unx-caption: 400 12px/16px var(--unx-font-sans);
+
+  --unx-badge-tracking: 0.06em; /* badges en MAYÚSCULAS, Condensed 600, 12px */
+}

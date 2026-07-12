@@ -1,0 +1,74 @@
+<!-- @dsCard group="Components" viewport="700x600" subtitle="PasswordInput, SearchInput, MultiSelect, Textarea, FileDrop" name="Formularios avanzados" -->
+<!DOCTYPE html><html><head><meta charset="utf-8">
+<link rel="stylesheet" href="../../styles.css">
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+</head>
+<body style="margin:0;font-family:var(--unx-font-sans);background:#fff;padding:20px;">
+<div id="root"></div>
+<script type="text/babel">
+const NAMES = ['PasswordInput', 'SearchInput', 'MultiSelect', 'Textarea', 'FileDrop'];
+
+function findNS() {
+  for (const k of Object.getOwnPropertyNames(window)) {
+    try {
+      const v = window[k];
+      if (v && typeof v === 'object' && NAMES.every(n => typeof v[n] === 'function')) return v;
+    } catch (e) {}
+  }
+  return null;
+}
+
+async function loadBundle() {
+  await new Promise(res => {
+    const s = document.createElement('script');
+    s.src = '../../_ds_bundle' + '.js';
+    s.onload = res; s.onerror = res;
+    document.head.appendChild(s);
+  });
+  return findNS();
+}
+
+async function loadLocal() {
+  const ex = {};
+  for (const n of NAMES) {
+    let src = await (await fetch(n + '.jsx')).text();
+    src = src.replace(/^import .*$/gm, '').replace(/export function (\w+)/g, 'ex.$1 = function $1');
+    eval(Babel.transform(src, { presets: [['react', { runtime: 'classic' }]] }).code);
+  }
+  return ex;
+}
+
+async function init() {
+  const NS = findNS() || (await loadBundle()) || (await loadLocal());
+  const { PasswordInput, SearchInput, MultiSelect, Textarea, FileDrop } = NS;
+
+  function Demo() {
+    const [groups, setGroups] = React.useState(['a', 'b']);
+    return (
+      <div style={{ display: 'grid', gap: 20 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, alignItems: 'end' }}>
+          <PasswordInput label="Contraseña" value="secreta123" onChange={() => {}} />
+          <SearchInput placeholder="Buscar por nombre…" fullWidth />
+        </div>
+        <MultiSelect
+          label="Grupos con acceso"
+          value={groups}
+          onChange={setGroups}
+          options={[
+            { value: 'a', label: 'Matutino A' },
+            { value: 'b', label: 'Vespertino B' },
+            { value: 'c', label: 'Intensivo Sabatino' },
+          ]}
+        />
+        <Textarea label="Explicación de la respuesta correcta" placeholder="El alumno la verá al revisar sus respuestas…" helpText="Explica el porqué, no solo la respuesta." rows={3} />
+        <FileDrop label="Importar alumnos" hint="Arrastra tu archivo CSV aquí o" />
+      </div>
+    );
+  }
+  ReactDOM.createRoot(document.getElementById('root')).render(<Demo />);
+}
+init();
+</script>
+</body></html>

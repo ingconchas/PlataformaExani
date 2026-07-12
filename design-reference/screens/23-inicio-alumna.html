@@ -1,0 +1,109 @@
+<!-- @dsCard group="Pantallas" viewport="390x844" name="Diseño 23 — Inicio de la alumna" subtitle="Alumna · Móvil · armada con componentes" -->
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Diseño 23 — Inicio de la alumna</title>
+<link rel="stylesheet" href="../styles.css">
+<style>
+  html, body { margin: 0; background: var(--unx-bg); }
+  body { font-family: var(--unx-font-sans); color: var(--unx-text); -webkit-font-smoothing: antialiased; }
+  * { box-sizing: border-box; }
+</style>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+<script src="_load.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+async function init() {
+  const { StudentHeader, BottomNav, Card, Button, ProgressBar, ExamCard, AchievementBadge } =
+    await UNXScreen.load(['StudentHeader', 'BottomNav', 'Card', 'Button', 'ProgressBar', 'ExamCard', 'AchievementBadge']);
+
+  const TABS = [{ id: 'inicio', label: 'Inicio', icon: 'inicio' }, { id: 'examenes', label: 'Mis exámenes', icon: 'examenes' }, { id: 'historial', label: 'Historial', icon: 'historial' }, { id: 'progreso', label: 'Progreso', icon: 'progreso' }];
+  const Stage = ({ children }) => <div style={{ display: 'flex', flexWrap: 'wrap', gap: 32, padding: '24px 40px 48px', alignItems: 'flex-start' }}>{children}</div>;
+  const Cell = ({ label, children }) => <div><div style={{ fontFamily: 'var(--unx-font-condensed)', fontWeight: 600, fontSize: 12, letterSpacing: '0.06em', color: 'var(--unx-text-muted)', textTransform: 'uppercase', marginBottom: 10 }}>{label}</div>{children}</div>;
+  const Phone = ({ header, children, tab = 'inicio' }) => (
+    <div style={{ width: 390, height: 800, background: 'var(--unx-bg)', border: '1px solid var(--unx-border-strong)', borderRadius: 28, boxShadow: 'var(--unx-shadow-md)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+      {header}
+      <div style={{ flex: 1, overflow: 'auto', padding: '4px 20px 20px', display: 'grid', gap: 16, alignContent: 'start' }}>{children}</div>
+      <BottomNav items={TABS} activeId={tab} />
+    </div>
+  );
+  const cap = (t) => <div style={{ fontFamily: 'var(--unx-font-condensed)', fontWeight: 600, fontSize: 12, letterSpacing: '0.06em', color: 'var(--unx-text-muted)', textTransform: 'uppercase' }}>{t}</div>;
+
+  const Avance = () => (
+    <Card>
+      {cap('Tu avance hacia la meta')}
+      <div style={{ fontFamily: 'var(--unx-font-condensed)', fontWeight: 600, fontSize: 48, color: 'var(--unx-ink)', fontVariantNumeric: 'tabular-nums', lineHeight: '52px', marginTop: 4 }}>1082</div>
+      <div style={{ font: 'var(--unx-caption)', color: 'var(--unx-text-muted)', marginBottom: 12 }}>Puntaje más reciente · escala 700–1300</div>
+      <ProgressBar value={382} max={600} goal={450} goalLabel="Meta 1150" color="var(--unx-blue)" />
+      <div style={{ font: 'var(--unx-small)', color: 'var(--unx-green)', fontWeight: 600, marginTop: 10 }}>¡A 68 puntos de tu meta! Vas subiendo.</div>
+      <div style={{ font: 'var(--unx-caption)', color: 'var(--unx-text-muted)', marginTop: 4 }}>Medicina — UDG</div>
+    </Card>
+  );
+  const Ultimo = () => (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'var(--unx-green-tint)', borderRadius: 10, padding: '14px 16px' }}>
+      <span style={{ display: 'inline-flex', width: 36, height: 36, borderRadius: '50%', background: '#fff', color: 'var(--unx-green)', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>
+      <div style={{ flex: 1 }}><div style={{ font: 'var(--unx-caption)', color: 'var(--unx-text-muted)' }}>Tu último resultado</div><div style={{ fontWeight: 600, color: 'var(--unx-ink)' }}>Simulacro General 2 — 1082</div></div>
+      <a href="#" style={{ font: 'var(--unx-small)', color: 'var(--unx-blue)', fontWeight: 600, textDecoration: 'none', whiteSpace: 'nowrap' }}>Ver</a>
+    </div>
+  );
+  const Insignias = () => (
+    <Card>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}><span style={{ font: 'var(--unx-h3)', color: 'var(--unx-ink)' }}>Insignias recientes</span><a href="#" style={{ font: 'var(--unx-small)', color: 'var(--unx-blue)', fontWeight: 600, textDecoration: 'none' }}>Ver todas</a></div>
+      <div style={{ display: 'flex', gap: 16, justifyContent: 'space-around' }}>
+        <AchievementBadge size={64} label="Primer simulacro" />
+        <AchievementBadge size={64} label="+100 puntos" />
+        <AchievementBadge size={64} locked label="5 simulacros" />
+      </div>
+    </Card>
+  );
+
+  function App() {
+    return (
+      <Stage>
+        <Cell label="01 · Inicio">
+          <Phone header={<StudentHeader name="Fer" message="Medicina — UDG" streakDays={5} />}>
+            <Avance />
+            <ExamCard name="Simulacro General 3" meta="90 preguntas · 3 h" deadline="Cierra el 12 de julio, 23:59" status="pendiente" ctaText="Comenzar simulacro" />
+            <Ultimo />
+            <Insignias />
+          </Phone>
+        </Cell>
+
+        <Cell label="A · Sin simulacros contestados">
+          <Phone header={<StudentHeader name="Fer" message="Medicina — UDG" streakDays={0} />}>
+            <Card>
+              <div style={{ textAlign: 'center', padding: '12px 8px' }}>
+                <img src="../assets/illustrations/caja-examenes.svg" alt="" style={{ width: 96, marginBottom: 12 }} />
+                <div style={{ font: 'var(--unx-h3)', color: 'var(--unx-ink)', marginBottom: 6 }}>Tu primer simulacro te espera</div>
+                <p style={{ font: 'var(--unx-small)', color: 'var(--unx-text-muted)', margin: '0 0 16px' }}>Es tu diagnóstico inicial: nos dice de dónde partimos.</p>
+                <Button variant="primary" fullWidth>Comenzar mi diagnóstico</Button>
+              </div>
+            </Card>
+            <Insignias />
+          </Phone>
+        </Cell>
+
+        <Cell label="B · Sin examen pendiente">
+          <Phone header={<StudentHeader name="Fer" message="Medicina — UDG" streakDays={5} />}>
+            <Avance />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'var(--unx-blue-tint)', borderRadius: 10, padding: 16 }}>
+              <span style={{ display: 'inline-flex', width: 40, height: 40, borderRadius: '50%', background: '#fff', color: 'var(--unx-blue)', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 2"/></svg></span>
+              <div><div style={{ fontWeight: 600, color: 'var(--unx-ink)' }}>No tienes simulacros pendientes</div><div style={{ font: 'var(--unx-caption)', color: 'var(--unx-text-muted)' }}>Tu instructor te asignará el siguiente. Mientras tanto, puedes repasar tus áreas a reforzar.</div></div>
+            </div>
+            <Insignias />
+          </Phone>
+        </Cell>
+      </Stage>
+    );
+  }
+  ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+}
+init();
+</script>
+</body>
+</html>

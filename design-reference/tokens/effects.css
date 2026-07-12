@@ -1,0 +1,8 @@
+/* UNX Simuladores — Sombras, focus y motion */
+:root {
+  --unx-shadow-sm: 0 1px 2px rgba(31,41,55,.05), 0 1px 3px rgba(31,41,55,.06); /* tarjetas (con borde) */
+  --unx-shadow-md: 0 4px 6px rgba(31,41,55,.04), 0 10px 24px rgba(31,41,55,.08); /* modales, menús */
+
+  --unx-focus-ring: 0 0 0 3px var(--unx-blue-tint); /* anillo exterior sólido 3px */
+  --unx-transition: 150ms ease;
+}

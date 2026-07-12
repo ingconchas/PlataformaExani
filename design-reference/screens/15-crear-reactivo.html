@@ -1,0 +1,159 @@
+<!-- @dsCard group="Pantallas" viewport="1440x900" name="Diseño 15 — Crear reactivo" subtitle="Instructor · Desktop · armada con componentes" -->
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Diseño 15 — Crear reactivo</title>
+<link rel="stylesheet" href="../styles.css">
+<style>
+  html, body { margin: 0; background: var(--unx-bg); }
+  body { font-family: var(--unx-font-sans); color: var(--unx-text); -webkit-font-smoothing: antialiased; }
+  * { box-sizing: border-box; }
+</style>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+<script src="_load.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const ALEJANDRO = [
+  { id: 'inicio', label: 'Inicio', icon: 'inicio' },
+  { id: 'reactivos', label: 'Banco de reactivos', icon: 'reactivos' },
+  { id: 'examenes', label: 'Exámenes', icon: 'examenes' },
+];
+
+async function init() {
+  const { SidebarNav, PageHeader, Breadcrumb, Card, Badge, Button, Select, Textarea, Tabs, DifficultyMeter, AnswerOption } =
+    await UNXScreen.load(['SidebarNav', 'PageHeader', 'Breadcrumb', 'Card', 'Badge', 'Button', 'Select', 'Textarea', 'Tabs', 'DifficultyMeter', 'AnswerOption']);
+
+  const Label = ({ children }) => (
+    <div style={{ fontFamily: 'var(--unx-font-condensed)', fontWeight: 600, fontSize: 13, letterSpacing: '0.06em', color: 'var(--unx-text-muted)', textTransform: 'uppercase', padding: '0 40px 10px' }}>{children}</div>
+  );
+  const Shell = ({ children }) => (
+    <div style={{ display: 'flex', minHeight: 900, background: 'var(--unx-bg)', overflow: 'hidden', border: '1px solid var(--unx-border)' }}>
+      <SidebarNav user={{ name: 'Alejandro Ruiz', role: 'Instructor' }} items={ALEJANDRO} activeId="reactivos" />
+      <main style={{ flex: 1, overflow: 'auto', padding: 32 }}>{children}</main>
+    </div>
+  );
+  const Field = ({ label, children }) => (
+    <div style={{ marginBottom: 18 }}>
+      <div style={{ font: 'var(--unx-small)', fontWeight: 600, color: 'var(--unx-ink)', marginBottom: 8 }}>{label}</div>
+      {children}
+    </div>
+  );
+  const Toolbar = () => (
+    <div style={{ display: 'flex', gap: 4, padding: 6, borderBottom: '1px solid var(--unx-border)', background: 'var(--unx-bg)', borderRadius: '8px 8px 0 0' }}>
+      {['B', 'I', 'x₂', 'x²', 'Ω'].map((t) => <span key={t} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 28, borderRadius: 6, background: 'var(--unx-blue-tint)', color: 'var(--unx-blue)', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>{t}</span>)}
+    </div>
+  );
+  const RichBox = ({ children, h = 90 }) => (
+    <div style={{ border: '1.5px solid var(--unx-border-strong)', borderRadius: 8 }}>
+      <Toolbar />
+      <div style={{ padding: 12, minHeight: h, font: 'var(--unx-body)', color: 'var(--unx-ink)' }}>{children}</div>
+    </div>
+  );
+  const OptRow = ({ text, correct }) => (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', border: `1.5px solid ${correct ? 'var(--unx-green)' : 'var(--unx-border-strong)'}`, background: correct ? 'var(--unx-green-tint)' : '#fff', borderRadius: 8, marginBottom: 8 }}>
+      <span style={{ width: 18, height: 18, borderRadius: '50%', border: `2px solid ${correct ? 'var(--unx-green)' : 'var(--unx-border-strong)'}`, background: correct ? 'var(--unx-green)' : '#fff', flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{correct && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}</span>
+      <span style={{ flex: 1, color: 'var(--unx-ink)' }}>{text}</span>
+      {correct && <Badge variant="success">Correcta</Badge>}
+    </div>
+  );
+  const DiffPick = ({ sel }) => (
+    <div style={{ display: 'flex', gap: 10 }}>
+      {[['facil', 'Básico'], ['medio', 'Intermedio'], ['dificil', 'Avanzado']].map(([lvl, lab]) => (
+        <div key={lvl} style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', border: `1.5px solid ${sel === lvl ? 'var(--unx-blue)' : 'var(--unx-border)'}`, background: sel === lvl ? 'var(--unx-blue-tint)' : '#fff', borderRadius: 8, cursor: 'pointer' }}>
+          <DifficultyMeter level={lvl} showLabel={false} size="chip" /><span style={{ font: 'var(--unx-small)', fontWeight: 600, color: 'var(--unx-ink)' }}>{lab}</span>
+        </div>
+      ))}
+    </div>
+  );
+  const Preview = ({ q, opts, sel }) => (
+    <div style={{ position: 'sticky', top: 0 }}>
+      <div style={{ fontFamily: 'var(--unx-font-condensed)', fontWeight: 600, fontSize: 13, letterSpacing: '0.06em', color: 'var(--unx-text-muted)', textTransform: 'uppercase', marginBottom: 10 }}>Vista previa · así lo verá el alumno</div>
+      <Card>
+        <p style={{ margin: '0 0 16px', font: 'var(--unx-body)', color: 'var(--unx-ink)' }}>{q}</p>
+        <div style={{ display: 'grid', gap: 10 }}>
+          {opts.map((o, i) => <AnswerOption key={i} letter={'ABCD'[i]} state={i === sel ? 'selected' : 'normal'}>{o}</AnswerOption>)}
+        </div>
+      </Card>
+    </div>
+  );
+
+  function App() {
+    return (
+      <div style={{ display: 'grid', gap: 40, padding: '24px 0 48px' }}>
+        <div>
+          <Label>A · Pregunta directa</Label>
+          <Shell>
+            <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: 28 }}>
+              <div>
+                <Breadcrumb items={[{ label: 'Banco de reactivos', href: '#' }, { label: 'Crear reactivo' }]} />
+                <div style={{ margintop: 8 }}><PageHeader title="Crear reactivo" /></div>
+                <Field label="Enunciado"><RichBox>¿Cuál es el resultado de (x²)(x³)?</RichBox><div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 10 }}><a href="#" style={{ font: 'var(--unx-small)', color: 'var(--unx-blue)', fontWeight: 600, textDecoration: 'none' }}>+ Adjuntar imagen</a><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--unx-blue-tint)', color: 'var(--unx-blue)', borderRadius: 999, padding: '3px 10px', fontSize: 13 }}>figura-exponentes.png ✕</span></div></Field>
+                <Field label="Presentación"><Tabs tabs={[{ id: 'd', label: 'Pregunta directa' }, { id: 'c', label: 'Relación de columnas' }, { id: 'o', label: 'Ordenamiento' }]} activeId="d" /><p style={{ margin: '8px 0 0', font: 'var(--unx-small)', color: 'var(--unx-text-muted)' }}>Todas las presentaciones se contestan como opción múltiple.</p></Field>
+                <Field label="Opciones de respuesta">
+                  <OptRow text="x⁵" correct /><OptRow text="x⁶" /><OptRow text="2x⁵" /><OptRow text="x⁹" />
+                  <a href="#" style={{ font: 'var(--unx-small)', color: 'var(--unx-blue)', fontWeight: 600, textDecoration: 'none' }}>+ Agregar opción (máx. 4)</a>
+                </Field>
+                <Field label="Explicación de la respuesta correcta"><Textarea value="Al multiplicar potencias con la misma base, los exponentes se suman: x² · x³ = x²⁺³ = x⁵." rows={2} helpText="El alumno la verá al revisar sus respuestas." /></Field>
+                <Field label="Clasificación en el temario">
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 14 }}>
+                    <Select options={[{ value: 'pm', label: 'Pensamiento matemático' }]} value="pm" />
+                    <Select options={[{ value: 'al', label: 'Álgebra' }]} value="al" />
+                    <Select options={[{ value: 'le', label: 'Leyes de los exponentes' }]} value="le" />
+                  </div>
+                  <DiffPick sel="facil" />
+                </Field>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 8 }}><Button variant="secondary">Cancelar</Button><Button variant="primary">Guardar reactivo</Button></div>
+              </div>
+              <Preview q="¿Cuál es el resultado de (x²)(x³)?" opts={['x⁵', 'x⁶', '2x⁵', 'x⁹']} sel={0} />
+            </div>
+          </Shell>
+        </div>
+
+        <div>
+          <Label>B · Relación de columnas · opciones y vista previa</Label>
+          <Shell>
+            <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: 28 }}>
+              <div>
+                <Field label="Enunciado"><RichBox h={60}>Relaciona cada expresión algebraica con su clasificación:</RichBox>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 10 }}>
+                    <div style={{ background: 'var(--unx-bg)', border: '1px solid var(--unx-border)', borderRadius: 8, padding: 12, font: 'var(--unx-small)' }}><b>Columna 1</b><br/>1. 4x²y<br/>2. a + b<br/>3. x² + 3x − 2</div>
+                    <div style={{ background: 'var(--unx-bg)', border: '1px solid var(--unx-border)', borderRadius: 8, padding: 12, font: 'var(--unx-small)' }}><b>Columna 2</b><br/>a. Trinomio<br/>b. Monomio<br/>c. Binomio</div>
+                  </div>
+                </Field>
+                <Field label="Presentación"><Tabs tabs={[{ id: 'd', label: 'Pregunta directa' }, { id: 'c', label: 'Relación de columnas' }, { id: 'o', label: 'Ordenamiento' }]} activeId="c" /></Field>
+                <Field label="Opciones de respuesta (combinaciones)"><OptRow text="1b, 2c, 3a" correct /><OptRow text="1a, 2b, 3c" /><OptRow text="1c, 2a, 3b" /></Field>
+              </div>
+              <Preview q="Relaciona cada expresión algebraica con su clasificación:" opts={['1b, 2c, 3a', '1a, 2b, 3c', '1c, 2a, 3b']} sel={0} />
+            </div>
+          </Shell>
+        </div>
+
+        <div>
+          <Label>C · Ordenamiento · opciones y vista previa</Label>
+          <Shell>
+            <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: 28 }}>
+              <div>
+                <Field label="Enunciado"><RichBox h={60}>Ordena los pasos para resolver la ecuación 3x + 5 = 20:</RichBox>
+                  <div style={{ background: 'var(--unx-bg)', border: '1px solid var(--unx-border)', borderRadius: 8, padding: 12, font: 'var(--unx-small)', marginTop: 10 }}>1. Dividir ambos lados entre 3 · 2. Restar 5 en ambos lados · 3. Identificar la incógnita · 4. Comprobar el resultado</div>
+                </Field>
+                <Field label="Presentación"><Tabs tabs={[{ id: 'd', label: 'Pregunta directa' }, { id: 'c', label: 'Relación de columnas' }, { id: 'o', label: 'Ordenamiento' }]} activeId="o" /></Field>
+                <Field label="Opciones de respuesta (secuencias)"><OptRow text="3, 2, 1, 4" correct /><OptRow text="2, 3, 1, 4" /><OptRow text="3, 1, 4, 2" /></Field>
+              </div>
+              <Preview q="Ordena los pasos para resolver la ecuación 3x + 5 = 20:" opts={['3, 2, 1, 4', '2, 3, 1, 4', '3, 1, 4, 2']} sel={1} />
+            </div>
+          </Shell>
+        </div>
+      </div>
+    );
+  }
+  ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+}
+init();
+</script>
+</body>
+</html>

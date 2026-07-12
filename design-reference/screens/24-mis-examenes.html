@@ -1,0 +1,94 @@
+<!-- @dsCard group="Pantallas" viewport="390x844" name="Diseño 24 — Mis exámenes" subtitle="Alumna · Móvil · armada con componentes" -->
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Diseño 24 — Mis exámenes</title>
+<link rel="stylesheet" href="../styles.css">
+<style>
+  html, body { margin: 0; background: var(--unx-bg); }
+  body { font-family: var(--unx-font-sans); color: var(--unx-text); -webkit-font-smoothing: antialiased; }
+  * { box-sizing: border-box; }
+</style>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+<script src="_load.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+async function init() {
+  const { BottomNav, Card, Button, Badge } =
+    await UNXScreen.load(['BottomNav', 'Card', 'Button', 'Badge']);
+
+  const TABS = [{ id: 'inicio', label: 'Inicio', icon: 'inicio' }, { id: 'examenes', label: 'Mis exámenes', icon: 'examenes' }, { id: 'historial', label: 'Historial', icon: 'historial' }, { id: 'progreso', label: 'Progreso', icon: 'progreso' }];
+  const Stage = ({ children }) => <div style={{ display: 'flex', flexWrap: 'wrap', gap: 32, padding: '24px 40px 48px', alignItems: 'flex-start' }}>{children}</div>;
+  const Cell = ({ label, children }) => <div><div style={{ fontFamily: 'var(--unx-font-condensed)', fontWeight: 600, fontSize: 12, letterSpacing: '0.06em', color: 'var(--unx-text-muted)', textTransform: 'uppercase', marginBottom: 10 }}>{label}</div>{children}</div>;
+  const Phone = ({ children }) => (
+    <div style={{ width: 390, height: 800, background: 'var(--unx-bg)', border: '1px solid var(--unx-border-strong)', borderRadius: 28, boxShadow: 'var(--unx-shadow-md)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ padding: '20px 20px 8px' }}><h1 style={{ margin: 0, font: 'var(--unx-h1)', color: 'var(--unx-ink)' }}>Mis exámenes</h1></div>
+      <div style={{ flex: 1, overflow: 'auto', padding: '8px 20px 20px', display: 'grid', gap: 12, alignContent: 'start' }}>{children}</div>
+      <BottomNav items={TABS} activeId="examenes" />
+    </div>
+  );
+  const sectionCap = (t) => <div style={{ fontFamily: 'var(--unx-font-condensed)', fontWeight: 600, fontSize: 12, letterSpacing: '0.06em', color: 'var(--unx-text-muted)', textTransform: 'uppercase', marginTop: 6 }}>{t}</div>;
+
+  const Pendiente = ({ name, tipo, mod, meta, deadline, urgent }) => (
+    <Card>
+      <div style={{ display: 'inline-flex', marginBottom: 8 }}><span style={{ background: mod ? 'var(--unx-purple-tint)' : 'var(--unx-bg)', color: mod ? 'var(--unx-purple)' : 'var(--unx-text-muted)', borderRadius: 999, padding: '3px 10px', fontSize: 12, fontWeight: 500 }}>{tipo}</span></div>
+      <div style={{ font: 'var(--unx-h3)', color: 'var(--unx-ink)' }}>{name}</div>
+      <div style={{ margin: '8px 0', font: 'var(--unx-caption)', color: 'var(--unx-text-muted)' }}>{meta}</div>
+      <div style={{ font: 'var(--unx-small)', fontWeight: 600, color: urgent ? 'var(--unx-orange-text)' : 'var(--unx-text-muted)', marginBottom: 12 }}>{deadline}</div>
+      <Button variant="primary" fullWidth>Comenzar</Button>
+    </Card>
+  );
+  const Completado = ({ name, date, score, repaso, cerrada }) => (
+    <Card>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+        <div><div style={{ fontWeight: 600, color: 'var(--unx-ink)' }}>{name}</div><div style={{ font: 'var(--unx-caption)', color: 'var(--unx-text-muted)' }}>Contestado el {date}{cerrada ? ' · ventana cerrada' : ''}</div></div>
+        <span style={{ fontFamily: 'var(--unx-font-condensed)', fontWeight: 600, fontSize: 26, color: 'var(--unx-blue)', fontVariantNumeric: 'tabular-nums' }}>{score}</span>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 12 }}>
+        <a href="#" style={{ font: 'var(--unx-small)', color: 'var(--unx-blue)', fontWeight: 600, textDecoration: 'none' }}>Ver resultados</a>
+        {!cerrada && !repaso && <a href="#" style={{ font: 'var(--unx-small)', color: 'var(--unx-text)', fontWeight: 600, textDecoration: 'none' }}>Repetir como repaso</a>}
+        {repaso && <Badge variant="review">Repaso realizado</Badge>}
+      </div>
+    </Card>
+  );
+
+  function App() {
+    return (
+      <Stage>
+        <Cell label="01 · Mis exámenes">
+          <Phone>
+            {sectionCap('Pendientes')}
+            <Pendiente name="Módulo Biología 1" tipo="Módulo: Biología" mod meta="45 min · 24 preguntas" deadline="¡Cierra hoy a las 23:59!" urgent />
+            <Pendiente name="Simulacro General 3" tipo="Simulacro general" meta="3 h · 90 preguntas" deadline="Cierra el 12 de julio, 23:59" />
+            <Pendiente name="Práctica · Comprensión lectora" tipo="Simulacro general" meta="40 min · 20 preguntas" deadline="Cierra el 26 de julio, 23:59" />
+            {sectionCap('Completados')}
+            <Completado name="Simulacro General 2" date="28 jun" score="1082" />
+            <Completado name="Diagnóstico por áreas" date="17 may" score="940" repaso />
+            <Completado name="Simulacro General 1" date="7 jun" score="987" cerrada />
+            <p style={{ font: 'var(--unx-caption)', color: 'var(--unx-text-muted)', margin: 0 }}>El repaso no cambia tu puntaje: cuenta el primer intento.</p>
+          </Phone>
+        </Cell>
+
+        <Cell label="02 · Estado vacío">
+          <Phone>
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: 16 }}>
+              <img src="../assets/illustrations/caja-examenes.svg" alt="" style={{ width: 110, marginBottom: 16 }} />
+              <div style={{ font: 'var(--unx-h3)', color: 'var(--unx-ink)', marginBottom: 6 }}>Aún no tienes simulacros asignados</div>
+              <p style={{ font: 'var(--unx-small)', color: 'var(--unx-text-muted)', margin: 0 }}>Tu instructor te avisará cuando haya uno listo para ti.</p>
+            </div>
+          </Phone>
+        </Cell>
+      </Stage>
+    );
+  }
+  ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+}
+init();
+</script>
+</body>
+</html>

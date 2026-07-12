@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="es-MX">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UNX Simuladores — Visor de pantallas</title>
+<link rel="stylesheet" href="../styles.css">
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: var(--unx-font-sans); color: var(--unx-text); background: var(--unx-bg); height: 100vh; display: flex; overflow: hidden; }
+  aside { width: 280px; flex-shrink: 0; background: var(--unx-surface); border-right: 1px solid var(--unx-border); display: flex; flex-direction: column; }
+  aside header { display: flex; align-items: center; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--unx-border); }
+  aside header img { height: 26px; }
+  aside header b { font: 600 15px/20px var(--unx-font-sans); color: var(--unx-ink); }
+  nav { flex: 1; overflow: auto; padding: 12px; }
+  .group { font-family: var(--unx-font-condensed); font-weight: 600; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--unx-text-muted); padding: 14px 12px 6px; }
+  button.item { display: block; width: 100%; text-align: left; border: none; background: transparent; color: var(--unx-text); font: 400 14px/18px var(--unx-font-sans); padding: 9px 12px; border-radius: 8px; cursor: pointer; }
+  button.item:hover { background: #F3F4F6; }
+  button.item.active { background: var(--unx-blue-tint); color: var(--unx-blue); font-weight: 600; }
+  button.item .n { font-family: var(--unx-font-condensed); font-weight: 600; color: var(--unx-text-muted); margin-right: 8px; }
+  button.item.active .n { color: var(--unx-blue); }
+  main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .bar { display: flex; align-items: center; gap: 12px; padding: 12px 20px; border-bottom: 1px solid var(--unx-border); background: var(--unx-surface); }
+  .bar h1 { margin: 0; font: 600 16px/22px var(--unx-font-sans); color: var(--unx-ink); }
+  .bar .plat { font: 400 13px/18px var(--unx-font-sans); color: var(--unx-text-muted); }
+  .bar a { margin-left: auto; font: 600 13px/18px var(--unx-font-sans); color: var(--unx-blue); text-decoration: none; }
+  .stage { flex: 1; overflow: auto; background: #EEF0F3; }
+  iframe { width: 100%; height: 100%; border: none; display: block; background: #EEF0F3; }
+</style>
+</head>
+<body>
+<aside>
+  <header><img src="../assets/logo/unx-logotipo.png" alt="UNX"><b>Pantallas — Fase 0</b></header>
+  <nav id="nav"></nav>
+</aside>
+<main>
+  <div class="bar"><h1 id="title">—</h1><span class="plat" id="plat"></span><a id="open" href="#" target="_blank">Abrir en pestaña ↗</a></div>
+  <div class="stage"><iframe id="frame" title="Pantalla"></iframe></div>
+</main>
+<script>
+  const SCREENS = [
+    { g: 'Diseño 03 · Layouts por rol', items: [
+      { n: '03', t: 'Layout — Administradora', p: 'Desktop', src: '../components/layouts/layout-admin.card.html' },
+      { n: '03', t: 'Layout — Instructor', p: 'Desktop', src: '../components/layouts/layout-instructor.card.html' },
+      { n: '03', t: 'App de la alumna', p: 'Móvil', src: '../components/layouts/layout-alumna.card.html' },
+      { n: '03', t: 'Modo examen', p: 'Móvil', src: '../components/layouts/layout-examen.card.html' },
+      { n: '03', t: 'Responsive', p: 'Tablet/Desktop', src: '../components/layouts/layout-responsive.card.html' },
+    ]},
+    { g: 'Acceso (todos los roles)', items: [
+      { n: '04', t: 'Correos transaccionales', p: 'Correo · estático', src: '04-correos-transaccionales.html' },
+      { n: '05', t: 'Flujo de acceso', p: 'Web', src: '05-flujo-de-acceso.html' },
+    ]},
+    { g: 'Administradora (Mayra)', items: [
+      { n: '06', t: 'Panel principal', p: 'Desktop', src: '06-panel-admin.html' },
+      { n: '07', t: 'Gestión de alumnos', p: 'Desktop', src: '07-gestion-alumnos.html' },
+      { n: '08', t: 'Importar alumnos por CSV', p: 'Desktop', src: '08-importar-alumnos-csv.html' },
+      { n: '09', t: 'Gestión de grupos', p: 'Desktop', src: '09-gestion-grupos.html' },
+      { n: '10', t: 'Usuarios y permisos', p: 'Desktop', src: '10-usuarios-permisos.html' },
+      { n: '11', t: 'Gestión de temario', p: 'Desktop', src: '11-gestion-temario.html' },
+      { n: '12', t: 'Resumen de exámenes', p: 'Desktop', src: '12-resumen-examenes.html' },
+    ]},
+    { g: 'Instructor (Alejandro)', items: [
+      { n: '13', t: 'Panel del instructor', p: 'Desktop', src: '13-panel-instructor.html' },
+      { n: '14', t: 'Banco de reactivos', p: 'Desktop', src: '14-banco-reactivos.html' },
+      { n: '15', t: 'Crear reactivo', p: 'Desktop', src: '15-crear-reactivo.html' },
+      { n: '16', t: 'Crear lectura', p: 'Desktop', src: '16-crear-lectura.html' },
+      { n: '17', t: 'Exámenes (biblioteca)', p: 'Desktop', src: '17-examenes-instructor.html' },
+      { n: '18', t: 'Constructor de examen', p: 'Desktop', src: '18-constructor-examen.html' },
+      { n: '19', t: 'Asignar examen', p: 'Desktop', src: '19-asignar-examen.html' },
+      { n: '20', t: 'Resultados del examen', p: 'Desktop', src: '20-resultados-examen.html' },
+      { n: '21', t: 'Ficha del alumno', p: 'Desktop', src: '21-ficha-alumno.html' },
+    ]},
+    { g: 'Alumna (Fernanda)', items: [
+      { n: '22', t: 'Onboarding', p: 'Móvil', src: '22-onboarding-alumna.html' },
+      { n: '23', t: 'Inicio de la alumna', p: 'Móvil', src: '23-inicio-alumna.html' },
+      { n: '24', t: 'Mis exámenes', p: 'Móvil', src: '24-mis-examenes.html' },
+      { n: '25', t: 'Simulacro en curso', p: 'Móvil', src: '25-simulacro-en-curso.html' },
+      { n: '26', t: 'Resultados del simulacro', p: 'Móvil', src: '26-resultados-simulacro.html' },
+      { n: '27', t: 'Revisión de respuestas', p: 'Móvil', src: '27-revision-respuestas.html' },
+      { n: '28', t: 'Historial', p: 'Móvil', src: '28-historial.html' },
+      { n: '29', t: 'Mi progreso', p: 'Móvil', src: '29-progreso.html' },
+      { n: '30', t: 'Mi perfil', p: 'Móvil', src: '30-perfil.html' },
+    ]},
+  ];
+
+  const nav = document.getElementById('nav');
+  const frame = document.getElementById('frame');
+  const title = document.getElementById('title');
+  const plat = document.getElementById('plat');
+  const open = document.getElementById('open');
+  let buttons = [];
+
+  function show(item, btn) {
+    frame.src = item.src;
+    title.textContent = 'Diseño ' + item.n + ' — ' + item.t;
+    plat.textContent = '· ' + item.p;
+    open.href = item.src;
+    buttons.forEach((b) => b.classList.remove('active'));
+    btn.classList.add('active');
+  }
+
+  SCREENS.forEach((grp) => {
+    const h = document.createElement('div'); h.className = 'group'; h.textContent = grp.g; nav.appendChild(h);
+    grp.items.forEach((item) => {
+      const b = document.createElement('button'); b.className = 'item';
+      b.innerHTML = '<span class="n">' + item.n + '</span>' + item.t;
+      b.onclick = () => show(item, b);
+      nav.appendChild(b); buttons.push(b);
+    });
+  });
+  // abre la primera pantalla real (Panel de Mayra)
+  const first = buttons.find((b) => b.textContent.includes('Panel principal')) || buttons[0];
+  first.click();
+</script>
+</body>
+</html>

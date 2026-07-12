@@ -1,0 +1,120 @@
+<!-- @dsCard group="Pantallas" viewport="1440x900" name="Diseño 21 — Ficha del alumno" subtitle="Staff · Desktop · armada con componentes" -->
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Diseño 21 — Ficha del alumno</title>
+<link rel="stylesheet" href="../styles.css">
+<style>
+  html, body { margin: 0; background: var(--unx-bg); }
+  body { font-family: var(--unx-font-sans); color: var(--unx-text); -webkit-font-smoothing: antialiased; }
+  * { box-sizing: border-box; }
+</style>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+<script src="_load.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const ALEJANDRO = [
+  { id: 'inicio', label: 'Inicio', icon: 'inicio' },
+  { id: 'reactivos', label: 'Banco de reactivos', icon: 'reactivos' },
+  { id: 'examenes', label: 'Exámenes', icon: 'examenes' },
+];
+
+async function init() {
+  const { SidebarNav, Breadcrumb, Card, Badge, LineChart, DataTable } =
+    await UNXScreen.load(['SidebarNav', 'Breadcrumb', 'Card', 'Badge', 'LineChart', 'DataTable']);
+
+  const Label = ({ children }) => (
+    <div style={{ fontFamily: 'var(--unx-font-condensed)', fontWeight: 600, fontSize: 13, letterSpacing: '0.06em', color: 'var(--unx-text-muted)', textTransform: 'uppercase', padding: '0 40px 10px' }}>{children}</div>
+  );
+  const Shell = ({ children }) => (
+    <div style={{ display: 'flex', minHeight: 1050, background: 'var(--unx-bg)', overflow: 'hidden', border: '1px solid var(--unx-border)' }}>
+      <SidebarNav user={{ name: 'Alejandro Ruiz', role: 'Instructor' }} items={ALEJANDRO} activeId="examenes" />
+      <main style={{ flex: 1, overflow: 'auto', padding: 32 }}><div style={{ maxWidth: 980 }}>{children}</div></main>
+    </div>
+  );
+  const XL = ['Diagnóstico · 17 may', 'General 1 · 7 jun', 'General 2 · 28 jun', 'General 3 · 5 jul'];
+  const score = (n) => <span style={{ fontFamily: 'var(--unx-font-condensed)', fontWeight: 600, fontSize: 18, color: 'var(--unx-blue)', fontVariantNumeric: 'tabular-nums' }}>{n}</span>;
+  const sec = (t) => <span style={{ color: 'var(--unx-text-muted)', fontSize: 14, fontVariantNumeric: 'tabular-nums' }}>{t}</span>;
+
+  const Header = () => (
+    <Card style={{ marginBottom: 20 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 56, height: 56, borderRadius: '50%', background: 'var(--unx-blue-tint)', color: 'var(--unx-blue)', fontWeight: 600, fontSize: 20, flexShrink: 0 }}>FL</span>
+        <div style={{ flex: 1 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><span style={{ font: 'var(--unx-h2)', color: 'var(--unx-ink)' }}>Fernanda López — Grupo Matutino A</span><Badge variant="neutral">Solo lectura</Badge></div>
+          <div style={{ font: 'var(--unx-small)', color: 'var(--unx-text-muted)', marginTop: 2 }}>Carrera objetivo: UDG — Medicina</div>
+        </div>
+        <div style={{ textAlign: 'right' }}>
+          <Badge variant="achievement">Objetivo 1150</Badge>
+          <div style={{ fontFamily: 'var(--unx-font-condensed)', fontWeight: 600, fontSize: 32, color: 'var(--unx-ink)', fontVariantNumeric: 'tabular-nums', marginTop: 6 }}>1082</div>
+          <div style={{ font: 'var(--unx-caption)', color: 'var(--unx-text-muted)' }}>Mejor puntaje</div>
+        </div>
+      </div>
+    </Card>
+  );
+
+  function App() {
+    return (
+      <div style={{ display: 'grid', gap: 40, padding: '24px 0 48px' }}>
+        <div>
+          <Label>01 · Ficha de Fernanda López</Label>
+          <Shell>
+            <Breadcrumb items={[{ label: 'Exámenes', href: '#' }, { label: 'Simulacro General 2', href: '#' }, { label: 'Resultados', href: '#' }, { label: 'Fernanda López' }]} />
+            <div style={{ marginTop: 8 }}><Header /></div>
+            <p style={{ font: 'var(--unx-caption)', color: 'var(--unx-text-muted)', margin: '0 0 16px' }}>Las gráficas usan el primer intento (diagnóstico) de cada simulacro.</p>
+            <Card style={{ marginBottom: 20 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}><span style={{ font: 'var(--unx-h3)', color: 'var(--unx-ink)' }}>Evolución del puntaje global</span><Badge variant="achievement">Objetivo 1150</Badge></div>
+              <LineChart width={900} height={260} yMin={700} yMax={1300} goal={1150} goalLabel="Objetivo 1150" xLabels={XL}
+                series={[{ label: 'Puntaje', color: 'var(--unx-blue)', points: [940, 987, 1024, 1082] }]} />
+              <p style={{ font: 'var(--unx-caption)', color: 'var(--unx-text-muted)', margin: '10px 0 0' }}>Escala 700–1300 · línea punteada: objetivo 1150</p>
+            </Card>
+            <Card style={{ marginBottom: 20 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}><span style={{ font: 'var(--unx-h3)', color: 'var(--unx-ink)' }}>Evolución por sección · % de aciertos</span><Badge variant="warning">Estancado ~55%</Badge></div>
+              <LineChart width={900} height={260} yMin={0} yMax={100} xLabels={XL}
+                series={[
+                  { label: 'Pensamiento matemático', color: 'var(--unx-orange)', points: [53, 54, 55, 55] },
+                  { label: 'Comprensión lectora', color: 'var(--unx-blue)', points: [63, 70, 78, 82] },
+                  { label: 'Redacción indirecta', color: 'var(--unx-purple)', points: [57, 60, 68, 72] },
+                ]} />
+              <p style={{ font: 'var(--unx-caption)', color: 'var(--unx-text-muted)', margin: '10px 0 0' }}>Pensamiento matemático se mantiene plano en ~55%: candidato a modo repaso.</p>
+            </Card>
+            <div style={{ font: 'var(--unx-h3)', color: 'var(--unx-ink)', margin: '4px 0 12px' }}>Simulacros presentados <span style={{ font: 'var(--unx-small)', color: 'var(--unx-text-muted)', fontWeight: 400 }}>· 4 simulacros · primer intento</span></div>
+            <DataTable
+              columns={[{ key: 'ex', label: 'Examen' }, { key: 'fecha', label: 'Fecha' }, { key: 'p', label: 'Puntaje', align: 'right' }, { key: 'm', label: 'Matemáticas' }, { key: 'c', label: 'Comprensión' }, { key: 'r', label: 'Redacción' }]}
+              rows={[
+                { ex: <b style={{ color: 'var(--unx-ink)' }}>Simulacro General 3</b>, fecha: sec('5 jul 2026'), p: score('1082'), m: sec('17/30'), c: sec('26/30'), r: sec('23/30') },
+                { ex: <b style={{ color: 'var(--unx-ink)' }}>Simulacro General 2</b>, fecha: sec('28 jun 2026'), p: score('1024'), m: sec('17/30'), c: sec('24/30'), r: sec('21/30') },
+                { ex: <b style={{ color: 'var(--unx-ink)' }}>Simulacro General 1</b>, fecha: sec('7 jun 2026'), p: score('987'), m: sec('16/30'), c: sec('21/30'), r: sec('18/30') },
+                { ex: <b style={{ color: 'var(--unx-ink)' }}>Diagnóstico por áreas</b>, fecha: sec('17 may 2026'), p: score('940'), m: sec('16/30'), c: sec('19/30'), r: sec('17/30') },
+              ]}
+            />
+          </Shell>
+        </div>
+
+        <div>
+          <Label>02 · Variante · un solo simulacro</Label>
+          <Shell>
+            <Header />
+            <Card>
+              <div style={{ font: 'var(--unx-h3)', color: 'var(--unx-ink)', marginBottom: 12 }}>Evolución del puntaje global</div>
+              <div style={{ background: 'var(--unx-bg)', border: '1px dashed var(--unx-border-strong)', borderRadius: 10, padding: 40, textAlign: 'center' }}>
+                <p style={{ margin: 0, font: 'var(--unx-body)', color: 'var(--unx-text-muted)' }}>Aún no hay suficientes simulacros para mostrar evolución (se necesitan 2 o más).</p>
+                <p style={{ margin: '8px 0 0', font: 'var(--unx-small)', color: 'var(--unx-ink)', fontWeight: 600 }}>Primer resultado: Diagnóstico por áreas · 940</p>
+              </div>
+            </Card>
+          </Shell>
+        </div>
+      </div>
+    );
+  }
+  ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+}
+init();
+</script>
+</body>
+</html>

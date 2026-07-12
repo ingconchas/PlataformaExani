@@ -1,0 +1,108 @@
+<!-- @dsCard group="Pantallas" viewport="1440x900" name="Diseño 17 — Exámenes (biblioteca)" subtitle="Instructor · Desktop · armada con componentes" -->
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Diseño 17 — Exámenes (biblioteca)</title>
+<link rel="stylesheet" href="../styles.css">
+<style>
+  html, body { margin: 0; background: var(--unx-bg); }
+  body { font-family: var(--unx-font-sans); color: var(--unx-text); -webkit-font-smoothing: antialiased; }
+  * { box-sizing: border-box; }
+</style>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+<script src="_load.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const ALEJANDRO = [
+  { id: 'inicio', label: 'Inicio', icon: 'inicio' },
+  { id: 'reactivos', label: 'Banco de reactivos', icon: 'reactivos' },
+  { id: 'examenes', label: 'Exámenes', icon: 'examenes' },
+];
+const TINTS = { AR: ['var(--unx-blue-tint)', 'var(--unx-blue)'], DP: ['var(--unx-green-tint)', 'var(--unx-green)'], CL: ['var(--unx-purple-tint)', 'var(--unx-purple)'], RC: ['var(--unx-yellow-tint)', 'var(--unx-orange-text)'] };
+
+async function init() {
+  const { SidebarNav, PageHeader, Tabs, DataTable, Badge, Button } =
+    await UNXScreen.load(['SidebarNav', 'PageHeader', 'Tabs', 'DataTable', 'Badge', 'Button']);
+
+  const Label = ({ children }) => (
+    <div style={{ fontFamily: 'var(--unx-font-condensed)', fontWeight: 600, fontSize: 13, letterSpacing: '0.06em', color: 'var(--unx-text-muted)', textTransform: 'uppercase', padding: '0 40px 10px' }}>{children}</div>
+  );
+  const Shell = ({ children }) => (
+    <div style={{ display: 'flex', height: 860, background: 'var(--unx-bg)', overflow: 'hidden', border: '1px solid var(--unx-border)' }}>
+      <SidebarNav user={{ name: 'Alejandro Ruiz', role: 'Instructor' }} items={ALEJANDRO} activeId="examenes" />
+      <main style={{ flex: 1, overflow: 'auto', padding: 32 }}>{children}</main>
+    </div>
+  );
+  const autor = (ini, n) => { const [bg, fg] = TINTS[ini]; return <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, borderRadius: '50%', background: bg, color: fg, fontSize: 11, fontWeight: 600 }}>{ini}</span><span style={{ font: 'var(--unx-small)' }}>{n}</span></span>; };
+  const tipo = (t, mod) => <span style={{ display: 'inline-flex', alignItems: 'center', background: mod ? 'var(--unx-purple-tint)' : 'var(--unx-bg)', color: mod ? 'var(--unx-purple)' : 'var(--unx-text)', borderRadius: 999, padding: '3px 10px', fontSize: 12, fontWeight: 500 }}>{t}</span>;
+  const m = (s) => <span style={{ color: 'var(--unx-text-muted)', fontSize: 14 }}>{s}</span>;
+  const link = (t, primary) => <a href="#" style={{ font: 'var(--unx-small)', color: primary ? 'var(--unx-blue)' : 'var(--unx-text-muted)', fontWeight: 600, textDecoration: 'none', whiteSpace: 'nowrap' }}>{t}</a>;
+
+  const COLS = [
+    { key: 'nombre', label: 'Nombre' }, { key: 'tipo', label: 'Tipo' }, { key: 'autor', label: 'Autor' },
+    { key: 'reactivos', label: 'Reactivos', align: 'right' }, { key: 'tiempo', label: 'Tiempo' }, { key: 'estado', label: 'Estado' }, { key: 'aplic', label: 'Aplicaciones' }, { key: 'accion', label: 'Acción', align: 'right' },
+  ];
+  const est = (s) => s === 'PUBLICADO' ? <Badge variant="success">Publicado</Badge> : s === 'BORRADOR' ? <Badge variant="neutral">Borrador</Badge> : <Badge variant="neutral">Archivado</Badge>;
+  const E = (n, tp, mod, ini, an, r, t, s, ap, ac) => ({ nombre: <b style={{ color: 'var(--unx-ink)' }}>{n}</b>, tipo: tipo(tp, mod), autor: autor(ini, an), reactivos: <span style={{ fontVariantNumeric: 'tabular-nums' }}>{r}</span>, tiempo: m(t), estado: est(s), aplic: m(ap), accion: ac });
+  const ROWS = [
+    E('Simulacro General 4', 'Simulacro general', false, 'AR', 'Alejandro Ruiz', 64, '3 h 00 min', 'BORRADOR', '—', link('Continuar editando', true)),
+    E('Diagnóstico Redacción', 'Simulacro general', false, 'CL', 'Carlos Lora', 30, '1 h 15 min', 'BORRADOR', '—', m('Solo su autor lo edita')),
+    E('Simulacro General 3', 'Simulacro general', false, 'AR', 'Alejandro Ruiz', 90, '3 h 00 min', 'PUBLICADO', '2 asignaciones', <span>{link('Asignar', true)}  ·  {link('Ver')}</span>),
+    E('Simulacro General 2', 'Simulacro general', false, 'DP', 'Diana Peña', 90, '3 h 00 min', 'PUBLICADO', '3 asignaciones', link('Ver resultados', true)),
+    E('Módulo Biología 1', 'Módulo: Biología', true, 'RC', 'Rubén Cano', 24, '0 h 45 min', 'PUBLICADO', '1 asignación', <span>{link('Asignar', true)}  ·  {link('Ver')}</span>),
+    E('Práctica · Comprensión lectora', 'Simulacro general', false, 'AR', 'Alejandro Ruiz', 20, '0 h 40 min', 'PUBLICADO', '2 asignaciones', link('Ver resultados', true)),
+    E('Simulacro General 1', 'Simulacro general', false, 'DP', 'Diana Peña', 90, '3 h 00 min', 'ARCHIVADO', '4 asignaciones', link('Ver resultados')),
+  ];
+  const CountTab = ({ label, count, active }) => (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>{label}<span style={{ background: active ? 'var(--unx-blue-tint)' : '#F3F4F6', color: active ? 'var(--unx-blue)' : 'var(--unx-text-muted)', borderRadius: 999, padding: '1px 8px', fontSize: 12, fontWeight: 600 }}>{count}</span></span>
+  );
+
+  function App() {
+    return (
+      <div style={{ display: 'grid', gap: 40, padding: '24px 0 48px' }}>
+        <div>
+          <Label>01 · Biblioteca de exámenes</Label>
+          <Shell>
+            <PageHeader title="Exámenes" subtitle="Biblioteca institucional — todos la ven completa, cada examen muestra su autor" actionLabel="Crear examen" />
+            <div style={{ marginBottom: 16 }}>
+              <Tabs tabs={[
+                { id: 't', label: <CountTab label="Todos" count={7} active /> },
+                { id: 'b', label: <CountTab label="Borradores" count={2} /> },
+                { id: 'p', label: <CountTab label="Publicados" count={4} /> },
+                { id: 'a', label: <CountTab label="Archivados" count={1} /> },
+              ]} activeId="t" />
+            </div>
+            <DataTable columns={COLS} rows={ROWS} />
+            <p style={{ font: 'var(--unx-small)', color: 'var(--unx-text-muted)', marginTop: 12 }}>Los borradores solo los edita su autor; los administradores pueden editar todos.</p>
+          </Shell>
+        </div>
+
+        <div>
+          <Label>02 · Pestaña Borradores · estado vacío</Label>
+          <Shell>
+            <PageHeader title="Exámenes" subtitle="Biblioteca institucional" actionLabel="Crear examen" />
+            <div style={{ marginBottom: 16 }}>
+              <Tabs tabs={[
+                { id: 't', label: <CountTab label="Todos" count={7} /> },
+                { id: 'b', label: <CountTab label="Borradores" count={0} active /> },
+                { id: 'p', label: <CountTab label="Publicados" count={4} /> },
+                { id: 'a', label: <CountTab label="Archivados" count={1} /> },
+              ]} activeId="b" />
+            </div>
+            <DataTable columns={COLS} rows={[]} emptyTitle="No tienes borradores" emptyText="Crea un examen desde el banco institucional de reactivos." emptyAction={<Button variant="primary">+ Crear examen</Button>} />
+          </Shell>
+        </div>
+      </div>
+    );
+  }
+  ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+}
+init();
+</script>
+</body>
+</html>
