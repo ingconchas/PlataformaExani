@@ -8,6 +8,9 @@
  * @module
  */
 
+import type * as alumnos from "../alumnos.js";
+import type * as authz from "../authz.js";
+import type * as grupos from "../grupos.js";
 import type * as seed from "../seed.js";
 
 import type {
@@ -17,6 +20,9 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  alumnos: typeof alumnos;
+  authz: typeof authz;
+  grupos: typeof grupos;
   seed: typeof seed;
 }>;
 

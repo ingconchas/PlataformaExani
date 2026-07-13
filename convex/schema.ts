@@ -32,6 +32,9 @@ export default defineSchema({
     telefono: v.optional(v.string()),
     grupoId: v.optional(v.id("grupos")), // alumno: grupo al que pertenece
     activo: v.boolean(),
+    // Último acceso (LUI-6 `ultimo_acceso_en`). CONTRATO LUI-7: el login lo
+    // actualiza en cada ingreso; hoy solo lo llena el seed de demo.
+    ultimoAccesoEn: v.optional(v.number()),
   })
     .index("by_user", ["userId"])
     .index("by_rol", ["rol"])
