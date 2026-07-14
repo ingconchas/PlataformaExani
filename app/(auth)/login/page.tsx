@@ -1,8 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { Card } from "@/components/ui/card";
-import { Input, Label } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
+import { LoginForm } from "./login-form";
 
 export default function LoginPage() {
   return (
@@ -18,38 +17,22 @@ export default function LoginPage() {
           />
         </div>
         <Card>
-          <h1 className="text-h2 text-ink">Inicia sesión</h1>
+          <h1 className="text-h2 text-ink">
+            Te damos la bienvenida a UNX Simuladores
+          </h1>
           <p className="mt-1 text-small text-muted">
             Entra con tu correo y contraseña.
           </p>
-          <form className="mt-5 space-y-4">
-            <div>
-              <Label htmlFor="correo">Correo</Label>
-              <Input
-                id="correo"
-                type="email"
-                placeholder="tu@correo.com"
-                autoComplete="email"
-              />
-            </div>
-            <div>
-              <Label htmlFor="password">Contraseña</Label>
-              <Input id="password" type="password" autoComplete="current-password" />
-            </div>
-            <Button size="lg" className="w-full">
-              Entrar
-            </Button>
-          </form>
+          <LoginForm />
           <Link
-            href="#"
+            href="/restablecer"
             className="mt-4 block text-center text-small text-unx-blue hover:underline"
           >
             ¿Olvidaste tu contraseña?
           </Link>
         </Card>
         <p className="mt-6 text-center text-caption text-muted">
-          Pantalla base (LUI-8). Conectar con Convex Auth al activar la
-          autenticación.
+          UNX · Preparación para tu examen de admisión · unx.mx
         </p>
       </div>
     </main>

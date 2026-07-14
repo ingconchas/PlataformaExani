@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Barlow, Barlow_Condensed } from "next/font/google";
+import { ConvexAuthNextjsServerProvider } from "@convex-dev/auth/nextjs/server";
 import "./globals.css";
 import { Providers } from "@/components/providers";
 
@@ -34,7 +35,13 @@ export default function RootLayout({
       className={`${barlow.variable} ${barlowCondensed.variable} h-full antialiased`}
     >
       <body className="min-h-full">
-        <Providers>{children}</Providers>
+        {process.env.NEXT_PUBLIC_CONVEX_URL ? (
+          <ConvexAuthNextjsServerProvider>
+            <Providers>{children}</Providers>
+          </ConvexAuthNextjsServerProvider>
+        ) : (
+          <Providers>{children}</Providers>
+        )}
       </body>
     </html>
   );

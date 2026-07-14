@@ -9,10 +9,14 @@
  */
 
 import type * as alumnos from "../alumnos.js";
+import type * as auth from "../auth.js";
 import type * as authz from "../authz.js";
 import type * as grupos from "../grupos.js";
+import type * as http from "../http.js";
 import type * as instructores from "../instructores.js";
 import type * as seed from "../seed.js";
+import type * as seedAuth from "../seedAuth.js";
+import type * as sesion from "../sesion.js";
 import type * as usuarios from "../usuarios.js";
 
 import type {
@@ -23,10 +27,14 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   alumnos: typeof alumnos;
+  auth: typeof auth;
   authz: typeof authz;
   grupos: typeof grupos;
+  http: typeof http;
   instructores: typeof instructores;
   seed: typeof seed;
+  seedAuth: typeof seedAuth;
+  sesion: typeof sesion;
   usuarios: typeof usuarios;
 }>;
 

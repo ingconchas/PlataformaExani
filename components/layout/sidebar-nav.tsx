@@ -2,16 +2,27 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { useQuery } from "convex/react";
+import { useAuthActions } from "@convex-dev/auth/react";
 import { LogOut } from "lucide-react";
+import { api } from "@/convex/_generated/api";
 import { adminNav, instructorNav } from "@/lib/nav";
 import { cn } from "@/lib/utils";
+
+const ETIQUETA_ROL: Record<"admin" | "instructor" | "alumno", string> = {
+  admin: "Administrador",
+  instructor: "Instructor",
+  alumno: "Alumno",
+};
 
 /**
  * Barra lateral fija del panel institucional (256px).
  * Activo = fondo azul-tinte + barra indicadora azul de 3px en el borde.
  * Recibe solo `role` (string): los iconos no pueden cruzar la frontera
- * servidor→cliente, así que el menú se resuelve aquí, en el cliente.
+ * servidor→cliente, así que el menú se resuelve aquí, en el cliente. El nombre y
+ * el rol se toman de la sesión (`sesion.actual`); `userName`/`userRole` son
+ * respaldo mientras carga (LUI-7).
  */
 export function SidebarNav({
   role,
@@ -23,7 +34,19 @@ export function SidebarNav({
   userRole: string;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const { signOut } = useAuthActions();
+  const sesion = useQuery(api.sesion.actual);
   const items = role === "admin" ? adminNav : instructorNav;
+
+  const nombre = sesion?.nombre ?? userName;
+  const etiqueta = sesion ? ETIQUETA_ROL[sesion.rol] : userRole;
+
+  async function cerrarSesion() {
+    await signOut();
+    router.replace("/login");
+  }
+
   return (
     <aside className="flex h-screen w-64 shrink-0 flex-col border-r border-border bg-surface">
       <div className="flex h-16 items-center px-6">
@@ -36,8 +59,8 @@ export function SidebarNav({
         />
       </div>
       <div className="border-b border-border px-6 pb-4">
-        <p className="truncate text-small font-semibold text-ink">{userName}</p>
-        <p className="text-caption text-muted">{userRole}</p>
+        <p className="truncate text-small font-semibold text-ink">{nombre}</p>
+        <p className="text-caption text-muted">{etiqueta}</p>
       </div>
       <nav className="flex-1 space-y-1 p-3">
         {items.map((item) => {
@@ -65,7 +88,11 @@ export function SidebarNav({
         })}
       </nav>
       <div className="border-t border-border p-3">
-        <button className="flex w-full items-center gap-3 rounded-control px-3 py-2.5 text-small text-text transition-colors hover:bg-bg">
+        <button
+          type="button"
+          onClick={cerrarSesion}
+          className="flex w-full items-center gap-3 rounded-control px-3 py-2.5 text-small text-text transition-colors hover:bg-bg"
+        >
           <LogOut className="size-5 shrink-0" aria-hidden />
           Cerrar sesión
         </button>
