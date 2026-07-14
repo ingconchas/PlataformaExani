@@ -31,6 +31,7 @@ export default defineSchema({
     apellidos: v.optional(v.string()),
     telefono: v.optional(v.string()),
     grupoId: v.optional(v.id("grupos")), // alumno: grupo al que pertenece
+    materia: v.optional(v.string()), // instructor: materia que imparte (etiqueta, LUI-12)
     activo: v.boolean(),
     // Último acceso (LUI-6 `ultimo_acceso_en`). CONTRATO LUI-7: el login lo
     // actualiza en cada ingreso; hoy solo lo llena el seed de demo.
@@ -40,13 +41,34 @@ export default defineSchema({
     .index("by_rol", ["rol"])
     .index("by_grupo", ["grupoId"]),
 
-  // Grupos de la institución (un instructor a cargo).
+  // Grupos de la institución. Los instructores (uno o varios, típicamente por
+  // materia) se ligan vía la tabla de unión `grupoInstructores` (LUI-12 / PRD v2).
   grupos: defineTable({
     nombre: v.string(),
+    // Texto libre (p. ej. "2026-B"). La identidad del grupo es (nombre + ciclo).
     ciclo: v.optional(v.string()),
-    instructorId: v.optional(v.id("users")),
+    // Opcional por migración: los grupos existentes no lo traían. El formulario y
+    // las mutations lo exigen para altas/ediciones nuevas (endurecer a requerido
+    // es un follow-up cuando el dato sea uniforme).
+    turno: v.optional(
+      v.union(
+        v.literal("matutino"),
+        v.literal("vespertino"),
+        v.literal("sabatino"),
+      ),
+    ),
     activo: v.boolean(),
-  }).index("by_instructor", ["instructorId"]),
+  }),
+
+  // Unión grupo↔instructor (la «GrupoInstructor» del PRD): un grupo tiene 1+
+  // instructores; un instructor puede estar en varios grupos. `instructorId` es
+  // el userId del instructor (consistente con el resto del modelo).
+  grupoInstructores: defineTable({
+    grupoId: v.id("grupos"),
+    instructorId: v.id("users"),
+  })
+    .index("by_grupo", ["grupoId"])
+    .index("by_instructor", ["instructorId"]),
 
   // Temario canónico del EXANI II (jerárquico: área → tema).
   temas: defineTable({

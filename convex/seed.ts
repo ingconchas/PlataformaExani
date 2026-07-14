@@ -22,8 +22,35 @@ const norm = (correo: string) => correo.trim().toLowerCase();
 const nombreCompleto = (nombre: string, apellidos: string) =>
   [nombre, apellidos].filter(Boolean).join(" ");
 
-const INSTRUCTOR_EMAIL = "cristian.instructor@demo.unx.mx";
-const GRUPOS = ["Matutino A", "Vespertino B", "Sabatino C"];
+type Turno = "matutino" | "vespertino" | "sabatino";
+const GRUPOS: { nombre: string; turno: Turno }[] = [
+  { nombre: "Matutino A", turno: "matutino" },
+  { nombre: "Vespertino B", turno: "vespertino" },
+  { nombre: "Sabatino C", turno: "sabatino" },
+];
+
+// Instructores demo con materia (LUI-12). El primero es autor de los reactivos.
+const INSTRUCTORES: {
+  nombre: string;
+  apellidos: string;
+  correo: string;
+  materia: string;
+}[] = [
+  { nombre: "Cristian", apellidos: "Martínez", correo: "cristian.instructor@demo.unx.mx", materia: "Matemáticas" },
+  { nombre: "Carlos", apellidos: "Lora", correo: "carlos.instructor@demo.unx.mx", materia: "Español" },
+  { nombre: "Diana", apellidos: "Peña", correo: "diana.instructor@demo.unx.mx", materia: "Física" },
+];
+
+// Qué instructores imparten en cada grupo (por correo) — ejercita 1, 2 y 3 por grupo.
+const GRUPO_INSTRUCTORES: Record<string, string[]> = {
+  "Matutino A": ["cristian.instructor@demo.unx.mx", "carlos.instructor@demo.unx.mx"],
+  "Vespertino B": ["diana.instructor@demo.unx.mx"],
+  "Sabatino C": [
+    "cristian.instructor@demo.unx.mx",
+    "carlos.instructor@demo.unx.mx",
+    "diana.instructor@demo.unx.mx",
+  ],
+};
 
 type AlumnoSeed = {
   nombre: string;
@@ -125,43 +152,70 @@ export const cargarDatosDePrueba = internalMutation({
     const reparado: string[] = [];
     const ahora = Date.now();
 
-    // ── 1. Grupos (upsert por nombre) ──────────────────────────────────────
+    // ── 1. Grupos (upsert por nombre; converge turno) ──────────────────────
     const gruposExistentes = await ctx.db.query("grupos").collect();
     const grupoIdPorNombre = new Map<string, Id<"grupos">>();
-    for (const nombre of GRUPOS) {
-      const encontrado = gruposExistentes.find((g) => g.nombre === nombre);
+    for (const g of GRUPOS) {
+      const encontrado = gruposExistentes.find((x) => x.nombre === g.nombre);
       if (encontrado) {
-        grupoIdPorNombre.set(nombre, encontrado._id);
+        grupoIdPorNombre.set(g.nombre, encontrado._id);
+        if (encontrado.turno !== g.turno) {
+          await ctx.db.patch(encontrado._id, { turno: g.turno });
+          reparado.push(`grupo:${g.nombre}(turno)`);
+        }
         continue;
       }
-      const id = await ctx.db.insert("grupos", { nombre, ciclo: "2026-A", activo: true });
-      grupoIdPorNombre.set(nombre, id);
-      insertado.push(`grupo:${nombre}`);
-    }
-
-    // ── 2. Instructor autor (upsert por correo) ────────────────────────────
-    const instructorEmail = norm(INSTRUCTOR_EMAIL);
-    const instructorExistente = await ctx.db
-      .query("users")
-      .withIndex("email", (q) => q.eq("email", instructorEmail))
-      .first();
-    let instructorUserId: Id<"users">;
-    if (instructorExistente) {
-      instructorUserId = instructorExistente._id;
-    } else {
-      instructorUserId = await ctx.db.insert("users", {
-        name: "Cristian Martínez",
-        email: instructorEmail,
-      });
-      await ctx.db.insert("perfiles", {
-        userId: instructorUserId,
-        rol: "instructor",
-        nombre: "Cristian",
-        apellidos: "Martínez",
+      const id = await ctx.db.insert("grupos", {
+        nombre: g.nombre,
+        ciclo: "2026-A",
+        turno: g.turno,
         activo: true,
       });
-      insertado.push("instructor");
+      grupoIdPorNombre.set(g.nombre, id);
+      insertado.push(`grupo:${g.nombre}`);
     }
+
+    // ── 2. Instructores (upsert por correo; converge materia) ──────────────
+    const instructorUserIdPorCorreo = new Map<string, Id<"users">>();
+    for (const inst of INSTRUCTORES) {
+      const correo = norm(inst.correo);
+      const datosPerfil = {
+        rol: "instructor" as const,
+        nombre: inst.nombre,
+        apellidos: inst.apellidos,
+        materia: inst.materia,
+        activo: true,
+      };
+      const nombre = nombreCompleto(inst.nombre, inst.apellidos);
+      const user = await ctx.db
+        .query("users")
+        .withIndex("email", (q) => q.eq("email", correo))
+        .first();
+      if (user) {
+        instructorUserIdPorCorreo.set(correo, user._id);
+        await ctx.db.patch(user._id, { name: nombre });
+        const perfil = await ctx.db
+          .query("perfiles")
+          .withIndex("by_user", (q) => q.eq("userId", user._id))
+          .first();
+        if (perfil) {
+          await ctx.db.patch(perfil._id, datosPerfil);
+          reparado.push(`instructor:${inst.nombre}`);
+        } else {
+          await ctx.db.insert("perfiles", { userId: user._id, ...datosPerfil });
+          insertado.push(`instructor:${inst.nombre}`);
+        }
+      } else {
+        const userId = await ctx.db.insert("users", { name: nombre, email: correo });
+        await ctx.db.insert("perfiles", { userId, ...datosPerfil });
+        instructorUserIdPorCorreo.set(correo, userId);
+        insertado.push(`instructor:${inst.nombre}`);
+      }
+    }
+    // Autor de los reactivos = primer instructor (Cristian, Matemáticas).
+    const instructorUserId = instructorUserIdPorCorreo.get(
+      norm(INSTRUCTORES[0].correo),
+    )!;
 
     // ── 3. Tema (upsert por nombre) ────────────────────────────────────────
     const temasExistentes = await ctx.db.query("temas").collect();
@@ -228,6 +282,24 @@ export const cargarDatosDePrueba = internalMutation({
         });
         await ctx.db.insert("perfiles", { userId, ...datosPerfil });
         insertado.push(`alumno:${a.nombre}`);
+      }
+    }
+
+    // ── 6. Grupo↔instructor (upsert por par, evita duplicados) ─────────────
+    for (const [nombreGrupo, correos] of Object.entries(GRUPO_INSTRUCTORES)) {
+      const grupoId = grupoIdPorNombre.get(nombreGrupo);
+      if (!grupoId) continue;
+      const existentes = await ctx.db
+        .query("grupoInstructores")
+        .withIndex("by_grupo", (q) => q.eq("grupoId", grupoId))
+        .collect();
+      const yaLigados = new Set(existentes.map((r) => r.instructorId as string));
+      for (const correo of correos) {
+        const instructorId = instructorUserIdPorCorreo.get(norm(correo));
+        if (!instructorId || yaLigados.has(instructorId as string)) continue;
+        await ctx.db.insert("grupoInstructores", { grupoId, instructorId });
+        yaLigados.add(instructorId as string);
+        insertado.push(`grupo-instructor:${nombreGrupo}`);
       }
     }
 

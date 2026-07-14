@@ -293,6 +293,17 @@ function AlumnoFormModal({
   const [error, setError] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
 
+  // Grupos activos + (si el grupo actual del alumno está cerrado) ese grupo como
+  // opción visible marcada «(cerrado)», para no perderlo al editar —política
+  // tolerante, LUI-12—. No se ofrecen otros grupos cerrados para reasignar.
+  const opcionesGrupo = grupos.map((g) => ({ value: g.id, label: g.nombre }));
+  if (alumno && alumno.grupoId && !grupos.some((g) => g.id === alumno.grupoId)) {
+    opcionesGrupo.unshift({
+      value: alumno.grupoId,
+      label: `${alumno.grupoNombre ?? "Grupo"} (cerrado)`,
+    });
+  }
+
   async function guardar(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
@@ -363,7 +374,7 @@ function AlumnoFormModal({
         <Select
           label="Grupo"
           placeholder="Elige un grupo"
-          options={grupos.map((g) => ({ value: g.id, label: g.nombre }))}
+          options={opcionesGrupo}
           value={grupoId}
           onChange={(e) => setGrupoId(e.target.value)}
         />

@@ -138,7 +138,12 @@ export const actualizar = mutation({
     const nombre = args.nombre.trim();
     const apellidos = args.apellidos?.trim() || undefined;
     if (!nombre) throw new ConvexError("El nombre es obligatorio.");
-    await validarGrupoActivo(ctx, args.grupoId);
+    // Política tolerante (LUI-12): validar el grupo SOLO si cambió respecto al
+    // actual. Así, conservar el grupo del alumno —aunque haya sido cerrado— es
+    // válido; reasignar a OTRO grupo inactivo sigue prohibido.
+    if (args.grupoId !== perfil.grupoId) {
+      await validarGrupoActivo(ctx, args.grupoId);
+    }
 
     // Valida el correo (formato + duplicado ignorando el propio) ANTES de escribir.
     let correoNuevo: string | undefined;

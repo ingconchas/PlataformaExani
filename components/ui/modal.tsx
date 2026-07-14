@@ -44,6 +44,11 @@ export function Modal({
 
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") {
+        // Un hijo (p. ej. el MultiSelect con su dropdown abierto) puede consumir
+        // Escape con preventDefault para cerrarse primero; en ese caso NO
+        // cerramos el modal. Escuchamos en fase de burbuja para que el manejador
+        // React del hijo corra antes que este.
+        if (e.defaultPrevented) return;
         e.stopPropagation();
         onClose?.();
         return;
@@ -63,9 +68,12 @@ export function Modal({
       }
     }
 
-    document.addEventListener("keydown", onKeyDown, true);
+    // Fase de burbuja (sin captura): así los manejadores React de los hijos
+    // corren antes y pueden consumir el evento (defaultPrevented) — p. ej. el
+    // MultiSelect cerrando su dropdown con Escape sin cerrar el modal.
+    document.addEventListener("keydown", onKeyDown);
     return () => {
-      document.removeEventListener("keydown", onKeyDown, true);
+      document.removeEventListener("keydown", onKeyDown);
       elementoPrevio?.focus?.();
     };
   }, [onClose]);
