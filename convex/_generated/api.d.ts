@@ -13,6 +13,7 @@ import type * as authz from "../authz.js";
 import type * as grupos from "../grupos.js";
 import type * as instructores from "../instructores.js";
 import type * as seed from "../seed.js";
+import type * as usuarios from "../usuarios.js";
 
 import type {
   ApiFromModules,
@@ -26,6 +27,7 @@ declare const fullApi: ApiFromModules<{
   grupos: typeof grupos;
   instructores: typeof instructores;
   seed: typeof seed;
+  usuarios: typeof usuarios;
 }>;
 
 /**

@@ -35,16 +35,23 @@ const INSTRUCTORES: {
   apellidos: string;
   correo: string;
   materia: string;
+  activo?: boolean; // default true; Rubén queda inactivo (LUI-13: estado + tolerancia)
 }[] = [
   { nombre: "Cristian", apellidos: "Martínez", correo: "cristian.instructor@demo.unx.mx", materia: "Matemáticas" },
   { nombre: "Carlos", apellidos: "Lora", correo: "carlos.instructor@demo.unx.mx", materia: "Español" },
   { nombre: "Diana", apellidos: "Peña", correo: "diana.instructor@demo.unx.mx", materia: "Física" },
+  { nombre: "Rubén", apellidos: "Cano", correo: "ruben.instructor@demo.unx.mx", materia: "Historia", activo: false },
+];
+
+// Administradores demo. Mayra es la «cuenta propia» del demo (EMAIL_CUENTA_PROPIA_DEMO).
+const ADMINS: { nombre: string; apellidos: string; correo: string }[] = [
+  { nombre: "Mayra", apellidos: "Torres", correo: "mayra.admin@demo.unx.mx" },
 ];
 
 // Qué instructores imparten en cada grupo (por correo) — ejercita 1, 2 y 3 por grupo.
 const GRUPO_INSTRUCTORES: Record<string, string[]> = {
   "Matutino A": ["cristian.instructor@demo.unx.mx", "carlos.instructor@demo.unx.mx"],
-  "Vespertino B": ["diana.instructor@demo.unx.mx"],
+  "Vespertino B": ["diana.instructor@demo.unx.mx", "ruben.instructor@demo.unx.mx"],
   "Sabatino C": [
     "cristian.instructor@demo.unx.mx",
     "carlos.instructor@demo.unx.mx",
@@ -184,7 +191,7 @@ export const cargarDatosDePrueba = internalMutation({
         nombre: inst.nombre,
         apellidos: inst.apellidos,
         materia: inst.materia,
-        activo: true,
+        activo: inst.activo ?? true,
       };
       const nombre = nombreCompleto(inst.nombre, inst.apellidos);
       const user = await ctx.db
@@ -216,6 +223,40 @@ export const cargarDatosDePrueba = internalMutation({
     const instructorUserId = instructorUserIdPorCorreo.get(
       norm(INSTRUCTORES[0].correo),
     )!;
+
+    // ── 2b. Administradores (upsert por correo) ────────────────────────────
+    for (const adm of ADMINS) {
+      const correo = norm(adm.correo);
+      const datosPerfil = {
+        rol: "admin" as const,
+        nombre: adm.nombre,
+        apellidos: adm.apellidos,
+        activo: true,
+      };
+      const nombre = nombreCompleto(adm.nombre, adm.apellidos);
+      const user = await ctx.db
+        .query("users")
+        .withIndex("email", (q) => q.eq("email", correo))
+        .first();
+      if (user) {
+        await ctx.db.patch(user._id, { name: nombre });
+        const perfil = await ctx.db
+          .query("perfiles")
+          .withIndex("by_user", (q) => q.eq("userId", user._id))
+          .first();
+        if (perfil) {
+          await ctx.db.patch(perfil._id, datosPerfil);
+          reparado.push(`admin:${adm.nombre}`);
+        } else {
+          await ctx.db.insert("perfiles", { userId: user._id, ...datosPerfil });
+          insertado.push(`admin:${adm.nombre}`);
+        }
+      } else {
+        const userId = await ctx.db.insert("users", { name: nombre, email: correo });
+        await ctx.db.insert("perfiles", { userId, ...datosPerfil });
+        insertado.push(`admin:${adm.nombre}`);
+      }
+    }
 
     // ── 3. Tema (upsert por nombre) ────────────────────────────────────────
     const temasExistentes = await ctx.db.query("temas").collect();

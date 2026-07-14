@@ -1,4 +1,9 @@
-import { query, mutation, type MutationCtx } from "./_generated/server";
+import {
+  query,
+  mutation,
+  type MutationCtx,
+  type QueryCtx,
+} from "./_generated/server";
 import { type Id } from "./_generated/dataModel";
 import { v, ConvexError } from "convex/values";
 import { requireAdmin } from "./authz";
@@ -15,11 +20,8 @@ function canonizar(s: string): string {
   return s.trim().replace(/\s+/g, " ").toLocaleLowerCase("es");
 }
 
-/** Deduplica y valida que cada id sea un instructor existente y activo. */
-async function validarInstructores(
-  ctx: MutationCtx,
-  ids: Id<"users">[],
-): Promise<Id<"users">[]> {
+/** Deduplica preservando el orden. */
+function dedupeUsuarios(ids: Id<"users">[]): Id<"users">[] {
   const vistos = new Set<string>();
   const unicos: Id<"users">[] = [];
   for (const id of ids) {
@@ -28,20 +30,35 @@ async function validarInstructores(
       unicos.push(id);
     }
   }
+  return unicos;
+}
+
+/** Valida que un id sea un instructor existente y ACTIVO. */
+async function validarInstructorActivo(
+  ctx: MutationCtx,
+  id: Id<"users">,
+): Promise<void> {
+  const perfil = await ctx.db
+    .query("perfiles")
+    .withIndex("by_user", (q) => q.eq("userId", id))
+    .first();
+  if (!perfil || perfil.rol !== "instructor" || !perfil.activo) {
+    throw new ConvexError(
+      "Uno de los instructores seleccionados no existe o está inactivo.",
+    );
+  }
+}
+
+/** Alta: deduplica, exige ≥1 y valida que TODOS estén activos. */
+async function validarInstructores(
+  ctx: MutationCtx,
+  ids: Id<"users">[],
+): Promise<Id<"users">[]> {
+  const unicos = dedupeUsuarios(ids);
   if (unicos.length === 0) {
     throw new ConvexError("Asigna al menos un instructor al grupo.");
   }
-  for (const id of unicos) {
-    const perfil = await ctx.db
-      .query("perfiles")
-      .withIndex("by_user", (q) => q.eq("userId", id))
-      .first();
-    if (!perfil || perfil.rol !== "instructor" || !perfil.activo) {
-      throw new ConvexError(
-        "Uno de los instructores seleccionados no existe o está inactivo.",
-      );
-    }
-  }
+  for (const id of unicos) await validarInstructorActivo(ctx, id);
   return unicos;
 }
 
@@ -75,6 +92,45 @@ const turnoValidator = v.union(
   v.literal("sabatino"),
 );
 
+/**
+ * Instructores de un grupo (vía la unión), con nombre, materia y `activo`.
+ * `activo` permite marcar «(inactivo)» sin romper la edición (política tolerante
+ * LUI-13): un instructor desactivado sigue apareciendo en sus grupos.
+ */
+async function instructoresDeGrupo(
+  ctx: QueryCtx,
+  grupoId: Id<"grupos">,
+): Promise<
+  { id: Id<"users">; nombre: string; materia: string | null; activo: boolean }[]
+> {
+  const unions = await ctx.db
+    .query("grupoInstructores")
+    .withIndex("by_grupo", (q) => q.eq("grupoId", grupoId))
+    .collect();
+  const out: {
+    id: Id<"users">;
+    nombre: string;
+    materia: string | null;
+    activo: boolean;
+  }[] = [];
+  for (const u of unions) {
+    const perfil = await ctx.db
+      .query("perfiles")
+      .withIndex("by_user", (q) => q.eq("userId", u.instructorId))
+      .first();
+    if (perfil) {
+      out.push({
+        id: u.instructorId,
+        nombre: nombreCompleto(perfil.nombre, perfil.apellidos),
+        materia: perfil.materia ?? null,
+        activo: perfil.activo,
+      });
+    }
+  }
+  out.sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+  return out;
+}
+
 // ── Queries ──────────────────────────────────────────────────────────────────
 
 /**
@@ -89,7 +145,12 @@ export const listar = query({
     return grupos
       .filter((g) => g.activo)
       .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"))
-      .map((g) => ({ id: g._id, nombre: g.nombre }));
+      .map((g) => ({
+        id: g._id,
+        nombre: g.nombre,
+        ciclo: g.ciclo ?? null,
+        turno: g.turno ?? null,
+      }));
   },
 });
 
@@ -107,30 +168,7 @@ export const listarGestion = query({
 
     const filas = await Promise.all(
       grupos.map(async (g) => {
-        const unions = await ctx.db
-          .query("grupoInstructores")
-          .withIndex("by_grupo", (q) => q.eq("grupoId", g._id))
-          .collect();
-
-        const instructores: {
-          id: Id<"users">;
-          nombre: string;
-          materia: string | null;
-        }[] = [];
-        for (const u of unions) {
-          const perfil = await ctx.db
-            .query("perfiles")
-            .withIndex("by_user", (q) => q.eq("userId", u.instructorId))
-            .first();
-          if (perfil) {
-            instructores.push({
-              id: u.instructorId,
-              nombre: nombreCompleto(perfil.nombre, perfil.apellidos),
-              materia: perfil.materia ?? null,
-            });
-          }
-        }
-        instructores.sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+        const instructores = await instructoresDeGrupo(ctx, g._id);
 
         const perfilesGrupo = await ctx.db
           .query("perfiles")
@@ -175,29 +213,7 @@ export const obtener = query({
     const grupo = await ctx.db.get(id);
     if (!grupo) return null;
 
-    const unions = await ctx.db
-      .query("grupoInstructores")
-      .withIndex("by_grupo", (q) => q.eq("grupoId", id))
-      .collect();
-    const instructores: {
-      id: Id<"users">;
-      nombre: string;
-      materia: string | null;
-    }[] = [];
-    for (const u of unions) {
-      const perfil = await ctx.db
-        .query("perfiles")
-        .withIndex("by_user", (q) => q.eq("userId", u.instructorId))
-        .first();
-      if (perfil) {
-        instructores.push({
-          id: u.instructorId,
-          nombre: nombreCompleto(perfil.nombre, perfil.apellidos),
-          materia: perfil.materia ?? null,
-        });
-      }
-    }
-    instructores.sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+    const instructores = await instructoresDeGrupo(ctx, id);
 
     const perfilesAlumnos = (
       await ctx.db
@@ -299,17 +315,25 @@ export const actualizar = mutation({
     if (!nombre) throw new ConvexError("El nombre del grupo es obligatorio.");
     if (!ciclo) throw new ConvexError("El ciclo es obligatorio.");
 
-    const instructorIds = await validarInstructores(ctx, args.instructorIds);
+    const instructorIds = dedupeUsuarios(args.instructorIds);
+    if (instructorIds.length === 0) {
+      throw new ConvexError("Asigna al menos un instructor al grupo.");
+    }
     await validarNombreCicloUnico(ctx, nombre, ciclo, args.grupoId);
 
-    await ctx.db.patch(args.grupoId, { nombre, ciclo, turno: args.turno });
-
-    // Reconciliar filas de unión: conserva una fila por instructor deseado,
-    // borra las no deseadas y las duplicadas (idempotente; no hay índice único).
+    // Reconciliar filas de unión (idempotente; no hay índice único). Política
+    // TOLERANTE (LUI-13): se valida que estén ACTIVOS solo los instructores
+    // NUEVOS; los ya asignados se conservan aunque estén inactivos (p. ej.
+    // desactivados desde «Usuarios y permisos»).
     const existentes = await ctx.db
       .query("grupoInstructores")
       .withIndex("by_grupo", (q) => q.eq("grupoId", args.grupoId))
       .collect();
+    const yaAsignados = new Set(existentes.map((r) => r.instructorId as string));
+    for (const id of instructorIds) {
+      if (!yaAsignados.has(id as string)) await validarInstructorActivo(ctx, id);
+    }
+    await ctx.db.patch(args.grupoId, { nombre, ciclo, turno: args.turno });
     const deseados = new Set(instructorIds.map((id) => id as string));
     const mantenidos = new Set<string>();
     for (const row of existentes) {

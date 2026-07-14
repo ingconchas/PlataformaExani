@@ -24,7 +24,12 @@ export type GrupoEditable = {
   nombre: string;
   ciclo: string | null;
   turno: Turno | null;
-  instructores: { id: Id<"users"> }[];
+  instructores: {
+    id: Id<"users">;
+    nombre: string;
+    materia: string | null;
+    activo: boolean;
+  }[];
 };
 
 const TURNOS: { value: Turno; label: string }[] = [
@@ -59,6 +64,20 @@ export function GrupoFormModal({
   );
   const [error, setError] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
+
+  // Opciones = instructores activos (prop) ∪ los ya asignados que estén
+  // inactivos, marcados «(inactivo)», para conservarlos al editar (política
+  // tolerante LUI-13).
+  const idsActivos = new Set(instructores.map((o) => o.value));
+  const opcionesInstructores = [
+    ...instructores,
+    ...(grupo?.instructores ?? [])
+      .filter((i) => !i.activo && !idsActivos.has(i.id))
+      .map((i) => ({
+        value: i.id,
+        label: `${i.materia ? `${i.nombre} — ${i.materia}` : i.nombre} (inactivo)`,
+      })),
+  ];
 
   async function guardar(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -140,7 +159,7 @@ export function GrupoFormModal({
           <MultiSelect
             label="Instructores"
             placeholder="Elige instructores"
-            options={instructores}
+            options={opcionesInstructores}
             value={instructorIds}
             onChange={setInstructorIds}
           />

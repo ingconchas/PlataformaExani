@@ -26,3 +26,18 @@ export async function requireAdmin(ctx: MutationCtx): Promise<void> {
       "npx convex env set PERMITIR_ESCRITURA_DEMO true",
   );
 }
+
+/**
+ * «Cuenta propia» del demo (auth diferida, LUI-7). Mientras no hay sesión, se
+ * designa al admin sembrado como el usuario actual: su fila no muestra acciones y
+ * no puede editarse ni desactivarse a sí mismo. Se identifica por correo, que se
+ * mantiene estable porque esta cuenta no es editable.
+ *
+ * CONTRATO LUI-7: sustituir por `getAuthUserId(ctx)` y comparar por userId de la
+ * sesión (único lugar a cambiar).
+ */
+export const EMAIL_CUENTA_PROPIA_DEMO = "mayra.admin@demo.unx.mx";
+
+export function esCuentaPropiaDemo(email: string | null | undefined): boolean {
+  return !!email && email.trim().toLowerCase() === EMAIL_CUENTA_PROPIA_DEMO;
+}

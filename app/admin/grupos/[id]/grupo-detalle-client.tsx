@@ -209,7 +209,7 @@ export function GrupoDetalleClient({ grupoId }: { grupoId: string }) {
             nombre: grupo.nombre,
             ciclo: grupo.ciclo,
             turno: grupo.turno,
-            instructores: grupo.instructores.map((i) => ({ id: i.id })),
+            instructores: grupo.instructores,
           }}
           instructores={opcionesInstructores}
           onClose={() => setEditando(false)}
