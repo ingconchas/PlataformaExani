@@ -3,6 +3,7 @@
 import { type FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useConvexAuth, useQuery } from "convex/react";
+import { ConvexError } from "convex/values";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { Eye, EyeOff } from "lucide-react";
 import { api } from "@/convex/_generated/api";
@@ -14,6 +15,24 @@ function destino(rol: "admin" | "instructor" | "alumno"): string {
   if (rol === "admin") return "/admin";
   if (rol === "instructor") return "/instructor";
   return "/inicio";
+}
+
+// El backend (`beforeSessionCreation`) rechaza cuentas desactivadas o sin perfil
+// con un ConvexError {code, message}. El proxy /api/auth reenvía ese error como
+// texto crudo y el cliente lo relanza como Error plano, así que el motivo viaja
+// EMBEBIDO en el mensaje; lo extraemos con regex (funciona para ambos transportes).
+// Solo se revela tras credenciales correctas → no filtra la existencia del correo.
+function mensajeDeLogin(err: unknown): string {
+  const raw =
+    err instanceof ConvexError
+      ? JSON.stringify(err.data)
+      : err instanceof Error
+        ? err.message
+        : String(err ?? "");
+  const m = raw.match(
+    /"code":"(?:CUENTA_INACTIVA|CUENTA_SIN_PERFIL)"[^}]*"message":"([^"]+)"/,
+  );
+  return m ? m[1] : "Correo o contraseña incorrectos";
 }
 
 export function LoginForm() {
@@ -45,9 +64,8 @@ export function LoginForm() {
         flow: "signIn",
       });
       // La redirección la hace el useEffect cuando llega `sesion.actual`.
-    } catch {
-      // Mensaje genérico: no revela si el correo existe.
-      setError("Correo o contraseña incorrectos");
+    } catch (err) {
+      setError(mensajeDeLogin(err));
       setEnviando(false);
     }
   }

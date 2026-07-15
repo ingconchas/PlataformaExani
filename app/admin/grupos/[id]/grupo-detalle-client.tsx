@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useQuery } from "convex/react";
+import { useConvexAuth, useQuery } from "convex/react";
 import { ClipboardCheck, Pencil, Users } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { PageHeader } from "@/components/layout/page-header";
@@ -47,8 +47,17 @@ function tiempoRelativo(ts: number | null): string {
 }
 
 export function GrupoDetalleClient({ grupoId }: { grupoId: string }) {
-  const grupo = useQuery(api.grupos.obtener, { grupoId });
-  const instructores = useQuery(api.instructores.listar);
+  // Dispara las queries solo con la sesión resuelta (evita un parpadeo de error
+  // por el gate de authz durante la hidratación).
+  const { isAuthenticated } = useConvexAuth();
+  const grupo = useQuery(
+    api.grupos.obtener,
+    isAuthenticated ? { grupoId } : "skip",
+  );
+  const instructores = useQuery(
+    api.instructores.listar,
+    isAuthenticated ? {} : "skip",
+  );
 
   const [busqueda, setBusqueda] = useState("");
   const [page, setPage] = useState(1);

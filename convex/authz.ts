@@ -1,43 +1,45 @@
-import { type MutationCtx } from "./_generated/server";
+import { type QueryCtx, type MutationCtx } from "./_generated/server";
+import { type Doc, type Id } from "./_generated/dataModel";
+import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError } from "convex/values";
 
 /**
- * Punto ÚNICO de autorización para las escrituras de la app.
- *
- * ⚠️ Autenticación diferida (LUI-7). Hoy este seam NO valida una sesión de
- * usuario: permite escribir SOLO si el deployment tiene la variable de entorno
- * `PERMITIR_ESCRITURA_DEMO=true`. Se activa a mano en el deployment de
- * desarrollo:
- *
- *     npx convex env set PERMITIR_ESCRITURA_DEMO true
- *
- * Así, un deploy accidental a un entorno compartido / producción —sin esa
- * flag— rechaza toda escritura. GO solo para demo local.
- *
- * CONTRATO LUI-7: reemplazar el cuerpo por leer `getAuthUserId(ctx)`, buscar su
- * `perfiles.rol` y exigir `=== "admin"`. Es el único lugar a tocar.
+ * Autorización de la app (LUI-7, Entrega 2). Punto ÚNICO para gatear queries y
+ * mutations a partir de la sesión real de Convex Auth: `getAuthUserId` + el
+ * perfil ligado por el índice `perfiles.by_user` (mismo patrón que
+ * `sesion.actual`). Sirve en queries y mutations porque solo usa `ctx.auth` y
+ * lecturas de `ctx.db`.
  */
-export async function requireAdmin(ctx: MutationCtx): Promise<void> {
-  void ctx; // se usará al conectar la sesión real (LUI-7)
-  if (process.env.PERMITIR_ESCRITURA_DEMO === "true") return;
-  throw new ConvexError(
-    "Escritura no autorizada: la autenticación aún no está activa (LUI-7). " +
-      "En desarrollo, habilita el modo demo con: " +
-      "npx convex env set PERMITIR_ESCRITURA_DEMO true",
-  );
+type Ctx = QueryCtx | MutationCtx;
+
+type Sesion = { userId: Id<"users">; perfil: Doc<"perfiles"> };
+
+/**
+ * Exige una sesión activa con perfil vigente. Rechaza si no hay sesión, si el
+ * usuario autenticado no tiene perfil, o si el perfil está desactivado (así una
+ * cuenta dada de baja no puede leer ni escribir aunque su token siga vivo).
+ */
+export async function requireSesion(ctx: Ctx): Promise<Sesion> {
+  const userId = await getAuthUserId(ctx);
+  if (!userId) throw new ConvexError("Debes iniciar sesión.");
+  const perfil = await ctx.db
+    .query("perfiles")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .first();
+  if (!perfil) throw new ConvexError("Tu cuenta no tiene un perfil asociado.");
+  if (!perfil.activo) throw new ConvexError("Tu cuenta está desactivada.");
+  return { userId, perfil };
 }
 
 /**
- * «Cuenta propia» del demo (auth diferida, LUI-7). Mientras no hay sesión, se
- * designa al admin sembrado como el usuario actual: su fila no muestra acciones y
- * no puede editarse ni desactivarse a sí mismo. Se identifica por correo, que se
- * mantiene estable porque esta cuenta no es editable.
- *
- * CONTRATO LUI-7: sustituir por `getAuthUserId(ctx)` y comparar por userId de la
- * sesión (único lugar a cambiar).
+ * Exige que la sesión sea de un administrador ACTIVO. Devuelve `{ userId, perfil }`
+ * del admin autenticado — su `userId` sirve para «cuenta propia» (comparar el
+ * registro OBJETIVO contra este `userId`, no contra este perfil).
  */
-export const EMAIL_CUENTA_PROPIA_DEMO = "mayra.admin@demo.unx.mx";
-
-export function esCuentaPropiaDemo(email: string | null | undefined): boolean {
-  return !!email && email.trim().toLowerCase() === EMAIL_CUENTA_PROPIA_DEMO;
+export async function requireAdmin(ctx: Ctx): Promise<Sesion> {
+  const sesion = await requireSesion(ctx);
+  if (sesion.perfil.rol !== "admin") {
+    throw new ConvexError("Requiere permisos de administrador.");
+  }
+  return sesion;
 }

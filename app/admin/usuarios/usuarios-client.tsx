@@ -1,7 +1,7 @@
 "use client";
 
 import { type ReactNode, useState } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
 import { type FunctionReturnType } from "convex/server";
 import { Ban, Pencil, Plus, RotateCcw } from "lucide-react";
@@ -45,8 +45,14 @@ type ModalState =
   | { tipo: "desactivar"; usuario: Usuario };
 
 export function UsuariosClient() {
-  const staff = useQuery(api.usuarios.listarStaff);
-  const grupos = useQuery(api.grupos.listar);
+  // Dispara las queries solo con la sesión resuelta (evita un parpadeo de error
+  // por el gate de authz durante la hidratación).
+  const { isAuthenticated } = useConvexAuth();
+  const staff = useQuery(
+    api.usuarios.listarStaff,
+    isAuthenticated ? {} : "skip",
+  );
+  const grupos = useQuery(api.grupos.listar, isAuthenticated ? {} : "skip");
   const cambiarEstado = useMutation(api.usuarios.cambiarEstado);
 
   const [busqueda, setBusqueda] = useState("");

@@ -33,8 +33,8 @@ export default defineSchema({
     grupoId: v.optional(v.id("grupos")), // alumno: grupo al que pertenece
     materia: v.optional(v.string()), // instructor: materia que imparte (etiqueta, LUI-12)
     activo: v.boolean(),
-    // Último acceso (LUI-6 `ultimo_acceso_en`). CONTRATO LUI-7: el login lo
-    // actualiza en cada ingreso; hoy solo lo llena el seed de demo.
+    // Último acceso (LUI-6 `ultimo_acceso_en`). El login lo actualiza en cada
+    // ingreso (Convex Auth · `beforeSessionCreation`, Entrega 2 de authz).
     ultimoAccesoEn: v.optional(v.number()),
   })
     .index("by_user", ["userId"])

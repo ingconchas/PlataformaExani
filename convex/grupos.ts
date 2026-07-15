@@ -141,6 +141,7 @@ async function instructoresDeGrupo(
 export const listar = query({
   args: {},
   handler: async (ctx) => {
+    await requireAdmin(ctx);
     const grupos = await ctx.db.query("grupos").collect();
     return grupos
       .filter((g) => g.activo)
@@ -157,13 +158,12 @@ export const listar = query({
 /**
  * Todos los grupos (activos y cerrados) con instructores resueltos y el conteo
  * de alumnos. Alimenta la lista de gestión (LUI-12). Tolera `turno`/`materia`
- * ausentes (grupos previos a la migración → `null`).
- *
- * ⚠️ Query pública sin authz (auth diferida, LUI-7). GO solo demo local.
+ * ausentes (grupos previos a la migración → `null`). Solo administradores.
  */
 export const listarGestion = query({
   args: {},
   handler: async (ctx) => {
+    await requireAdmin(ctx);
     const grupos = await ctx.db.query("grupos").collect();
 
     const filas = await Promise.all(
@@ -208,6 +208,7 @@ export const listarGestion = query({
 export const obtener = query({
   args: { grupoId: v.string() },
   handler: async (ctx, args) => {
+    await requireAdmin(ctx);
     const id = ctx.db.normalizeId("grupos", args.grupoId);
     if (!id) return null;
     const grupo = await ctx.db.get(id);
@@ -260,8 +261,7 @@ export const obtener = query({
 });
 
 // ── Mutations ────────────────────────────────────────────────────────────────
-// Toda escritura pasa por `requireAdmin` (hoy backstop demo; LUI-7 lo vuelve
-// chequeo real de rol). GO solo demo local con datos ficticios.
+// Toda escritura exige sesión de administrador vía `requireAdmin` (LUI-7).
 
 /** Alta de grupo con 1+ instructores. */
 export const crear = mutation({

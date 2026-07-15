@@ -1,17 +1,15 @@
 import { query } from "./_generated/server";
+import { requireAdmin } from "./authz";
 
 /**
  * Instructores activos, ordenados por nombre. Alimenta el <MultiSelect> de la
  * pantalla de grupos (LUI-12); `id` es el userId del instructor. `materia` puede
- * ser `null` (campo opcional del perfil).
- *
- * ⚠️ Query pública sin authz (auth diferida, LUI-7): expone nombres de staff a
- * quien tenga la URL de Convex. En dev son datos ficticios → GO solo demo local.
- * CONTRATO LUI-7: gatear esta query igual que el resto cuando exista la sesión.
+ * ser `null` (campo opcional del perfil). Solo administradores.
  */
 export const listar = query({
   args: {},
   handler: async (ctx) => {
+    await requireAdmin(ctx);
     const perfiles = await ctx.db
       .query("perfiles")
       .withIndex("by_rol", (q) => q.eq("rol", "instructor"))

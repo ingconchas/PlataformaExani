@@ -9,8 +9,9 @@ import type { Id } from "./_generated/dataModel";
  * correo, cada reactivo por enunciado. Volver a correrlo solo inserta lo que
  * falte (nunca duplica ni corta al primer registro existente).
  *
- * ⚠️ Datos ficticios a propósito: las queries siguen abiertas hasta LUI-7.
- * NO usar con datos reales ni desplegar.
+ * ⚠️ Datos ficticios a propósito (demo local). Las lecturas/escrituras de la app
+ * ya exigen sesión de admin (LUI-7); este seed corre por CLI como
+ * `internalMutation` (fuera del gate). NO usar con datos reales.
  *
  * Es `internalMutation`: NO forma parte de la API pública (no se puede llamar
  * desde el cliente/HTTP); solo se ejecuta con el CLI de confianza
@@ -43,7 +44,8 @@ const INSTRUCTORES: {
   { nombre: "Rubén", apellidos: "Cano", correo: "ruben.instructor@demo.unx.mx", materia: "Historia", activo: false },
 ];
 
-// Administradores demo. Mayra es la «cuenta propia» del demo (EMAIL_CUENTA_PROPIA_DEMO).
+// Administradores demo. Al iniciar sesión como Mayra, ella es la «cuenta propia»
+// (por userId de sesión): no puede editarse ni desactivarse a sí misma.
 const ADMINS: { nombre: string; apellidos: string; correo: string }[] = [
   { nombre: "Mayra", apellidos: "Torres", correo: "mayra.admin@demo.unx.mx" },
 ];

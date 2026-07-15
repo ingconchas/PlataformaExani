@@ -65,5 +65,32 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
         "El registro no está disponible. Ingresa con la cuenta que te asignó tu institución.",
       );
     },
+    /**
+     * Corre en CADA login, justo antes de crear la sesión (único callback con esa
+     * garantía). Bloquea el ingreso de cuentas sin perfil o desactivadas —lanza,
+     * así NO se persiste la sesión— y registra el último acceso. El `ctx` es
+     * AnyDataModel (no conoce índices tipados) → se filtra por `userId`. El error
+     * lleva un `code` distinguible para que el login muestre el motivo (solo se
+     * revela tras credenciales correctas → no filtra existencia del correo).
+     */
+    async beforeSessionCreation(ctx, { userId }) {
+      const perfil = await ctx.db
+        .query("perfiles")
+        .filter((q) => q.eq(q.field("userId"), userId))
+        .first();
+      if (!perfil) {
+        throw new ConvexError({
+          code: "CUENTA_SIN_PERFIL",
+          message: "Tu cuenta no está habilitada. Contacta a tu institución.",
+        });
+      }
+      if (perfil.activo === false) {
+        throw new ConvexError({
+          code: "CUENTA_INACTIVA",
+          message: "Tu cuenta está desactivada. Contacta a tu institución.",
+        });
+      }
+      await ctx.db.patch(perfil._id, { ultimoAccesoEn: Date.now() });
+    },
   },
 });

@@ -34,14 +34,12 @@ async function validarGrupoActivo(
 /**
  * Lista de alumnos con su correo (tabla `users`) y el nombre de su grupo
  * (tabla `grupos`) ya resueltos. `id` es el `perfilId` — clave estable de fila.
- *
- * ⚠️ Query pública sin authz (auth diferida, LUI-7): expone estos datos a quien
- * tenga la URL de Convex. Por eso el seed usa SOLO datos ficticios y esto es
- * GO únicamente para demo local. LUI-7 gateará también las queries.
+ * Solo para administradores (pantalla `/admin/alumnos`).
  */
 export const listar = query({
   args: {},
   handler: async (ctx) => {
+    await requireAdmin(ctx);
     const perfiles = await ctx.db
       .query("perfiles")
       .withIndex("by_rol", (q) => q.eq("rol", "alumno"))
@@ -181,8 +179,8 @@ export const cambiarEstado = mutation({
       throw new ConvexError("Solo se pueden activar o desactivar alumnos.");
     }
     await ctx.db.patch(args.perfilId, { activo: args.activo });
-    // CONTRATO LUI-7: el login debe RECHAZAR a un usuario con activo=false
-    // ("Tu cuenta está desactivada…"). Hoy, sin login, esto solo marca el flag.
+    // El login (Convex Auth · `beforeSessionCreation`) rechaza a un alumno con
+    // activo=false; `requireSesion` también bloquea sus lecturas/escrituras.
     return { perfilId: args.perfilId, activo: args.activo };
   },
 });

@@ -1,7 +1,7 @@
 "use client";
 
 import { type FormEvent, type ReactNode, useId, useState } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
 import { type FunctionReturnType } from "convex/server";
 import { useRouter } from "next/navigation";
@@ -62,8 +62,11 @@ type ModalState =
 
 export function AlumnosClient() {
   const router = useRouter();
-  const alumnos = useQuery(api.alumnos.listar);
-  const grupos = useQuery(api.grupos.listar);
+  // Dispara las queries solo con la sesión resuelta (evita un parpadeo de error
+  // por el gate de authz durante la hidratación).
+  const { isAuthenticated } = useConvexAuth();
+  const alumnos = useQuery(api.alumnos.listar, isAuthenticated ? {} : "skip");
+  const grupos = useQuery(api.grupos.listar, isAuthenticated ? {} : "skip");
   const cambiarEstado = useMutation(api.alumnos.cambiarEstado);
 
   const [busqueda, setBusqueda] = useState("");

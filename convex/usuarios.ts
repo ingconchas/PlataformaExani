@@ -1,7 +1,7 @@
 import { query, mutation, type MutationCtx } from "./_generated/server";
 import { type Doc, type Id } from "./_generated/dataModel";
 import { v, ConvexError } from "convex/values";
-import { requireAdmin, esCuentaPropiaDemo } from "./authz";
+import { requireAdmin } from "./authz";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -53,14 +53,13 @@ const rolStaffValidator = v.union(v.literal("admin"), v.literal("instructor"));
  * Cuentas de staff (administradores + instructores) para «Usuarios y permisos».
  * Para cada instructor resuelve sus grupos con acceso `{id, nombre, ciclo, activo}`
  * (ciclo desambigua homónimos; `activo` permite marcar «(cerrado)»). Admin ⇒
- * `accesoTodos:true`. Marca `esCuentaPropia` (cuenta demo).
- *
- * ⚠️ Query pública sin authz (auth diferida, LUI-7): expone nombres de staff.
- * Datos ficticios en dev → GO solo demo local.
+ * `accesoTodos:true`. Marca `esCuentaPropia` (la fila del admin autenticado, por
+ * `userId` de sesión). Solo administradores.
  */
 export const listarStaff = query({
   args: {},
   handler: async (ctx) => {
+    const { userId: yo } = await requireAdmin(ctx);
     const fila = async (p: Doc<"perfiles">) => {
       const user = await ctx.db.get(p.userId);
       const grupos: {
@@ -102,7 +101,7 @@ export const listarStaff = query({
         grupos,
         activo: p.activo,
         ultimoAccesoEn: p.ultimoAccesoEn ?? null,
-        esCuentaPropia: esCuentaPropiaDemo(user?.email),
+        esCuentaPropia: p.userId === yo,
       };
     };
 
@@ -126,8 +125,7 @@ export const listarStaff = query({
 });
 
 // ── Mutations ────────────────────────────────────────────────────────────────
-// Toda escritura pasa por `requireAdmin` (backstop demo; LUI-7 lo vuelve chequeo
-// real de rol). GO solo demo local con datos ficticios.
+// Toda escritura exige sesión de administrador vía `requireAdmin` (LUI-7).
 
 /** Alta de cuenta de staff. Si es instructor, asigna grupos (activos). */
 export const crear = mutation({
@@ -196,16 +194,15 @@ export const actualizar = mutation({
     grupoIds: v.optional(v.array(v.id("grupos"))),
   },
   handler: async (ctx, args) => {
-    await requireAdmin(ctx);
+    const { userId: yo } = await requireAdmin(ctx);
 
     const perfil = await ctx.db.get(args.perfilId);
     if (!perfil) throw new ConvexError("Cuenta no encontrada.");
     if (perfil.rol === "alumno") {
       throw new ConvexError("Esta cuenta no es de staff.");
     }
-
-    const user = await ctx.db.get(perfil.userId);
-    if (esCuentaPropiaDemo(user?.email)) {
+    // Cuenta propia = el perfil OBJETIVO es el del admin autenticado (`yo`).
+    if (perfil.userId === yo) {
       throw new ConvexError("No puedes editar tu propia cuenta.");
     }
 
@@ -284,16 +281,15 @@ export const actualizar = mutation({
 export const cambiarEstado = mutation({
   args: { perfilId: v.id("perfiles"), activo: v.boolean() },
   handler: async (ctx, args) => {
-    await requireAdmin(ctx);
+    const { userId: yo } = await requireAdmin(ctx);
 
     const perfil = await ctx.db.get(args.perfilId);
     if (!perfil) throw new ConvexError("Cuenta no encontrada.");
     if (perfil.rol === "alumno") {
       throw new ConvexError("Esta cuenta no es de staff.");
     }
-
-    const user = await ctx.db.get(perfil.userId);
-    if (esCuentaPropiaDemo(user?.email)) {
+    // Cuenta propia = el perfil OBJETIVO es el del admin autenticado (`yo`).
+    if (perfil.userId === yo) {
       throw new ConvexError("No puedes desactivar tu propia cuenta.");
     }
 
@@ -311,8 +307,9 @@ export const cambiarEstado = mutation({
     }
 
     await ctx.db.patch(args.perfilId, { activo: args.activo });
-    // CONTRATO LUI-7: el login debe RECHAZAR activo:false e invalidar la sesión.
-    // Política tolerante: NO se borran las filas grupoInstructores (baja lógica).
+    // El login (Convex Auth · `beforeSessionCreation`) rechaza activo:false y
+    // `requireSesion` bloquea sus lecturas/escrituras. Política tolerante: NO se
+    // borran las filas grupoInstructores (baja lógica).
     return { perfilId: args.perfilId, activo: args.activo };
   },
 });

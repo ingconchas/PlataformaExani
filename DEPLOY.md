@@ -3,19 +3,19 @@
 > Esta guía deja el repo listo para publicar en Railway. **No ejecutes el push
 > hasta que auditoría dé luz verde.**
 
-## ⚠️ Antes de desplegar: estado de la autenticación
+## Estado de la autenticación
 
-La autenticación real (**LUI-7**) todavía **no** está implementada. Las escrituras
-a la base de datos (crear / editar / activar-desactivar alumnos) pasan por el
-candado `requireAdmin` (`convex/authz.ts`), que **bloquea toda escritura** salvo
-que exista la variable de entorno `PERMITIR_ESCRITURA_DEMO=true`.
+La autorización real (**LUI-7, Entrega 2**) ya está implementada:
 
-- **En producción NUNCA definas `PERMITIR_ESCRITURA_DEMO`.** Sin ella las
-  escrituras quedan bloqueadas (seguro por defecto); con ella quedarían abiertas
-  **sin autenticación** (agujero de seguridad).
-- Hasta terminar LUI-7, un deploy **funcional** de la gestión de alumnos no es
-  posible (las escrituras están bloqueadas a propósito). El deploy sirve para
-  validar el pipeline y ver las pantallas.
+- **Escrituras y lecturas del panel** pasan por `requireAdmin` / `requireSesion`
+  (`convex/authz.ts`), que exigen una **sesión real** de Convex Auth con el rol
+  correspondiente. Ya no existe la vieja bandera `PERMITIR_ESCRITURA_DEMO`.
+- **El login rechaza cuentas desactivadas o sin perfil** (`beforeSessionCreation`)
+  y registra el último acceso; el **middleware** protege cada zona por rol.
+- Las credenciales nacen del staff/importación; el auto-registro público está
+  bloqueado. El **envío de invitaciones/recuperación (LUI-103)** es el siguiente
+  paso: hasta tenerlo, las cuentas se crean con contraseña vía el seed demo o se
+  habilitarán con LUI-103 en producción.
 
 ## Repositorio y rama
 
@@ -58,7 +58,6 @@ Sirve para validar el pipeline de Railway sin tocar Convex de producción.
 4. Define en el **entorno de Convex** (Dashboard → Settings → Environment
    Variables) las llaves de Convex Auth que genere `npx @convex-dev/auth`
    (`SITE_URL`, `JWT_PRIVATE_KEY`, `JWKS`) — parte de LUI-7.
-5. Recuerda: **no** definas `PERMITIR_ESCRITURA_DEMO` en producción.
 
 ## Verificación local (paridad con Railway)
 

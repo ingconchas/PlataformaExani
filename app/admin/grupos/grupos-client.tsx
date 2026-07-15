@@ -2,7 +2,7 @@
 
 import { type ReactNode, useState } from "react";
 import Link from "next/link";
-import { useMutation, useQuery } from "convex/react";
+import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
 import { type FunctionReturnType } from "convex/server";
 import { Ban, Pencil, Plus, RotateCcw } from "lucide-react";
@@ -55,8 +55,17 @@ type ModalState =
   | { tipo: "cerrar"; grupo: Grupo };
 
 export function GruposClient() {
-  const grupos = useQuery(api.grupos.listarGestion);
-  const instructores = useQuery(api.instructores.listar);
+  // Dispara las queries solo con la sesión resuelta (evita un parpadeo de error
+  // por el gate de authz durante la hidratación).
+  const { isAuthenticated } = useConvexAuth();
+  const grupos = useQuery(
+    api.grupos.listarGestion,
+    isAuthenticated ? {} : "skip",
+  );
+  const instructores = useQuery(
+    api.instructores.listar,
+    isAuthenticated ? {} : "skip",
+  );
   const cambiarEstado = useMutation(api.grupos.cambiarEstado);
 
   const [tab, setTab] = useState<Estado>("todos");
