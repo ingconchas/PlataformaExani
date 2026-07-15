@@ -41,6 +41,20 @@ export default defineSchema({
     .index("by_rol", ["rol"])
     .index("by_grupo", ["grupoId"]),
 
+  // Tokens de un solo uso para establecer/restablecer contraseña por correo
+  // (LUI-103). La URL del correo lleva el token en claro; aquí SOLO se guarda su
+  // hash SHA-256 (una fuga de BD no permite usar los enlaces). `tipo` separa la
+  // invitación (72 h) de la recuperación (60 min). Se consume marcando `usadoEn`.
+  tokensAcceso: defineTable({
+    userId: v.id("users"),
+    tipo: v.union(v.literal("invitacion"), v.literal("recuperacion")),
+    tokenHash: v.string(), // SHA-256 (hex) del token que viaja en la URL
+    expiraEn: v.number(), // epoch ms
+    usadoEn: v.optional(v.number()), // epoch ms del consumo (uso único)
+  })
+    .index("by_hash", ["tokenHash"])
+    .index("by_user", ["userId"]),
+
   // Grupos de la institución. Los instructores (uno o varios, típicamente por
   // materia) se ligan vía la tabla de unión `grupoInstructores` (LUI-12 / PRD v2).
   grupos: defineTable({

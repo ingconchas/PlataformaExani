@@ -1,7 +1,9 @@
 import { query, mutation, type MutationCtx } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { type Doc, type Id } from "./_generated/dataModel";
 import { v, ConvexError } from "convex/values";
 import { requireAdmin } from "./authz";
+import { credencialExiste } from "./credenciales";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -90,11 +92,12 @@ export const listarStaff = query({
             (a.ciclo ?? "").localeCompare(b.ciclo ?? "", "es"),
         );
       }
+      const correo = user?.email ?? "";
       return {
         id: p._id,
         userId: p.userId,
         nombre: nombreCompleto(p.nombre, p.apellidos),
-        correo: user?.email ?? "",
+        correo,
         rol: p.rol as "admin" | "instructor",
         materia: p.materia ?? null,
         accesoTodos: p.rol === "admin",
@@ -102,6 +105,8 @@ export const listarStaff = query({
         activo: p.activo,
         ultimoAccesoEn: p.ultimoAccesoEn ?? null,
         esCuentaPropia: p.userId === yo,
+        // Aún no ha activado su acceso (sin credencial) → se puede reenviar invitación.
+        accesoPendiente: correo ? !(await credencialExiste(ctx, correo)) : true,
       };
     };
 
@@ -173,7 +178,10 @@ export const crear = mutation({
     for (const grupoId of grupoIds) {
       await ctx.db.insert("grupoInstructores", { grupoId, instructorId: userId });
     }
-    // TODO LUI-103: enviar correo de invitación (crear contraseña). Hoy NO se envía.
+    // Invitación (LUI-103): agenda el correo con el enlace para crear contraseña.
+    await ctx.scheduler.runAfter(0, internal.invitaciones.enviarInvitacion, {
+      userId,
+    });
     return { perfilId };
   },
 });

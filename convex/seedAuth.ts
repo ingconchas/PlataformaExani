@@ -6,7 +6,7 @@ import {
 import { internal } from "./_generated/api";
 import { v, ConvexError } from "convex/values";
 import { createAccount } from "@convex-dev/auth/server";
-import { ORIGEN_SEED } from "./auth";
+import { ORIGEN_CONFIABLE } from "./auth";
 
 /**
  * Credenciales de PRUEBA (dev-only) para poder iniciar sesión sin el flujo de
@@ -100,7 +100,7 @@ export const credencialesDemo = internalAction({
         // La marca `origen` viaja en runtime (la lee createOrUpdateUser, que NO
         // patchea userData); el tipo de `profile` solo admite campos de `users`,
         // por eso se castea.
-        profile: { email: correo, origen: ORIGEN_SEED } as { email: string },
+        profile: { email: correo, origen: ORIGEN_CONFIABLE } as { email: string },
         shouldLinkViaEmail: true,
       });
       creadas.push(correo);

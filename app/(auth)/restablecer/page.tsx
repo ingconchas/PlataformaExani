@@ -1,13 +1,17 @@
-import { ScreenPlaceholder } from "@/components/dev/screen-placeholder";
+import { AuthShell } from "../auth-shell";
+import { PasswordSetForm } from "../password-set-form";
 
-export default function Page() {
+/** Landing del correo de recuperación (`?token=`): el usuario define una nueva
+ *  contraseña. Si el enlace expiró, ofrece volver a solicitarlo en /recuperar. */
+export default async function Page({
+  searchParams,
+}: {
+  searchParams: Promise<{ token?: string }>;
+}) {
+  const { token } = await searchParams;
   return (
-    <main className="mx-auto flex min-h-screen max-w-md items-center justify-center p-6">
-      <ScreenPlaceholder
-        titulo="Restablece tu contraseña"
-        diseno="05-flujo-de-acceso.html"
-        descripcion="Define una nueva contraseña desde el enlace de recuperación."
-      />
-    </main>
+    <AuthShell>
+      <PasswordSetForm token={token ?? ""} modo="recuperacion" />
+    </AuthShell>
   );
 }

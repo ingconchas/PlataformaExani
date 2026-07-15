@@ -2,6 +2,7 @@ import { convexAuth } from "@convex-dev/auth/server";
 import { Password } from "@convex-dev/auth/providers/Password";
 import { ConvexError } from "convex/values";
 import { type Id } from "./_generated/dataModel";
+import { validarContrasena } from "./politica";
 
 /**
  * Autenticación (Convex Auth · LUI-7, Entrega 1). Provider de correo+contraseña.
@@ -16,12 +17,13 @@ import { type Id } from "./_generated/dataModel";
  *   credenciales pública; las cuentas nacen desde el staff/importación.
  */
 /**
- * Marca que distingue el `createAccount` del SEED INTERNO de un signUp público.
- * NO es inyectable desde /api/auth: el `profile` del provider Password descarta
- * cualquier param extra (solo devuelve `{ email }`), así que el flujo público no
- * puede fijar `origen`.
+ * Marca de ORIGEN CONFIABLE de servidor: distingue un `createAccount` hecho por
+ * un flujo interno de confianza (seed de demo o invitación LUI-103) de un signUp
+ * público. NO es inyectable desde /api/auth: el `profile` del provider Password
+ * descarta cualquier param extra (solo devuelve `{ email }`), así que el flujo
+ * público no puede fijar `origen`.
  */
-export const ORIGEN_SEED = "seed-interno-dev";
+export const ORIGEN_CONFIABLE = "servidor-confiable";
 
 export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
   providers: [
@@ -29,6 +31,10 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
       profile: (params) => ({
         email: String(params.email ?? "").trim().toLowerCase(),
       }),
+      // Defensa: cualquier alta de credencial por el provider valida la política.
+      // (El alta real la hacen las actions de LUI-103 vía createAccount, que
+      // también llaman a `validarContrasena` antes.)
+      validatePasswordRequirements: validarContrasena,
     }),
   ],
   callbacks: {
@@ -37,11 +43,12 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
       const perfilLike = args.profile as
         | { email?: string; origen?: string }
         | undefined;
-      // Solo el SEED INTERNO puede enganchar una cuenta a un usuario ya
-      // verificado (marca `origen`, no inyectable desde /api/auth). Así, un
-      // signUp público contra un correo verificado que AÚN NO tiene credencial
-      // —la ventana peligrosa— también queda bloqueado.
-      if (perfilLike?.origen === ORIGEN_SEED) {
+      // Solo un flujo de servidor CONFIABLE (seed o invitación LUI-103) puede
+      // enganchar una cuenta a un usuario ya verificado (marca `origen`, no
+      // inyectable desde /api/auth). Así, un signUp público contra un correo
+      // verificado que AÚN NO tiene credencial —la ventana peligrosa— también
+      // queda bloqueado.
+      if (perfilLike?.origen === ORIGEN_CONFIABLE) {
         const email =
           typeof perfilLike.email === "string" ? perfilLike.email : undefined;
         if (email) {

@@ -190,8 +190,8 @@ export function UsuarioFormModal({
         {error && <Alert kind="error">{error}</Alert>}
         {!esEdicion && (
           <Alert kind="info">
-            La cuenta queda registrada sin acceso todavía; el correo de invitación
-            para crear la contraseña se habilitará más adelante (LUI-103).
+            Al crear la cuenta le enviaremos un correo con el enlace para crear su
+            contraseña y entrar.
           </Alert>
         )}
       </form>

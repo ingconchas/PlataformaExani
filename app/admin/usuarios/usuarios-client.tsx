@@ -4,7 +4,7 @@ import { type ReactNode, useState } from "react";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
 import { type FunctionReturnType } from "convex/server";
-import { Ban, Pencil, Plus, RotateCcw } from "lucide-react";
+import { Ban, Mail, Pencil, Plus, RotateCcw } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { PageHeader } from "@/components/layout/page-header";
 import { Alert } from "@/components/ui/alert";
@@ -54,19 +54,33 @@ export function UsuariosClient() {
   );
   const grupos = useQuery(api.grupos.listar, isAuthenticated ? {} : "skip");
   const cambiarEstado = useMutation(api.usuarios.cambiarEstado);
+  const reenviarInvitacion = useMutation(api.invitaciones.reenviar);
 
   const [busqueda, setBusqueda] = useState("");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [page, setPage] = useState(1);
   const [modal, setModal] = useState<ModalState>({ tipo: "cerrado" });
   const [errorAccion, setErrorAccion] = useState<string | null>(null);
+  const [okAccion, setOkAccion] = useState<string | null>(null);
 
   const cerrar = () => setModal({ tipo: "cerrado" });
 
   async function reactivar(u: Usuario) {
     setErrorAccion(null);
+    setOkAccion(null);
     try {
       await cambiarEstado({ perfilId: u.id, activo: true });
+    } catch (e) {
+      setErrorAccion(mensajeDeError(e));
+    }
+  }
+
+  async function reenviar(u: Usuario) {
+    setErrorAccion(null);
+    setOkAccion(null);
+    try {
+      await reenviarInvitacion({ perfilId: u.id });
+      setOkAccion(`Invitación reenviada a ${u.correo}.`);
     } catch (e) {
       setErrorAccion(mensajeDeError(e));
     }
@@ -146,6 +160,15 @@ export function UsuariosClient() {
         >
           <Pencil className="size-[17px]" aria-hidden />
         </IconBtn>
+        {u.activo && u.accesoPendiente && (
+          <IconBtn
+            label={`Reenviar invitación a ${u.nombre}`}
+            className="text-unx-blue"
+            onClick={() => reenviar(u)}
+          >
+            <Mail className="size-[17px]" aria-hidden />
+          </IconBtn>
+        )}
         {u.activo ? (
           <IconBtn
             label={`Desactivar a ${u.nombre}`}
@@ -193,6 +216,11 @@ export function UsuariosClient() {
       {errorAccion && (
         <div className="mb-4">
           <Alert kind="error">{errorAccion}</Alert>
+        </div>
+      )}
+      {okAccion && (
+        <div className="mb-4">
+          <Alert kind="success">{okAccion}</Alert>
         </div>
       )}
 

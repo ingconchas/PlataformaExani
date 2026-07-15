@@ -1,9 +1,9 @@
+import { type ReactNode } from "react";
 import Image from "next/image";
-import Link from "next/link";
 import { Card } from "@/components/ui/card";
-import { LoginForm } from "./login-form";
 
-export default function LoginPage() {
+/** Marco común de las pantallas de acceso: logo UNX + tarjeta + pie. */
+export function AuthShell({ children }: { children: ReactNode }) {
   return (
     <main className="flex min-h-screen items-center justify-center p-6">
       <div className="w-full max-w-sm">
@@ -16,21 +16,7 @@ export default function LoginPage() {
             priority
           />
         </div>
-        <Card>
-          <h1 className="text-h2 text-ink">
-            Te damos la bienvenida a UNX Simuladores
-          </h1>
-          <p className="mt-1 text-small text-muted">
-            Entra con tu correo y contraseña.
-          </p>
-          <LoginForm />
-          <Link
-            href="/recuperar"
-            className="mt-4 block text-center text-small text-unx-blue hover:underline"
-          >
-            ¿Olvidaste tu contraseña?
-          </Link>
-        </Card>
+        <Card>{children}</Card>
         <p className="mt-6 text-center text-caption text-muted">
           UNX · Preparación para tu examen de admisión · unx.mx
         </p>

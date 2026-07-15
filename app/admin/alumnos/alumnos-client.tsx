@@ -5,7 +5,7 @@ import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
 import { type FunctionReturnType } from "convex/server";
 import { useRouter } from "next/navigation";
-import { Ban, Pencil, Plus, RotateCcw, Upload } from "lucide-react";
+import { Ban, Mail, Pencil, Plus, RotateCcw, Upload } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { type Id } from "@/convex/_generated/dataModel";
 import { PageHeader } from "@/components/layout/page-header";
@@ -68,6 +68,7 @@ export function AlumnosClient() {
   const alumnos = useQuery(api.alumnos.listar, isAuthenticated ? {} : "skip");
   const grupos = useQuery(api.grupos.listar, isAuthenticated ? {} : "skip");
   const cambiarEstado = useMutation(api.alumnos.cambiarEstado);
+  const reenviarInvitacion = useMutation(api.invitaciones.reenviar);
 
   const [busqueda, setBusqueda] = useState("");
   const [filtroGrupo, setFiltroGrupo] = useState("");
@@ -76,13 +77,26 @@ export function AlumnosClient() {
   const [page, setPage] = useState(1);
   const [modal, setModal] = useState<ModalState>({ tipo: "cerrado" });
   const [errorAccion, setErrorAccion] = useState<string | null>(null);
+  const [okAccion, setOkAccion] = useState<string | null>(null);
 
   const cerrar = () => setModal({ tipo: "cerrado" });
 
   async function reactivar(a: Alumno) {
     setErrorAccion(null);
+    setOkAccion(null);
     try {
       await cambiarEstado({ perfilId: a.id, activo: true });
+    } catch (e) {
+      setErrorAccion(mensajeDeError(e));
+    }
+  }
+
+  async function reenviar(a: Alumno) {
+    setErrorAccion(null);
+    setOkAccion(null);
+    try {
+      await reenviarInvitacion({ perfilId: a.id });
+      setOkAccion(`Invitación reenviada a ${a.correo}.`);
     } catch (e) {
       setErrorAccion(mensajeDeError(e));
     }
@@ -133,6 +147,15 @@ export function AlumnosClient() {
         >
           <Pencil className="size-[17px]" aria-hidden />
         </IconBtn>
+        {a.activo && a.accesoPendiente && (
+          <IconBtn
+            label={`Reenviar invitación a ${nombreCompleto(a)}`}
+            className="text-unx-blue"
+            onClick={() => reenviar(a)}
+          >
+            <Mail className="size-[17px]" aria-hidden />
+          </IconBtn>
+        )}
         {a.activo ? (
           <IconBtn
             label={`Desactivar a ${nombreCompleto(a)}`}
@@ -209,6 +232,11 @@ export function AlumnosClient() {
       {errorAccion && (
         <div className="mb-4">
           <Alert kind="error">{errorAccion}</Alert>
+        </div>
+      )}
+      {okAccion && (
+        <div className="mb-4">
+          <Alert kind="success">{okAccion}</Alert>
         </div>
       )}
 
@@ -384,8 +412,8 @@ function AlumnoFormModal({
         {error && <Alert kind="error">{error}</Alert>}
         {!esEdicion && (
           <Alert kind="info">
-            El alumno queda registrado sin acceso todavía; el correo de invitación se habilitará
-            más adelante (LUI-103).
+            Al agregar al alumno le enviaremos un correo con el enlace para crear su
+            contraseña y entrar.
           </Alert>
         )}
       </form>

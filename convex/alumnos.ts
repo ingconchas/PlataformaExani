@@ -1,7 +1,9 @@
 import { query, mutation, type MutationCtx } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { type Id } from "./_generated/dataModel";
 import { v, ConvexError } from "convex/values";
 import { requireAdmin } from "./authz";
+import { credencialExiste } from "./credenciales";
 
 /** Correo canónico: sin espacios y en minúsculas (users.email NO impone unicidad). */
 function normalizarCorreo(correo: string): string {
@@ -49,16 +51,19 @@ export const listar = query({
       perfiles.map(async (p) => {
         const user = await ctx.db.get(p.userId);
         const grupo = p.grupoId ? await ctx.db.get(p.grupoId) : null;
+        const correo = user?.email ?? "";
         return {
           id: p._id,
           userId: p.userId,
           nombre: p.nombre,
           apellidos: p.apellidos ?? "",
-          correo: user?.email ?? "",
+          correo,
           grupoId: p.grupoId ?? null,
           grupoNombre: grupo?.nombre ?? null,
           activo: p.activo,
           ultimoAccesoEn: p.ultimoAccesoEn ?? null,
+          // Aún no ha activado su acceso (sin credencial) → se puede reenviar invitación.
+          accesoPendiente: correo ? !(await credencialExiste(ctx, correo)) : true,
         };
       }),
     );
@@ -110,7 +115,10 @@ export const crear = mutation({
       grupoId: args.grupoId,
       activo: true,
     });
-    // TODO LUI-103: enviar correo de invitación (crear contraseña). Hoy NO se envía.
+    // Invitación (LUI-103): agenda el correo con el enlace para crear contraseña.
+    await ctx.scheduler.runAfter(0, internal.invitaciones.enviarInvitacion, {
+      userId,
+    });
     return { perfilId };
   },
 });

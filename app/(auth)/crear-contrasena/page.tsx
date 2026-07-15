@@ -1,13 +1,17 @@
-import { ScreenPlaceholder } from "@/components/dev/screen-placeholder";
+import { AuthShell } from "../auth-shell";
+import { PasswordSetForm } from "../password-set-form";
 
-export default function Page() {
+/** Landing del correo de invitación (`?token=`): el usuario crea su primera
+ *  contraseña y entra directo a su panel. */
+export default async function Page({
+  searchParams,
+}: {
+  searchParams: Promise<{ token?: string }>;
+}) {
+  const { token } = await searchParams;
   return (
-    <main className="mx-auto flex min-h-screen max-w-md items-center justify-center p-6">
-      <ScreenPlaceholder
-        titulo="Crea tu contraseña"
-        diseno="05-flujo-de-acceso.html"
-        descripcion="Define tu contraseña desde el enlace de invitación."
-      />
-    </main>
+    <AuthShell>
+      <PasswordSetForm token={token ?? ""} modo="invitacion" />
+    </AuthShell>
   );
 }
