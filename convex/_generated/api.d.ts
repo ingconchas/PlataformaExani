@@ -11,6 +11,7 @@
 import type * as alumnos from "../alumnos.js";
 import type * as auth from "../auth.js";
 import type * as authz from "../authz.js";
+import type * as bootstrap from "../bootstrap.js";
 import type * as correo from "../correo.js";
 import type * as credenciales from "../credenciales.js";
 import type * as grupos from "../grupos.js";
@@ -34,6 +35,7 @@ declare const fullApi: ApiFromModules<{
   alumnos: typeof alumnos;
   auth: typeof auth;
   authz: typeof authz;
+  bootstrap: typeof bootstrap;
   correo: typeof correo;
   credenciales: typeof credenciales;
   grupos: typeof grupos;
