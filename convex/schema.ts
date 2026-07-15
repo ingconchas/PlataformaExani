@@ -55,6 +55,44 @@ export default defineSchema({
     .index("by_hash", ["tokenHash"])
     .index("by_user", ["userId"]),
 
+  // Cubetas de tokens del rate limiting propio (LUI-103, Entrega 2). Una fila por
+  // `clave`; la AUSENCIA de fila significa «cubeta llena» — por eso el cron puede
+  // borrar filas vencidas sin alterar la semántica. `tokens` es float: la recarga
+  // es fraccionaria y proporcional al tiempo desde `recargadoEn`. `expiraEn` es el
+  // instante en que la cubeta vuelve a estar llena: a partir de ahí la fila ya no
+  // tiene efecto y es basura borrable.
+  //
+  // La clave NUNCA contiene un correo: se usa el `userId` (ver `cuotas.ts`), así
+  // que un atacante que inventa direcciones no crea filas ni deja rastro de PII.
+  cuotas: defineTable({
+    clave: v.string(), // "recuperacion:global" | "recuperacion:usuario:<userId>" | "reenvio:perfil:<perfilId>"
+    tokens: v.number(),
+    recargadoEn: v.number(), // epoch ms del último consumo (base de la recarga)
+    expiraEn: v.number(), // epoch ms en que la cubeta vuelve a estar llena
+  })
+    .index("by_clave", ["clave"])
+    .index("by_expira", ["expiraEn"]),
+
+  // Bitácora de correos enviados (LUI-103, Entrega 2). Forense para los caminos
+  // ASÍNCRONOS (`alumnos.crear` / `usuarios.crear` agendan el envío y no pueden
+  // reportar un fallo posterior al admin). Se escribe en TODOS los desenlaces:
+  // éxito, fallo de configuración, timeout, 4xx/5xx y transporte desconocido.
+  //
+  // NUNCA guarda el enlace, el cuerpo del correo ni la API key: el enlace es una
+  // credencial viva. `error` lleva solo `name`/`message` del proveedor.
+  enviosCorreo: defineTable({
+    para: v.string(),
+    asunto: v.string(),
+    estado: v.union(
+      v.literal("enviado"),
+      v.literal("fallido"),
+      v.literal("dev"), // transporte dev: no salió correo real
+    ),
+    resendId: v.optional(v.string()),
+    error: v.optional(v.string()),
+    creadoEn: v.number(),
+  }).index("by_creado", ["creadoEn"]),
+
   // Grupos de la institución. Los instructores (uno o varios, típicamente por
   // materia) se ligan vía la tabla de unión `grupoInstructores` (LUI-12 / PRD v2).
   grupos: defineTable({

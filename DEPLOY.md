@@ -12,11 +12,9 @@ La autorización real (**LUI-7, Entrega 2**) ya está implementada:
   correspondiente. Ya no existe la vieja bandera `PERMITIR_ESCRITURA_DEMO`.
 - **El login rechaza cuentas desactivadas o sin perfil** (`beforeSessionCreation`)
   y registra el último acceso; el **middleware** protege cada zona por rol.
-- Las credenciales nacen de la **invitación (LUI-103, Entrega 1)**; el
-  auto-registro público está bloqueado. En esta entrega el **transporte de correo
-  es DEV** (el enlace de invitación/recuperación se **registra en los logs de
-  Convex**, no se envía). El **envío real** (Resend/SES + dominio) es **LUI-103
-  Entrega 2**.
+- Las credenciales nacen de la **invitación (LUI-103)**; el auto-registro público
+  está bloqueado. El **envío real por Resend** existe desde la **Entrega 2** y se
+  activa con `CORREO_TRANSPORTE=resend` — ver *Correo transaccional* abajo.
 
 ## Repositorio y rama
 
@@ -78,9 +76,87 @@ npx convex run bootstrap:crearAdminInicial '{"nombre":"…","apellidos":"…","c
 
 **El seed demo (`convex/seed.ts`, `seedAuth.ts`) NUNCA se corre en producción.**
 
-## Correo (transporte dev)
+## Correo transaccional (LUI-103, Entrega 2 — Resend)
 
-En esta entrega el envío es un **transporte DEV** (`convex/correo.ts`): registra destinatario/asunto/**enlace** en los logs de Convex, **no envía correo real**. Para un piloto, el admin toma el enlace del log. El envío real (Resend/SES + verificación de dominio `unx.mx`) es **LUI-103 Entrega 2**.
+### El interruptor
+
+`convex/correo.ts` elige el transporte con **`CORREO_TRANSPORTE`**, una variable
+explícita — **nunca por la presencia de la API key**:
+
+| Valor | Efecto |
+|---|---|
+| ausente / vacía | `dev` (default seguro) |
+| `dev` | registra destinatario, asunto y **enlace** en los logs; **no envía** |
+| `resend` | **envío real** |
+| cualquier otro | **lanza** (un typo no puede degradar en silencio a logs con enlaces vivos) |
+
+> ⚠️ **NUNCA pongas `CORREO_TRANSPORTE=resend` en el deployment de DEV.** El seed de
+> dev usa correos `@demo.unx.mx`, un dominio que **no existe**: enviar de verdad
+> produciría rebotes duros y dañaría la reputación de envío, que es caro y lento de
+> revertir. Para probar envío real desde dev, hazlo **temporalmente** y solo contra
+> direcciones reales tuyas; luego regresa la variable a `dev`.
+
+Esto da un **rollout en dos pasos**: desplegar el código no cambia nada (sin la
+variable, el comportamiento es idéntico al de antes), y el envío se activa después.
+
+### Las 4 variables (viven en el entorno de CONVEX, no en Railway)
+
+```bash
+npx convex env set CORREO_TRANSPORTE resend --prod
+npx convex env set RESEND_API_KEY re_xxxxxxxx --prod          # permiso: solo envío
+npx convex env set CORREO_REMITENTE 'UNX — Supera tu examen de admisión <no-reply@unx.mx>' --prod
+npx convex env set CORREO_LOGO_URL https://plataforma-exani.up.railway.app/logo/unx-logotipo-blanco.png --prod
+```
+
+`CORREO_LOGO_URL` está **desacoplada de `SITE_URL`** a propósito: derivarla del
+origen de la app la volvería `localhost` en dev, y ningún cliente de correo puede
+cargar eso. Si falta o es inválida, los correos caen al **wordmark de texto** — no
+lanza, porque un logo mal configurado es cosmético y no debe impedir que alguien
+reciba su acceso.
+
+### Verificación del dominio en Resend (antes de activar)
+
+El dominio **`unx.mx`** debe estar verde en Resend → Domains. Los 3 registros van en
+el DNS (SiteGround → Site Tools → Domain → DNS Zone Editor):
+
+| Tipo | Nombre | Valor |
+|---|---|---|
+| MX | `send` | `feedback-smtp.us-east-1.amazonses.com` · prioridad 10 |
+| TXT | `send` | `v=spf1 include:amazonses.com ~all` |
+| TXT | `resend._domainkey` | la llave pública DKIM que da Resend |
+
+> ⛔ **No toques el SPF de la raíz de `unx.mx`.** Ya trae `a`, `mx` y 3 `include:`
+> (Microsoft 365 + MailerLite + MailerSend), muy cerca del **límite duro de 10
+> consultas DNS** del estándar SPF. Rebasarlo produce PermError y **degrada todo el
+> correo de unx.mx, incluido Microsoft 365**. Resend no lo necesita: pone su SPF en
+> `send.unx.mx`, que usa como Return-Path. Tampoco toques el DMARC ni el MX raíz.
+
+```bash
+dig +short TXT resend._domainkey.unx.mx
+dig +short TXT send.unx.mx
+dig +short MX  send.unx.mx
+dig +short TXT unx.mx | grep spf1   # DEBE seguir idéntico
+```
+
+### Rollback (sin redeploy, por cualquiera de las dos rutas)
+
+```bash
+npx convex env set CORREO_TRANSPORTE dev --prod     # explícito, deja rastro en el dashboard
+npx convex env remove CORREO_TRANSPORTE --prod      # equivalente: el default es dev
+```
+
+Se prefiere la primera: deja constancia de la decisión en vez de un hueco.
+
+### Bitácora y cuotas
+
+- **`enviosCorreo`**: registra el desenlace de **todos** los envíos (éxito, config
+  faltante, timeout, 4xx/5xx, transporte desconocido). Nunca guarda el enlace, el
+  cuerpo ni la llave. Consulta: `npx convex data enviosCorreo [--prod]`.
+- **Rate limiting** (`convex/cuotas.ts`): `solicitarRecuperacion` y `reenviar` están
+  limitados con token buckets. Guardia:
+  `npx convex run cuotas:inspeccionar '{}' [--prod]`. Escotilla para desbloquear a
+  alguien durante un incidente:
+  `npx convex run cuotas:restablecer '{"clave":"recuperacion:usuario:<userId>"}' [--prod]`.
 
 ## Verificación local (paridad con Railway)
 

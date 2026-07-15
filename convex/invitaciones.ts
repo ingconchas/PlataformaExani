@@ -18,6 +18,7 @@ import { requireAdmin } from "./authz";
 import { validarContrasena } from "./politica";
 import { ORIGEN_CONFIABLE } from "./auth";
 import { credencialExiste, normalizarCorreo } from "./credenciales";
+import { consumirCuotas, CUOTAS, textoEspera } from "./cuotas";
 import {
   correoInvitacion,
   correoRecuperacion,
@@ -87,6 +88,40 @@ function origenApp(): string {
     throw new Error(`SITE_URL no tiene un origen web válido: ${raw}`);
   }
   return url.origin;
+}
+
+/**
+ * URL absoluta y pública del logo de los correos (Entrega 2).
+ *
+ * **Desacoplada de `SITE_URL` a propósito.** Derivarla del origen de la app la
+ * volvía `localhost:3000` en dev, y ningún cliente de correo puede cargar eso →
+ * era imposible verificar que el logo carga sin desplegar a producción.
+ *
+ * A diferencia de `origenApp()`, esto **NO lanza**: un logo mal configurado es
+ * cosmético y no debe impedir que alguien reciba su acceso. Ausencia o URL
+ * inválida → `undefined` → las plantillas caen al wordmark de texto, que es un
+ * diseño válido y ya aprobado. `esc()` evita la inyección de HTML, pero no evita
+ * una URL rota: por eso esta validación va aparte.
+ */
+function logoCorreo(): string | undefined {
+  const raw = process.env.CORREO_LOGO_URL;
+  if (!raw) return undefined;
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    console.warn(
+      `[correo] CORREO_LOGO_URL no es una URL válida: ${raw}. Se usa el wordmark de texto.`,
+    );
+    return undefined;
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    console.warn(
+      `[correo] CORREO_LOGO_URL debe usar http(s): ${raw}. Se usa el wordmark de texto.`,
+    );
+    return undefined;
+  }
+  return url.href;
 }
 
 function fechaHoraMx(ts: number): string {
@@ -262,9 +297,10 @@ async function emitirYEnviar(
   });
   const ruta = esInv ? "crear-contrasena" : "restablecer";
   const enlace = `${origen}/${ruta}?token=${token}`;
+  const logoUrl = logoCorreo();
   const correo = esInv
-    ? correoInvitacion({ nombre: info.nombre, enlace })
-    : correoRecuperacion({ nombre: info.nombre, enlace });
+    ? correoInvitacion({ nombre: info.nombre, enlace, logoUrl })
+    : correoRecuperacion({ nombre: info.nombre, enlace, logoUrl });
   await ctx.runAction(internal.correo.enviar, {
     para: info.email,
     asunto: correo.asunto,
@@ -288,13 +324,16 @@ export const enviarRecuperacion = internalAction({
   },
 });
 
-// ── Mutations públicas (disparan correos) ────────────────────────────────────
+// ── Reenvío de invitación (admin) ────────────────────────────────────────────
 
-/** Reenvía la invitación de una cuenta de staff/alumno. Solo si aún NO tiene
- *  credencial (accesoPendiente). Rate limiting: deuda de Entrega 2. */
-export const reenviar = mutation({
+/**
+ * Authz + validaciones + cuota del reenvío, **atómico en UNA sola mutation**. La
+ * llama la action `reenviar` vía `ctx.runMutation`: Convex propaga la identidad
+ * autenticada de la action a la mutation, así que `requireAdmin` funciona aquí.
+ */
+export const autorizarReenvio = internalMutation({
   args: { perfilId: v.id("perfiles") },
-  handler: async (ctx, { perfilId }) => {
+  handler: async (ctx, { perfilId }): Promise<{ userId: Id<"users"> }> => {
     await requireAdmin(ctx);
     const perfil = await ctx.db.get(perfilId);
     if (!perfil) throw new ConvexError("Cuenta no encontrada.");
@@ -305,37 +344,124 @@ export const reenviar = mutation({
         "Esta cuenta ya activó su acceso; no requiere invitación.",
       );
     }
-    await ctx.scheduler.runAfter(0, internal.invitaciones.enviarInvitacion, {
-      userId: perfil.userId,
-    });
+    // La cuota va AL FINAL: los rechazos de arriba no envían correo, así que no
+    // deben gastar tokens (mismo principio que en `solicitarRecuperacion`).
+    const cuota = await consumirCuotas(ctx, [
+      { clave: `reenvio:perfil:${perfilId}`, def: CUOTAS.reenvioPerfil },
+    ]);
+    if (!cuota.ok) {
+      // Aquí SÍ se es explícito: la llamada está autenticada como admin, que ya ve
+      // esa cuenta en su tabla — no hay nada que ocultar, y un error mudo solo
+      // lograría que hiciera clic diez veces.
+      // ConvexError de TEXTO PLANO: los clientes hacen `String(e.data)`; la forma
+      // {code, message} pintaría "[object Object]" al usuario.
+      throw new ConvexError(
+        `Ya se reenviaron varias invitaciones a esta cuenta. Intenta de nuevo en ${textoEspera(cuota.esperaMs)}.`,
+      );
+    }
+    return { userId: perfil.userId };
+  },
+});
+
+/**
+ * Reenvía la invitación de una cuenta de staff/alumno que aún NO activó su acceso.
+ *
+ * **Es una action SÍNCRONA a propósito**, no una mutation que agenda: la *única
+ * razón de existir* de este botón es que salga el correo, así que si el proveedor
+ * falla no hay nada que reportar como éxito — el admin ve el error real.
+ *
+ * Contrasta con `alumnos.crear` / `usuarios.crear`, que **siguen siendo
+ * asíncronos y así debe ser**: ahí la cuenta tiene que crearse aunque el correo
+ * falle (el listado la marca con `accesoPendiente` y el admin puede reenviar).
+ * Bloquear un alta por un fallo de correo sería peor que el problema.
+ */
+export const reenviar = action({
+  args: { perfilId: v.id("perfiles") },
+  handler: async (ctx, { perfilId }): Promise<{ ok: true }> => {
+    const { userId } = await ctx.runMutation(
+      internal.invitaciones.autorizarReenvio,
+      { perfilId },
+    );
+    await emitirYEnviar(ctx, userId, "invitacion");
     return { ok: true as const };
   },
 });
 
-/** "¿Olvidaste tu contraseña?": si hay EXACTAMENTE 1 usuario activo con ese
- *  correo, agenda el correo de recuperación. Responde IGUAL en todos los casos
- *  (no revela existencia/estado del correo). Rate limiting: deuda de Entrega 2. */
+// ── Recuperación de contraseña (pública, anónima) ────────────────────────────
+
+/**
+ * "¿Olvidaste tu contraseña?": si hay EXACTAMENTE 1 usuario activo con ese correo,
+ * agenda el correo de recuperación.
+ *
+ * **NUNCA LANZA, ni siquiera por un error interno.** No es paranoia: los fallos de
+ * esta función solo pueden ocurrir en la rama de los correos que SÍ existen, así
+ * que propagarlos sería un oráculo de enumeración perfecto. Y el `try{}catch{}`
+ * del formulario no protege nada — oculta el error en la UI, pero el `ConvexError`
+ * viaja por el cable y se lee en la pestaña Network. El grito va a los LOGS.
+ *
+ * Alcance de la garantía: aplica de la validación de argumentos de Convex hacia
+ * adentro. Una llamada con tipo inválido falla en el `v.string()` antes de entrar
+ * aquí, y eso NO es un oráculo: ese rechazo depende solo del tipo del argumento y
+ * es idéntico exista o no el correo.
+ *
+ * Contrapartida asumida: esto también enmudece bugs reales, y por eso el
+ * `console.error` de abajo no es opcional — es el único canal que queda.
+ */
 export const solicitarRecuperacion = mutation({
   args: { correo: v.string() },
   handler: async (ctx, { correo }) => {
-    const email = normalizarCorreo(correo);
-    const users = await ctx.db
-      .query("users")
-      .withIndex("email", (q) => q.eq("email", email))
-      .take(2);
-    if (users.length === 1) {
-      const perfil = await ctx.db
-        .query("perfiles")
-        .withIndex("by_user", (q) => q.eq("userId", users[0]._id))
-        .first();
-      if (perfil && perfil.activo) {
-        await ctx.scheduler.runAfter(
-          0,
-          internal.invitaciones.enviarRecuperacion,
-          { userId: users[0]._id },
-        );
+    try {
+      const email = normalizarCorreo(correo);
+      const users = await ctx.db
+        .query("users")
+        .withIndex("email", (q) => q.eq("email", email))
+        .take(2);
+      if (users.length === 1) {
+        const userId = users[0]._id;
+        const perfil = await ctx.db
+          .query("perfiles")
+          .withIndex("by_user", (q) => q.eq("userId", userId))
+          .first();
+        if (perfil && perfil.activo) {
+          // La cuota se cobra SOLO aquí, donde de verdad se gasta el recurso: un
+          // correo inexistente no produce envío, así que no hay nada que limitar.
+          // Efecto: quien inventa direcciones ni consume cuota ni crea filas, y la
+          // clave puede ser el userId (nunca se almacena un correo).
+          //
+          // ORDEN: usuario ANTES que global. Todo-o-nada: si la global rechaza, la
+          // cubeta del usuario NO se toca — no se castiga a alguien legítimo por
+          // un ataque ajeno.
+          const cuota = await consumirCuotas(ctx, [
+            {
+              clave: `recuperacion:usuario:${userId}`,
+              def: CUOTAS.recuperacionUsuario,
+            },
+            { clave: "recuperacion:global", def: CUOTAS.recuperacionGlobal },
+          ]);
+          if (!cuota.ok) {
+            console.warn(
+              `[cuota] recuperacion agotada para ${userId}; no se envía. Libre en ${textoEspera(cuota.esperaMs)}.`,
+            );
+          } else {
+            await ctx.scheduler.runAfter(
+              0,
+              internal.invitaciones.enviarRecuperacion,
+              { userId },
+            );
+          }
+        }
       }
+    } catch (e) {
+      // No se registra el correo recibido: es entrada controlada por quien llama y
+      // acabaría inyectando líneas falsas en la bitácora.
+      console.error(
+        `[recuperacion:error] Fallo interno al procesar una solicitud de recuperación: ${
+          e instanceof Error ? e.message : String(e)
+        }`,
+      );
     }
+    // Respuesta uniforme SIEMPRE: indistinguible entre correo inexistente, envío
+    // real, cuota agotada y error interno.
     return { ok: true as const };
   },
 });
@@ -423,6 +549,7 @@ export const restablecerContrasena = action({
       nombre,
       fechaHora: fechaHoraMx(Date.now()),
       enlace: `${origenApp()}/login`,
+      logoUrl: logoCorreo(),
     });
     await ctx.runAction(internal.correo.enviar, {
       para: email,

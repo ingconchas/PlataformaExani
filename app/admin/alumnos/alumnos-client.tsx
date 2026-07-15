@@ -1,7 +1,7 @@
 "use client";
 
 import { type FormEvent, type ReactNode, useId, useState } from "react";
-import { useConvexAuth, useMutation, useQuery } from "convex/react";
+import { useAction, useConvexAuth, useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
 import { type FunctionReturnType } from "convex/server";
 import { useRouter } from "next/navigation";
@@ -68,7 +68,9 @@ export function AlumnosClient() {
   const alumnos = useQuery(api.alumnos.listar, isAuthenticated ? {} : "skip");
   const grupos = useQuery(api.grupos.listar, isAuthenticated ? {} : "skip");
   const cambiarEstado = useMutation(api.alumnos.cambiarEstado);
-  const reenviarInvitacion = useMutation(api.invitaciones.reenviar);
+  // `reenviar` es una action SÍNCRONA (LUI-103 E2): espera al proveedor de correo
+  // y lanza si el envío falla, para no reportar un éxito que nunca ocurrió.
+  const reenviarInvitacion = useAction(api.invitaciones.reenviar);
 
   const [busqueda, setBusqueda] = useState("");
   const [filtroGrupo, setFiltroGrupo] = useState("");

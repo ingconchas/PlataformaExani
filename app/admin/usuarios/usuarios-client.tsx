@@ -1,7 +1,7 @@
 "use client";
 
 import { type ReactNode, useState } from "react";
-import { useConvexAuth, useMutation, useQuery } from "convex/react";
+import { useAction, useConvexAuth, useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
 import { type FunctionReturnType } from "convex/server";
 import { Ban, Mail, Pencil, Plus, RotateCcw } from "lucide-react";
@@ -54,7 +54,9 @@ export function UsuariosClient() {
   );
   const grupos = useQuery(api.grupos.listar, isAuthenticated ? {} : "skip");
   const cambiarEstado = useMutation(api.usuarios.cambiarEstado);
-  const reenviarInvitacion = useMutation(api.invitaciones.reenviar);
+  // `reenviar` es una action SÍNCRONA (LUI-103 E2): espera al proveedor de correo
+  // y lanza si el envío falla, para no reportar un éxito que nunca ocurrió.
+  const reenviarInvitacion = useAction(api.invitaciones.reenviar);
 
   const [busqueda, setBusqueda] = useState("");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");

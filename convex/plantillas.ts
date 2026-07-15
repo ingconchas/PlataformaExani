@@ -3,8 +3,12 @@
  * **email-safe**: tablas, estilos en línea, colores hex literales, sin `var()`
  * ni flex. Copy tomado del diseño `screens/04-correos-transaccionales.html`.
  *
- * El encabezado usa un wordmark de texto (siempre renderiza). En la Entrega 2 se
- * puede cambiar por el logo hospedado (imagen con URL absoluta).
+ * **Encabezado (Entrega 2):** si llega `logoUrl` se usa el logo hospedado; si no,
+ * el wordmark de texto de la Entrega 1. La degradación es a propósito y va en dos
+ * niveles: sin configuración no hay imagen rota, y con configuración el `alt` va
+ * estilizado para que —si el cliente bloquea imágenes, como hacen Gmail y Outlook
+ * con remitentes desconocidos— se lea igual «UNX Simuladores» en blanco sobre azul
+ * en vez de un icono roto.
  */
 
 const AZUL = "#0228C9";
@@ -46,8 +50,21 @@ function nota(html: string): string {
   return `<tr><td style="padding:20px 0 0;border-top:1px solid ${BORDE};font-size:14px;line-height:20px;color:${MUTED};font-family:${FUENTE};">${html}</td></tr>`;
 }
 
-/** Envoltura común: fondo gris, banda azul con wordmark, línea amarilla, card. */
-function envoltura(cuerpoFilas: string): string {
+/**
+ * Marca del encabezado. Con `logoUrl`, una imagen cuyo `alt` lleva **los mismos
+ * estilos tipográficos que el wordmark**: es la técnica estándar para que el texto
+ * alternativo se pinte igual cuando el cliente de correo bloquea la imagen. Sin
+ * `logoUrl`, el wordmark de texto tal cual.
+ */
+function marca(logoUrl?: string): string {
+  if (!logoUrl) {
+    return `<span style="font-family:${FUENTE};font-weight:700;font-size:22px;letter-spacing:0.5px;color:#FFFFFF;">UNX Simuladores</span>`;
+  }
+  return `<img src="${esc(logoUrl)}" alt="UNX Simuladores" height="28" style="display:inline-block;height:28px;width:auto;border:0;outline:none;text-decoration:none;font-family:${FUENTE};font-weight:700;font-size:22px;letter-spacing:0.5px;color:#FFFFFF;">`;
+}
+
+/** Envoltura común: fondo gris, banda azul con la marca, línea amarilla, card. */
+function envoltura(cuerpoFilas: string, logoUrl?: string): string {
   return `<!doctype html>
 <html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"></head>
 <body style="margin:0;padding:0;background:${FONDO};">
@@ -55,7 +72,7 @@ function envoltura(cuerpoFilas: string): string {
 <tr><td align="center">
 <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:600px;">
   <tr><td style="background:${AZUL};padding:22px 48px;text-align:center;border-radius:12px 12px 0 0;">
-    <span style="font-family:${FUENTE};font-weight:700;font-size:22px;letter-spacing:0.5px;color:#FFFFFF;">UNX Simuladores</span>
+    ${marca(logoUrl)}
   </td></tr>
   <tr><td style="height:5px;background:${AMARILLO};font-size:0;line-height:0;">&nbsp;</td></tr>
   <tr><td style="background:#FFFFFF;border:1px solid ${BORDE};border-top:0;border-radius:0 0 12px 12px;padding:40px 48px 44px;">
@@ -85,8 +102,9 @@ function ctaFila(href: string, texto: string, outline = false): string {
 export function correoInvitacion(args: {
   nombre: string;
   enlace: string;
+  logoUrl?: string;
 }): Correo {
-  const { nombre, enlace } = args;
+  const { nombre, enlace, logoUrl } = args;
   const html = envoltura(
     h2("¡Te damos la bienvenida a UNX Simuladores!") +
       parrafo(`Hola, ${esc(nombre)}:`) +
@@ -99,6 +117,7 @@ export function correoInvitacion(args: {
       nota(
         "El enlace es válido durante <strong>72 horas</strong>. Si no esperabas este correo, avisa a la coordinación de tu institución.",
       ),
+    logoUrl,
   );
   const texto = `Te damos la bienvenida a UNX Simuladores
 
@@ -116,8 +135,9 @@ El enlace es válido durante 72 horas. Si no esperabas este correo, avisa a la c
 export function correoRecuperacion(args: {
   nombre: string;
   enlace: string;
+  logoUrl?: string;
 }): Correo {
-  const { nombre, enlace } = args;
+  const { nombre, enlace, logoUrl } = args;
   const html = envoltura(
     h2("Restablece tu contraseña") +
       parrafo(`Hola, ${esc(nombre)}:`) +
@@ -128,6 +148,7 @@ export function correoRecuperacion(args: {
       nota(
         "El enlace es válido durante <strong>60 minutos</strong>. Si tú no solicitaste el cambio, ignora este correo: tu contraseña seguirá siendo la misma.",
       ),
+    logoUrl,
   );
   const texto = `Restablece tu contraseña
 
@@ -146,8 +167,9 @@ export function correoConfirmacion(args: {
   nombre: string;
   fechaHora: string; // ya formateada en hora del centro de México
   enlace: string; // a la app (login)
+  logoUrl?: string;
 }): Correo {
-  const { nombre, fechaHora, enlace } = args;
+  const { nombre, fechaHora, enlace, logoUrl } = args;
   const banner = `<tr><td style="padding:0 0 24px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td style="background:${VERDE_TINT};border-radius:8px;padding:14px 16px;font-size:14px;line-height:20px;color:${INK};font-family:${FUENTE};"><span style="color:${VERDE};font-weight:700;">✓</span>&nbsp; Cambio realizado el <strong>${esc(fechaHora)}</strong>.</td></tr></table></td></tr>`;
   const html = envoltura(
     h2("Tu contraseña se actualizó") +
@@ -160,6 +182,7 @@ export function correoConfirmacion(args: {
       nota(
         "¿No reconoces este cambio? Contacta de inmediato a la coordinación de tu institución para proteger tu cuenta.",
       ),
+    logoUrl,
   );
   const texto = `Tu contraseña se actualizó
 
