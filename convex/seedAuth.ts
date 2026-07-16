@@ -7,6 +7,7 @@ import { internal } from "./_generated/api";
 import { v, ConvexError } from "convex/values";
 import { createAccount } from "@convex-dev/auth/server";
 import { ORIGEN_CONFIABLE } from "./auth";
+import { CONFIRMACION_SOLO_DEV, exigirDeploymentDeDesarrollo } from "./entorno";
 
 /**
  * Credenciales de PRUEBA (dev-only) para poder iniciar sesión sin el flujo de
@@ -39,8 +40,9 @@ const CORREOS_DEMO = [
  * (Convex Auth solo enlaza con un único user verificado); si hay 0 o >1, aborta.
  */
 export const verificarCorreosDemo = internalMutation({
-  args: {},
+  args: { confirmar: v.literal(CONFIRMACION_SOLO_DEV) },
   handler: async (ctx) => {
+    exigirDeploymentDeDesarrollo();
     const ahora = Date.now();
     let marcados = 0;
     for (const correo of CORREOS_DEMO) {
@@ -85,9 +87,14 @@ export const authCredencialExiste = internalQuery({
  * cuentas que ya tienen credencial.
  */
 export const credencialesDemo = internalAction({
-  args: {},
+  args: { confirmar: v.literal(CONFIRMACION_SOLO_DEV) },
   handler: async (ctx) => {
-    await ctx.runMutation(internal.seedAuth.verificarCorreosDemo, {});
+    // El guard va ANTES de cualquier escritura. `verificarCorreosDemo` trae el
+    // suyo, pero esta action no debe siquiera empezar fuera de desarrollo.
+    exigirDeploymentDeDesarrollo();
+    await ctx.runMutation(internal.seedAuth.verificarCorreosDemo, {
+      confirmar: CONFIRMACION_SOLO_DEV,
+    });
     const creadas: string[] = [];
     for (const correo of CORREOS_DEMO) {
       const existe = await ctx.runQuery(internal.seedAuth.authCredencialExiste, {

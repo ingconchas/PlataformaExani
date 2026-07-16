@@ -1,6 +1,8 @@
 import { internalMutation } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
+import { v } from "convex/values";
 import { inicioDeMesMx } from "./fechas";
+import { CONFIRMACION_SOLO_DEV, exigirDeploymentDeDesarrollo } from "./entorno";
 
 /**
  * Datos de PRUEBA (ficticios) para desarrollo local.
@@ -243,8 +245,9 @@ function puntajeDemo(clave: string): number {
  * dominio reservado que no puede pertenecer a nadie real).
  */
 export const limpiarAlumnosE2E = internalMutation({
-  args: {},
+  args: { confirmar: v.literal(CONFIRMACION_SOLO_DEV) },
   handler: async (ctx) => {
+    exigirDeploymentDeDesarrollo();
     const perfiles = await ctx.db
       .query("perfiles")
       .withIndex("by_rol", (q) => q.eq("rol", "alumno"))
@@ -262,9 +265,54 @@ export const limpiarAlumnosE2E = internalMutation({
   },
 });
 
-export const cargarDatosDePrueba = internalMutation({
-  args: {},
+/**
+ * ⚠️ TRANSICIONAL — LUI-18. Esta función **se borra en el commit siguiente**.
+ *
+ * Existe solo para vaciar el grafo de contenido legado (`temas` + `reactivos` y
+ * lo que cuelga de ellos) **bajo el schema VIEJO**, antes de pushear el schema
+ * nuevo del temario. Convex valida los documentos existentes contra el schema al
+ * pushearlo, así que el push del modelo nuevo fallaría con estos documentos
+ * presentes; y una vez que `temas` sale del schema, esta función ya no compila.
+ * Por eso vive un solo commit: el registro auditable de qué se ejecutó.
+ *
+ * No es reproducible y no tiene por qué serlo: un clon nuevo arranca con un
+ * deployment de dev vacío y jamás la necesita.
+ *
+ * Cascada deliberada: Convex no valida integridad referencial, así que borrar
+ * solo `reactivos` dejaría `examenes.reactivoIds` apuntando a fantasmas — y el
+ * upsert-por-nombre del seed encontraría los exámenes existentes y conservaría
+ * las refs muertas para siempre. Es 100 % dato demo regenerable.
+ *
+ * Ejecutar:
+ *   npx convex run seed:purgarLegado '{"confirmar":"SOLO_DEV"}'
+ */
+export const purgarLegado = internalMutation({
+  args: { confirmar: v.literal(CONFIRMACION_SOLO_DEV) },
   handler: async (ctx) => {
+    exigirDeploymentDeDesarrollo();
+    const borrado: Record<string, number> = {};
+    // Orden: de las hojas hacia la raíz del grafo de contenido.
+    const tablas = [
+      "respuestas",
+      "intentos",
+      "asignaciones",
+      "examenes",
+      "reactivos",
+      "temas",
+    ] as const;
+    for (const tabla of tablas) {
+      const docs = await ctx.db.query(tabla).collect();
+      for (const d of docs) await ctx.db.delete(d._id);
+      borrado[tabla] = docs.length;
+    }
+    return { borrado };
+  },
+});
+
+export const cargarDatosDePrueba = internalMutation({
+  args: { confirmar: v.literal(CONFIRMACION_SOLO_DEV) },
+  handler: async (ctx) => {
+    exigirDeploymentDeDesarrollo();
     const insertado: string[] = [];
     const reparado: string[] = [];
     const ahora = Date.now();

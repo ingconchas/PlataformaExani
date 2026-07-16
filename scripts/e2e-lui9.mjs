@@ -12,8 +12,8 @@
  *   3. npx convex dev                    (en otra terminal)
  *   4. npm run dev                       (en otra terminal → http://localhost:3000)
  *   5. Los DOS seeds (el de auth es aparte y exige el base primero):
- *        npx convex run seed:cargarDatosDePrueba
- *        npx convex run seedAuth:credencialesDemo
+ *        npx convex run seed:cargarDatosDePrueba  '{"confirmar":"SOLO_DEV"}'
+ *        npx convex run seedAuth:credencialesDemo '{"confirmar":"SOLO_DEV"}'
  *      Sin el segundo NO hay credenciales y este script no puede iniciar sesión.
  *
  * ── Uso ─────────────────────────────────────────────────────────────────────
@@ -60,6 +60,8 @@ const salidaSeed = await ejecutar("npx", [
   "convex",
   "run",
   "seed:cargarDatosDePrueba",
+  // El literal del guard solo-dev (LUI-18): sin él la mutation ni siquiera valida.
+  '{"confirmar":"SOLO_DEV"}',
 ]);
 const json = salidaSeed.match(/\{[\s\S]*\}/);
 if (!json) {

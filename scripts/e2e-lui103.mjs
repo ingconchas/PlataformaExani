@@ -196,11 +196,18 @@ async function barrerAlumnosE2E() {
     "convex",
     "run",
     "seed:limpiarAlumnosE2E",
+    // El literal del guard solo-dev (LUI-18): sin él la mutation ni siquiera valida.
+    '{"confirmar":"SOLO_DEV"}',
   ]);
   const json = salida.match(/\{[\s\S]*\}/);
   if (!json) {
-    console.warn(`  ⚠️  el barrido de e2e.* falló: ${salida.slice(0, 120)}`);
-    return 0;
+    // LANZA, no avisa. Un `console.warn` aquí dejaba pasar el script en verde con
+    // la BD contaminada — que es justo el defecto que este barrido vino a corregir.
+    // Y desde LUI-18 la mutation exige un literal: si ese contrato se rompe, tiene
+    // que verse como una falla, no como una advertencia que nadie lee.
+    throw new Error(
+      `El barrido de e2e.* falló y la BD queda contaminada: ${salida.slice(0, 200)}`,
+    );
   }
   return JSON.parse(json[0]).barridos ?? 0;
 }

@@ -74,7 +74,36 @@ npx convex run bootstrap:crearAdminInicial '{"nombre":"…","apellidos":"…","c
 
 `crearAdminInicial` (`convex/bootstrap.ts`) crea el usuario+perfil admin y agenda la invitación; **rechaza si ya existe cualquier admin**. El enlace para crear la contraseña aparece en `npx convex logs --prod` (transporte dev): ábrelo en la URL de prod (`/crear-contrasena?token=…`) y define la contraseña. Después ese admin crea al resto desde el panel.
 
-**El seed demo (`convex/seed.ts`, `seedAuth.ts`) NUNCA se corre en producción.**
+## Temario del núcleo (LUI-18)
+
+Las 3 secciones del núcleo (Pensamiento matemático, Comprensión lectora, Redacción indirecta) son **dato institucional real**, no demo, así que producción las necesita. A diferencia de `crearAdminInicial`, es **convergente** (upsert), no rechazante: se puede re-correr para añadir una sección nueva.
+
+```bash
+npx convex run bootstrap:sembrarTemarioNucleo --prod
+```
+
+Las áreas temáticas y los subtemas **no se siembran**: Mayra los captura desde `/admin/temario`.
+
+## El seed demo NUNCA se corre en producción — y ahora hay un guard, no solo esta advertencia
+
+`convex/seed.ts` y `convex/seedAuth.ts` son **solo-dev**. La advertencia en prosa no bastaba: son `internalMutation`/`internalAction`, quedan fuera del gate de admin, se invocan por CLI, y esta misma guía enseña comandos con `--prod`. Un `--prod` accidental crearía cuentas con la contraseña conocida `Demo1234` y un perfil `rol:"admin"` — **un bypass de autenticación en un sistema vivo**, peor que cualquier borrado.
+
+Por eso cada función solo-dev con escritura lleva **dos guards** (`convex/entorno.ts`):
+
+1. Un literal obligatorio, `{"confirmar":"SOLO_DEV"}` — corta la invocación desnuda por memoria muscular.
+2. `exigirDeploymentDeDesarrollo()` — **lista blanca, fail-closed** sobre `CONVEX_CLOUD_URL`. Es el que corta el accidente realista: copiar el comando de abajo (que ya trae el literal) y añadirle `--prod`.
+
+```bash
+# SOLO DEV. Nunca con --prod: el guard lo rechaza, pero no lo pongas a prueba.
+npx convex run seed:cargarDatosDePrueba  '{"confirmar":"SOLO_DEV"}'
+npx convex run seedAuth:credencialesDemo '{"confirmar":"SOLO_DEV"}'
+npx convex run seed:limpiarAlumnosE2E    '{"confirmar":"SOLO_DEV"}'
+npx convex run seed:limpiarContenidoDemo '{"confirmar":"SOLO_DEV"}'   # reset del fixture del temario
+```
+
+`bootstrap:crearAdminInicial` y `bootstrap:sembrarTemarioNucleo` **no** llevan guard: sí están diseñadas para prod.
+
+> ⚠️ **El schema de Convex se pushea DENTRO del build** (`convex deploy --cmd 'npm run build'`), o sea **antes** de que `next build` termine y de que Railway mueva el tráfico. Si el build falla después del push, **Convex prod se queda con el schema nuevo y el frontend viejo**, y revertir el merge **NO revierte el schema de Convex**. Todo cambio de schema debe ser compatible hacia atrás con el frontend que está desplegado durante esa ventana.
 
 ## Correo transaccional (LUI-103, Entrega 2 — Resend)
 
