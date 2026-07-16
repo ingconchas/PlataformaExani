@@ -80,7 +80,10 @@ export type Clasificacion = {
  * El seed lo pasa en FALSE a propósito, y no es una puerta trasera: fabrica
  * contenido HISTÓRICO, un reactivo que nació cuando su subtema estaba activo y
  * sobrevivió a su retiro (el «Productos notables · inactivo · 8 reactivos» del
- * mock). **LUI-15 NUNCA debe pasarlo en false.**
+ * mock). **Al CREAR nunca se pasa en false** (no se clasifica contenido NUEVO en una
+ * rama retirada). La ÚNICA excepción es `reactivos.actualizar` cuando el reactivo
+ * MANTIENE el mismo subtema ya retirado: ahí va en false para poder corregir su
+ * contenido sin forzar una reclasificación (mover a OTRA hoja sí exige disponible).
  */
 export async function resolverClasificacion(
   ctx: Ctx,
