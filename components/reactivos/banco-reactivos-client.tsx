@@ -70,6 +70,11 @@ export function BancoReactivosClient({ basePath }: { basePath: string }) {
     api.temario.listarParaStaff,
     isAuthenticated ? {} : "skip",
   );
+  // El candado depende de `enUso`. La tabla NO se renderiza hasta que `enUso` esté
+  // definido (ver el guard de carga abajo): si no, durante el lapso en que `listar`
+  // ya cargó pero `enUso` no, un reactivo editable-y-bloqueado mostraría el LÁPIZ en
+  // vez del candado —el contrato central de LUI-14—. El `?? []` solo cubre ese lapso
+  // previo al render (las filas calculadas entonces nunca se muestran).
   const bloqueados = new Set(enUso ?? []);
 
   const [busqueda, setBusqueda] = useState("");
@@ -423,7 +428,9 @@ export function BancoReactivosClient({ basePath }: { basePath: string }) {
 
       <FiltrosActivos chips={chips} onLimpiar={limpiar} />
 
-      {listar === undefined ? (
+      {listar === undefined || enUso === undefined ? (
+        // Se espera a AMBAS: sin `enUso` no se sabe qué reactivos van bloqueados, y
+        // mostrar acciones a medias pintaría lápices donde deben ir candados.
         <div className="rounded-card border border-border bg-surface p-10 text-center text-muted shadow-card">
           Cargando reactivos…
         </div>

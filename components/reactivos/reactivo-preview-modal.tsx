@@ -1,7 +1,7 @@
 "use client";
 
 import { useConvexAuth, useQuery } from "convex/react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { BookText, Check } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { Badge } from "@/components/ui/badge";
@@ -25,6 +25,7 @@ export function ReactivoPreviewModal({
   basePath: string;
   onClose: () => void;
 }) {
+  const router = useRouter();
   const { isAuthenticated } = useConvexAuth();
   const r = useQuery(
     api.reactivos.obtener,
@@ -42,9 +43,11 @@ export function ReactivoPreviewModal({
             Cerrar
           </Button>
           {r && r.esEditable && !r.enUso && (
-            <Link href={`${basePath}/reactivos/${r.id}/editar`}>
-              <Button>Editar</Button>
-            </Link>
+            <Button
+              onClick={() => router.push(`${basePath}/reactivos/${r.id}/editar`)}
+            >
+              Editar
+            </Button>
           )}
         </>
       }
