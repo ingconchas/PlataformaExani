@@ -1,7 +1,7 @@
 # Despliegue — Plataforma Exani II (Railway + Convex)
 
-> Esta guía deja el repo listo para publicar en Railway. **No ejecutes el push
-> hasta que auditoría dé luz verde.**
+> Esta guía deja el repo listo para publicar en Railway. **No ejecutes el push sin
+> el GO de revisión de Luis.**
 
 ## Estado de la autenticación
 
@@ -25,11 +25,20 @@ La autorización real (**LUI-7, Entrega 2**) ya está implementada:
   (que está vieja y NO contiene el stack). Estando en la rama de entrega:
 
   ```bash
-  # SOLO con el GO de deploy explícito de auditoría:
+  # SOLO con el GO de deploy explícito:
   git push origin HEAD:main --force-with-lease
-  # equivalente explícito (independiente de la rama en la que estés):
-  git push origin ingconchas/lui-103-invitacion-y-recuperacion-de-acceso:main --force-with-lease
   ```
+
+  > ⚠️ **`HEAD:main` y nada más.** Aquí vivía un «equivalente explícito» que clavaba
+  > el nombre de una rama concreta (`ingconchas/lui-103-…`). Envejeció mal y se
+  > volvió una mina: copiarlo hoy forzaría `main` al commit de LUI-103 y borraría
+  > de producción todo lo entregado después. **Cualquier comando de deploy que
+  > nombre una rama de entrega caduca el día que se mergea** — `HEAD` no.
+  >
+  > Y ojo con lo que dice el párrafo de arriba, porque es una trampa real y ya
+  > mordió: **`main` LOCAL suele estar atrás de `origin/main`**. Antes de ramificar
+  > o desplegar, `git fetch && git log --oneline -1 origin/main`; nunca te fíes de
+  > `git log main`.
 
 ## Modo A — Deploy sin Convex (fallback opcional para validar el pipeline)
 
