@@ -181,7 +181,14 @@ export default defineSchema({
     creadoPor: v.id("users"),
   })
     .index("by_grupo", ["grupoId"])
-    .index("by_examen", ["examenId"]),
+    .index("by_examen", ["examenId"])
+    // Orden y rango temporal de «aplicación» (LUI-9). Sin él, «los 5 exámenes más
+    // recientes» exige `.collect()` de toda la tabla + sort en JS, y «los del mes
+    // en curso» escanea todo el historial. Con él, el panel lee EXACTAMENTE 5
+    // documentos y la métrica solo los del mes.
+    // Además ENCODEA la decisión de que `abreEn` —no `cierraEn`— es la marca
+    // canónica de aplicación: ver `convex/metricas.ts`.
+    .index("by_abre", ["abreEn"]),
 
   // Intento / simulacro de una alumna sobre un examen.
   intentos: defineTable({

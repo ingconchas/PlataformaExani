@@ -1,16 +1,9 @@
 import { type ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import { type Tone, tones } from "./tones";
 
-type Tone = "blue" | "green" | "purple" | "orange";
-
-const tones: Record<Tone, string> = {
-  blue: "bg-unx-blue-tint text-unx-blue",
-  green: "bg-unx-green-tint text-unx-green",
-  purple: "bg-unx-purple-tint text-unx-purple",
-  orange: "bg-unx-orange-tint text-unx-orange-text",
-};
-
-/** Tarjeta de métrica: cifra grande (Barlow Condensed) + etiqueta + icono. */
+/** Tarjeta de métrica: cifra grande (Barlow Condensed) + etiqueta + icono.
+ *  El chip de icono vive en `./tones` — lo comparte con `ShortcutCard`. */
 export function MetricCard({
   value,
   label,

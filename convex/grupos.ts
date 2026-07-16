@@ -7,6 +7,7 @@ import {
 import { type Id } from "./_generated/dataModel";
 import { v, ConvexError } from "convex/values";
 import { requireAdmin } from "./authz";
+import { fueAplicada } from "./metricas";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -236,15 +237,18 @@ export const obtener = query({
     );
     alumnos.sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
 
-    // «Exámenes aplicados»: asignaciones cuya ventana ya cerró (proxy hasta que
-    // existan resultados, LUI-20). En demo suele ser 0.
+    // «Exámenes aplicados»: los que ya ABRIERON su ventana. Regla compartida con
+    // el panel de la administradora (LUI-9) — ver `convex/metricas.ts`. Antes esto
+    // contaba `cierraEn <= ahora`, lo que hacía que esta ficha y `/admin`
+    // mostraran la MISMA etiqueta con dos números distintos. Sigue siendo un proxy
+    // hasta que existan resultados reales (LUI-20).
     const asignaciones = await ctx.db
       .query("asignaciones")
       .withIndex("by_grupo", (q) => q.eq("grupoId", id))
       .collect();
     const ahora = Date.now();
-    const examenesAplicados = asignaciones.filter(
-      (a) => a.cierraEn <= ahora,
+    const examenesAplicados = asignaciones.filter((a) =>
+      fueAplicada(a, ahora),
     ).length;
 
     return {

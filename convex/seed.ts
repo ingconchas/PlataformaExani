@@ -1,5 +1,6 @@
 import { internalMutation } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
+import { inicioDeMesMx } from "./fechas";
 
 /**
  * Datos de PRUEBA (ficticios) para desarrollo local.
@@ -154,6 +155,113 @@ const REACTIVOS: Array<{
   },
 ];
 
+// ── Exámenes, asignaciones e intentos (LUI-9) ───────────────────────────────
+// Existen para que el panel de la administradora sea VERIFICABLE: sin ellos,
+// «Exámenes aplicados este mes» siempre da 0 y la tabla siempre sale vacía.
+//
+// El fixture es DISCRIMINANTE, no decorativo: cada dato está puesto para que una
+// implementación mal hecha falle de forma VISIBLE. Ver el comentario de cada uno.
+
+type Cuando = "esteMes" | "mesPasado" | "futura";
+
+const EXAMENES: {
+  titulo: string;
+  descripcion: string;
+  duracionMin: number;
+  estado: "borrador" | "publicado";
+}[] = [
+  { titulo: "Diagnóstico por áreas", descripcion: "Evaluación inicial de las cuatro áreas del EXANI II.", duracionMin: 90, estado: "publicado" },
+  { titulo: "Simulacro General 1", descripcion: "Primer simulacro completo.", duracionMin: 180, estado: "publicado" },
+  { titulo: "Simulacro General 2", descripcion: "Segundo simulacro completo.", duracionMin: 180, estado: "publicado" },
+  { titulo: "Simulacro General 3", descripcion: "Tercer simulacro completo.", duracionMin: 180, estado: "publicado" },
+  // Sin asignar y en borrador: ejercita `estado` y el índice `by_estado`.
+  { titulo: "Simulacro Final", descripcion: "En construcción.", duracionMin: 180, estado: "borrador" },
+];
+
+/** La identidad de una asignación en el fixture es el par (examen, grupo). */
+const ASIGNACIONES: {
+  examen: string;
+  grupo: string;
+  cuando: Cuando;
+  /** "activasDelGrupo" = todas las alumnas activas del grupo; [] = nadie la presentó. */
+  presentan: "activasDelGrupo" | string[];
+  /** Correo de quien REINTENTÓ: 2º intento con +150 pts (caza promediar todos). */
+  reintenta?: string;
+  /** Correo de quien tiene un intento `en_curso` SIN puntaje (caza el NaN). */
+  enCurso?: string;
+}[] = [
+  // Mes pasado (2): historia. NO cuentan en «este mes» — si falta el filtro de
+  // mes, la métrica sale 9 en vez de 7.
+  { examen: "Diagnóstico por áreas", grupo: "Matutino A", cuando: "mesPasado", presentan: "activasDelGrupo" },
+  { examen: "Diagnóstico por áreas", grupo: "Vespertino B", cuando: "mesPasado", presentan: "activasDelGrupo" },
+  // Este mes (7), del MÁS ANTIGUO al MÁS RECIENTE. La métrica debe decir 7 y la
+  // tabla mostrar solo las 5 últimas → si alguien calcula la métrica como
+  // `ultimosExamenes.length`, sale 5 y se caza.
+  { examen: "Simulacro General 1", grupo: "Matutino A", cuando: "esteMes", presentan: "activasDelGrupo" },
+  { examen: "Simulacro General 1", grupo: "Vespertino B", cuando: "esteMes", presentan: "activasDelGrupo" },
+  { examen: "Simulacro General 1", grupo: "Sabatino C", cuando: "esteMes", presentan: "activasDelGrupo" },
+  { examen: "Simulacro General 2", grupo: "Matutino A", cuando: "esteMes", presentan: "activasDelGrupo", reintenta: "ana.lopez@correo.com" },
+  { examen: "Simulacro General 2", grupo: "Vespertino B", cuando: "esteMes", presentan: "activasDelGrupo" },
+  { examen: "Simulacro General 2", grupo: "Sabatino C", cuando: "esteMes", presentan: "activasDelGrupo", enCurso: "emiliano.rios@correo.com" },
+  // Sin intentos: la celda de puntaje debe decir «—», nunca 0.
+  { examen: "Diagnóstico por áreas", grupo: "Sabatino C", cuando: "esteMes", presentan: [] },
+  // Futura: la ventana aún no abre → ni métrica ni tabla. Si falta
+  // `abreEn <= ahora`, ESTE encabeza «Últimos exámenes APLICADOS».
+  { examen: "Simulacro General 3", grupo: "Matutino A", cuando: "futura", presentan: [] },
+];
+
+/**
+ * Puntaje EXANI ficticio pero ESTABLE: hash determinista de (examen, grupo,
+ * alumna) en la escala 700–1300. Nada de `Math.random()`: reescribiría puntajes
+ * distintos en cada corrida y volvería ruidoso el demo — este archivo CONVERGE,
+ * no aleatoriza.
+ *
+ * ⚠️ NO implementa la fórmula real del PRD (`700 + aciertos × 600 ÷ N`): eso es de
+ * la Fase 5 (LUI-26/27/28). Aquí solo hacen falta números plausibles en rango.
+ */
+function puntajeDemo(clave: string): number {
+  let h = 0;
+  for (let i = 0; i < clave.length; i++) h = (h * 31 + clave.charCodeAt(i)) >>> 0;
+  return 700 + (h % 601);
+}
+
+/**
+ * Desactiva TODO alumno del namespace de pruebas `e2e.*@example.com`.
+ *
+ * Existe porque `scripts/e2e-lui103.mjs` crea alumnos y, sin esto, **contaminaba
+ * la base que prueba**: cualquier métrica de «alumnos activos» (p. ej. el panel de
+ * LUI-9) quedaba envenenada y sus pruebas fallaban con el código correcto.
+ *
+ * Va aquí y no por la UI a propósito: barrer con Playwright dependía de
+ * re-renders, modales y timings — se colgaba, barría de a uno y perdía la
+ * limpieza en silencio. La limpieza de un fixture es una operación de datos, no
+ * un flujo de usuario.
+ *
+ * Desactiva en vez de borrar: es la única baja que el modelo permite (la app no
+ * tiene borrado) y basta, porque las métricas cuentan activos. `internalMutation`
+ * ⇒ CLI-only, fuera de la API pública. Solo toca `@example.com` (RFC 2606: un
+ * dominio reservado que no puede pertenecer a nadie real).
+ */
+export const limpiarAlumnosE2E = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const perfiles = await ctx.db
+      .query("perfiles")
+      .withIndex("by_rol", (q) => q.eq("rol", "alumno"))
+      .collect();
+    const barridos: string[] = [];
+    for (const p of perfiles) {
+      if (!p.activo) continue;
+      const user = await ctx.db.get(p.userId);
+      const correo = user?.email ?? "";
+      if (!correo.startsWith("e2e.") || !correo.endsWith("@example.com")) continue;
+      await ctx.db.patch(p._id, { activo: false });
+      barridos.push(correo);
+    }
+    return { barridos: barridos.length, correos: barridos };
+  },
+});
+
 export const cargarDatosDePrueba = internalMutation({
   args: {},
   handler: async (ctx) => {
@@ -276,10 +384,19 @@ export const cargarDatosDePrueba = internalMutation({
     }
 
     // ── 4. Reactivos (upsert por enunciado) ────────────────────────────────
+    // Se acumulan los ids: `examenes.reactivoIds` los necesita (LUI-9). Solo los
+    // del fixture — nunca los que un instructor haya creado desde la UI.
     const reactivosExistentes = await ctx.db.query("reactivos").collect();
+    const reactivoIds: Id<"reactivos">[] = [];
     for (const r of REACTIVOS) {
-      if (reactivosExistentes.some((x) => x.enunciado === r.enunciado)) continue;
-      await ctx.db.insert("reactivos", {
+      const existente = reactivosExistentes.find(
+        (x) => x.enunciado === r.enunciado,
+      );
+      if (existente) {
+        reactivoIds.push(existente._id);
+        continue;
+      }
+      const id = await ctx.db.insert("reactivos", {
         enunciado: r.enunciado,
         opciones: r.opciones,
         opcionCorrecta: r.opcionCorrecta,
@@ -289,10 +406,13 @@ export const cargarDatosDePrueba = internalMutation({
         autorId: instructorUserId,
         activo: true,
       });
+      reactivoIds.push(id);
       insertado.push("reactivo");
     }
 
     // ── 5. Alumnos (upsert por correo + REPARA el perfil al estado del fixture) ──
+    // El mapa correo→userId lo consumen los intentos (paso 9, LUI-9).
+    const alumnoUserIdPorCorreo = new Map<string, Id<"users">>();
     for (const a of ALUMNOS) {
       const correo = norm(a.correo);
       const datosPerfil = {
@@ -317,6 +437,7 @@ export const cargarDatosDePrueba = internalMutation({
         if (perfil) await ctx.db.patch(perfil._id, datosPerfil);
         else await ctx.db.insert("perfiles", { userId: user._id, ...datosPerfil });
         await ctx.db.patch(user._id, { name: nombreCompleto(a.nombre, a.apellidos) });
+        alumnoUserIdPorCorreo.set(correo, user._id);
         reparado.push(a.nombre);
       } else {
         const userId = await ctx.db.insert("users", {
@@ -324,6 +445,7 @@ export const cargarDatosDePrueba = internalMutation({
           email: correo,
         });
         await ctx.db.insert("perfiles", { userId, ...datosPerfil });
+        alumnoUserIdPorCorreo.set(correo, userId);
         insertado.push(`alumno:${a.nombre}`);
       }
     }
@@ -346,9 +468,208 @@ export const cargarDatosDePrueba = internalMutation({
       }
     }
 
+    // ── 7. Exámenes (upsert por título; converge los campos) ───────────────
+    const examenesExistentes = await ctx.db.query("examenes").collect();
+    const examenIdPorTitulo = new Map<string, Id<"examenes">>();
+    for (const e of EXAMENES) {
+      const datos = {
+        titulo: e.titulo,
+        descripcion: e.descripcion,
+        reactivoIds,
+        duracionMin: e.duracionMin,
+        estado: e.estado,
+        autorId: instructorUserId,
+      };
+      const existente = examenesExistentes.find((x) => x.titulo === e.titulo);
+      if (existente) {
+        await ctx.db.patch(existente._id, datos);
+        examenIdPorTitulo.set(e.titulo, existente._id);
+        reparado.push(`examen:${e.titulo}`);
+      } else {
+        const id = await ctx.db.insert("examenes", datos);
+        examenIdPorTitulo.set(e.titulo, id);
+        insertado.push(`examen:${e.titulo}`);
+      }
+    }
+
+    // ── 8. Asignaciones (upsert por el par examen+grupo) ───────────────────
+    // ⚠️ Las fechas son RELATIVAS y se recalculan en cada corrida (igual que
+    // `ultimoAccesoEn`): el seed CONVERGE, no congela. Una fecha fija tipo
+    // 2026-07-06 se saldría de «este mes» el mes siguiente y rompería el AC para
+    // el próximo que revise.
+    //
+    // Y se anclan al INICIO DE MES, no a «N días atrás»: si el seed corre el día 2,
+    // un `ahora − 5 días` caería en el mes pasado y la métrica se desplomaría. Se
+    // reparten en el hueco [inicioDeMes, ahora] con paso = (ahora−inicio)/(n+1):
+    // el día 1 quedan a minutos de distancia y el día 28 a días — en ambos casos
+    // dentro del mes y SIEMPRE en el pasado.
+    const inicioMes = inicioDeMesMx(ahora);
+    const delMes = ASIGNACIONES.filter((a) => a.cuando === "esteMes");
+    const delMesPasado = ASIGNACIONES.filter((a) => a.cuando === "mesPasado");
+    const paso = (ahora - inicioMes) / (delMes.length + 1);
+
+    function abreEnDe(a: (typeof ASIGNACIONES)[number]): number {
+      if (a.cuando === "futura") return ahora + 7 * DIA;
+      if (a.cuando === "mesPasado") {
+        // 10 y 3 días ANTES del día 1 → siempre caen en el mes anterior.
+        return inicioMes - (10 - 7 * delMesPasado.indexOf(a)) * DIA;
+      }
+      return Math.round(inicioMes + (delMes.indexOf(a) + 1) * paso);
+    }
+
+    const asignacionesExistentes = await ctx.db.query("asignaciones").collect();
+    const alumnosActivosPorGrupo = new Map<string, string[]>();
+    for (const a of ALUMNOS) {
+      if (!a.activo) continue;
+      const lista = alumnosActivosPorGrupo.get(a.grupo) ?? [];
+      lista.push(norm(a.correo));
+      alumnosActivosPorGrupo.set(a.grupo, lista);
+    }
+
+    for (const asig of ASIGNACIONES) {
+      const examenId = examenIdPorTitulo.get(asig.examen);
+      const grupoId = grupoIdPorNombre.get(asig.grupo);
+      if (!examenId || !grupoId) continue;
+
+      const abreEn = abreEnDe(asig);
+      const datos = {
+        examenId,
+        grupoId,
+        abreEn,
+        cierraEn: abreEn + 21 * DIA, // ventana larga: la mayoría siguen ABIERTAS
+        creadoPor: instructorUserId,
+      };
+      const existente = asignacionesExistentes.find(
+        (x) => x.examenId === examenId && x.grupoId === grupoId,
+      );
+      let asignacionId: Id<"asignaciones">;
+      if (existente) {
+        await ctx.db.patch(existente._id, datos);
+        asignacionId = existente._id;
+        reparado.push(`asignacion:${asig.examen}·${asig.grupo}`);
+      } else {
+        asignacionId = await ctx.db.insert("asignaciones", datos);
+        insertado.push(`asignacion:${asig.examen}·${asig.grupo}`);
+      }
+
+      // ── 9. Intentos de esta asignación ──────────────────────────────────
+      const correos =
+        asig.presentan === "activasDelGrupo"
+          ? (alumnosActivosPorGrupo.get(asig.grupo) ?? [])
+          : asig.presentan.map(norm);
+
+      for (const correo of correos) {
+        const alumnoId = alumnoUserIdPorCorreo.get(correo);
+        if (!alumnoId) continue;
+
+        // Los instantes exactos no los muestra el panel; lo único que importa es
+        // (a) que caigan en el pasado y (b) el ORDEN entre los intentos de una
+        // misma alumna. Como fracción del tiempo transcurrido desde `abreEn`,
+        // siempre quedan en el pasado por reciente que sea la ventana.
+        const enVentana = (f: number) => Math.round(abreEn + (ahora - abreEn) * f);
+        const base = puntajeDemo(`${asig.examen}|${asig.grupo}|${correo}`);
+
+        type FixtureIntento = {
+          estado: "en_curso" | "enviado";
+          iniciadoEn: number;
+          enviadoEn?: number;
+          puntaje?: number;
+        };
+        const fixture: FixtureIntento[] = [];
+
+        if (asig.enCurso === correo) {
+          // Sin puntaje y sin enviar: si el promedio no filtra, sale NaN.
+          fixture.push({ estado: "en_curso", iniciadoEn: enVentana(0.5) });
+        } else {
+          fixture.push({
+            estado: "enviado",
+            iniciadoEn: enVentana(0.2),
+            enviadoEn: enVentana(0.3),
+            puntaje: base,
+          });
+          if (asig.reintenta === correo) {
+            // 2º intento MEJOR (+150): si se promedian todos los intentos, o se
+            // toma el último, el número SUBE de forma detectable.
+            fixture.push({
+              estado: "enviado",
+              iniciadoEn: enVentana(0.6),
+              enviadoEn: enVentana(0.7),
+              puntaje: Math.min(1300, base + 150),
+            });
+          }
+        }
+
+        // Convergen por (asignación, alumna) + POSICIÓN cronológica. El modelo no
+        // tiene `numeroIntento` (LUI-104), así que el orden de los intentos de una
+        // alumna solo existe como `iniciadoEn` — que cambia en cada corrida y por
+        // tanto NO sirve de clave. Se reconcilia por posición: los existentes del
+        // par, ordenados por `iniciadoEn`, se parchean contra el i-ésimo del
+        // fixture; los que falten se insertan. Converge sin duplicar y sin borrar.
+        const previos = (
+          await ctx.db
+            .query("intentos")
+            .withIndex("by_asignacion", (q) => q.eq("asignacionId", asignacionId))
+            .collect()
+        )
+          .filter((i) => i.alumnoId === alumnoId)
+          .sort((a, b) => a.iniciadoEn - b.iniciadoEn);
+
+        for (let k = 0; k < fixture.length; k++) {
+          const datosIntento = { examenId, alumnoId, asignacionId, ...fixture[k] };
+          const previo = previos[k];
+          if (previo) {
+            // `patch` con `puntaje: undefined` ELIMINA el campo — es justo lo que
+            // necesita el intento `en_curso`. Mismo mecanismo que `ultimoAccesoEn`.
+            await ctx.db.patch(previo._id, datosIntento);
+          } else {
+            await ctx.db.insert("intentos", datosIntento);
+            insertado.push(`intento:${asig.examen}·${correo}`);
+          }
+        }
+      }
+    }
+
+    // ── Oráculo del panel (LUI-9) ──────────────────────────────────────────
+    // Lo que /admin DEBE mostrar. Se calcula con el código de conteo PROPIO del
+    // seed —una reimplementación independiente de `panel.resumen`, así que un
+    // error de conteo en la query se caza igual— pero **contra la BD REAL**, no
+    // contra los arrays del fixture.
+    //
+    // Esto último importa: `scripts/e2e-lui103.mjs` crea alumnos y la BD de dev
+    // puede tener habitantes que el fixture desconoce. Un oráculo que dijera
+    // «8 alumnos» porque `ALUMNOS.length === 9` sería FALSO y haría fallar la
+    // prueba con el código correcto.
+    const gruposFinal = await ctx.db.query("grupos").collect();
+    const alumnosFinal = await ctx.db
+      .query("perfiles")
+      .withIndex("by_rol", (q) => q.eq("rol", "alumno"))
+      .collect();
+    const asignacionesFinal = await ctx.db.query("asignaciones").collect();
+    const examenPorId = new Map(
+      (await ctx.db.query("examenes").collect()).map((e) => [e._id, e.titulo]),
+    );
+    const grupoPorId = new Map(gruposFinal.map((g) => [g._id, g.nombre]));
+
+    const aplicadasDelMes = asignacionesFinal.filter(
+      (a) => a.abreEn >= inicioMes && a.abreEn <= ahora,
+    );
+    const ultimas = asignacionesFinal
+      .filter((a) => a.abreEn <= ahora)
+      .sort((a, b) => b.abreEn - a.abreEn)
+      .slice(0, 5);
+
     return {
       insertado,
       reparado,
+      panelEsperado: {
+        gruposActivos: gruposFinal.filter((g) => g.activo).length,
+        alumnosRegistrados: alumnosFinal.filter((p) => p.activo).length,
+        examenesAplicadosMes: aplicadasDelMes.length,
+        ultimosExamenes: ultimas.map((a) => ({
+          examen: examenPorId.get(a.examenId) ?? "?",
+          grupo: grupoPorId.get(a.grupoId) ?? "?",
+        })),
+      },
       mensaje:
         insertado.length || reparado.length
           ? `Seed OK — insertado: ${insertado.length ? insertado.join(", ") : "nada"} · reparado: ${reparado.length ? reparado.join(", ") : "nada"}`

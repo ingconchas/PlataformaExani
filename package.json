@@ -7,7 +7,9 @@
     "dev:convex": "convex dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "e2e:lui9": "node scripts/e2e-lui9.mjs",
+    "e2e:lui103": "node scripts/e2e-lui103.mjs"
   },
   "engines": {
     "node": ">=20"

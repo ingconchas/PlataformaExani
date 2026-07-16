@@ -64,13 +64,22 @@ export function SidebarNav({
       </div>
       <nav className="flex-1 space-y-1 p-3">
         {items.map((item) => {
-          const active =
-            pathname === item.href || pathname.startsWith(item.href + "/");
+          // El ítem raíz («Inicio» → /admin o /instructor) SOLO está activo en su
+          // propia ruta: con `startsWith` a secas se marcaba activo en TODAS las
+          // subpáginas, y «Inicio» quedaba resaltado a la vez que «Grupos» en
+          // /admin/grupos (corregido en LUI-9).
+          const esRaiz = item.href === "/admin" || item.href === "/instructor";
+          const active = esRaiz
+            ? pathname === item.href
+            : pathname === item.href || pathname.startsWith(item.href + "/");
           const Icon = item.icon;
           return (
             <Link
               key={item.href}
               href={item.href}
+              // El estado activo era SOLO una clase visual, invisible para un
+              // lector de pantalla. `aria-current` lo anuncia (LUI-9).
+              aria-current={active ? "page" : undefined}
               className={cn(
                 "relative flex items-center gap-3 rounded-control px-3 py-2.5 text-small transition-colors",
                 active

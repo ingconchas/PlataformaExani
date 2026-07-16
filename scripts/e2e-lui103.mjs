@@ -171,6 +171,40 @@ async function salir(page) {
   }
 }
 
+/**
+ * Desactiva TODO alumno del namespace `e2e.*@example.com` — los de esta corrida y
+ * los que dejaron corridas anteriores.
+ *
+ * Existe porque este script **contaminaba la base que prueba**: creaba alumnos y
+ * nunca los limpiaba, así que cualquier métrica de «alumnos activos» (p. ej. el
+ * panel de LUI-9) quedaba envenenada y sus pruebas fallaban con el código
+ * correcto. Que un script de prueba commiteado ensucie el entorno es un defecto
+ * suyo, no una condición del entorno.
+ *
+ * Se llama DOS veces a propósito: al inicio (barre restos ajenos → el script es
+ * auto-reparable, no depende de que el anterior se haya portado bien) y en el
+ * `finally` (limpia lo suyo, incluso si falló a media corrida).
+ *
+ * Va por el CLI y NO por la UI: barrer con Playwright dependía de re-renders,
+ * modales y timings — se colgaba 30 s, barría de a uno y perdía la limpieza en
+ * silencio. La limpieza de un fixture es una operación de datos, no un flujo de
+ * usuario. `seed:limpiarAlumnosE2E` es `internalMutation` (CLI-only, fuera de la
+ * API pública) y vive junto al resto del fixture.
+ */
+async function barrerAlumnosE2E() {
+  const salida = await ejecutar("npx", [
+    "convex",
+    "run",
+    "seed:limpiarAlumnosE2E",
+  ]);
+  const json = salida.match(/\{[\s\S]*\}/);
+  if (!json) {
+    console.warn(`  ⚠️  el barrido de e2e.* falló: ${salida.slice(0, 120)}`);
+    return 0;
+  }
+  return JSON.parse(json[0]).barridos ?? 0;
+}
+
 async function crearAlumno(page, correo, nombre) {
   await page.goto(`${BASE}/admin/alumnos`);
   await page.getByRole("button", { name: "Agregar alumno" }).first().click();
@@ -205,6 +239,11 @@ try {
   await entrar(page, ADMIN.correo, ADMIN.password);
   await page.waitForURL(/\/admin/, { timeout: 15_000 });
   check("el admin entra a /admin", page.url().includes("/admin"));
+
+  // Barre restos de corridas anteriores ANTES de empezar: si no, los alumnos
+  // e2e.* se acumulan y envenenan las métricas de otras pantallas (LUI-9).
+  const previos = await barrerAlumnosE2E();
+  if (previos) console.log(`  · barridos ${previos} alumnos e2e.* de corridas previas`);
 
   const antes = enlaces.length;
   await crearAlumno(page, alumnoA, `E2E Alumno ${sello}`);
@@ -356,6 +395,10 @@ try {
 } finally {
   await navegador.close();
   logs.kill();
+  // Limpieza de los alumnos que ESTA corrida creó, aunque haya fallado a media
+  // ejecución. Va por CLI, así que no necesita navegador ni sesión.
+  const barridos = await barrerAlumnosE2E();
+  console.log(`\nLimpieza: ${barridos} alumnos e2e.* desactivados.`);
 }
 
 console.log(`\n──────────────\n${ok} pasaron · ${fallos} fallaron\n`);
