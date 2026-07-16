@@ -80,8 +80,10 @@ const filas = (pg) => pg.locator("tbody tr");
 const filaDe = (pg, texto) => filas(pg).filter({ hasText: texto }).first();
 const verBtn = (fila) => fila.getByRole("button", { name: /^Ver el reactivo/ });
 const editarLink = (fila) => fila.getByRole("link", { name: /^Editar el reactivo/ });
+// El candado de un reactivo en uso: enlace (lock) que abre el form para desactivar
+// (editar el contenido sí está bloqueado; LUI-15 permite desactivar aun en uso).
 const candado = (fila) =>
-  fila.locator('[aria-label="Edición bloqueada: en uso en un examen activo"]');
+  fila.getByRole("link", { name: /abrir .* para desactivar/ });
 
 function poller(pg) {
   return async (cond, ms = 6000) => {

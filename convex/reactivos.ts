@@ -1,7 +1,15 @@
-import { query, type QueryCtx } from "./_generated/server";
+import {
+  query,
+  mutation,
+  type QueryCtx,
+  type MutationCtx,
+} from "./_generated/server";
 import { type Doc, type Id } from "./_generated/dataModel";
-import { v } from "convex/values";
+import { v, ConvexError } from "convex/values";
 import { requireStaff } from "./authz";
+import { resolverClasificacion } from "./temario";
+
+type Ctx = QueryCtx | MutationCtx;
 
 /**
  * Banco de reactivos (LUI-14) — la lista institucional. Todo el staff (admin e
@@ -30,7 +38,7 @@ function nombreCompleto(p: Doc<"perfiles">): string {
  * «aplicado», no «comprometido»). Acotado por el número de exámenes publicados.
  */
 async function reactivosBloqueados(
-  ctx: QueryCtx,
+  ctx: Ctx,
 ): Promise<Set<Id<"reactivos">>> {
   const publicados = await ctx.db
     .query("examenes")
@@ -177,6 +185,11 @@ export const obtener = query({
       opcionCorrecta: r.opcionCorrecta,
       retroalimentacion: r.retroalimentacion ?? null,
       dificultad: r.dificultad,
+      // Ids para prellenar el formulario de edición (LUI-15); el preview los ignora.
+      seccionId: r.seccionId,
+      areaId: r.areaId,
+      subtemaId: r.subtemaId,
+      imagenId: r.imagenId ?? null,
       seccionNombre: seccion?.nombre ?? "—",
       areaNombre: area?.nombre ?? "—",
       subtemaNombre: subtema?.nombre ?? "—",
@@ -187,5 +200,184 @@ export const obtener = query({
       esEditable: sesion.perfil.rol === "admin" || r.autorId === sesion.userId,
       enUso,
     };
+  },
+});
+
+// ── Mutations (LUI-15 · Entrega 1) ───────────────────────────────────────────
+// Primer escritor de `reactivos`. Toda escritura: `requireStaff` primero, propiedad
+// (instructor solo lo suyo; admin todo) y mantenimiento INCREMENTAL de
+// `reactivosCount` (el contrato que LUI-18 dejó para acá, temario.ts:141).
+
+/** Suma `delta` (±1) al contador denormalizado de los 3 ancestros. Cada reactivo cae
+ *  en EXACTAMENTE una hoja → preserva `count(sección)=Σcount(áreas)`. */
+async function ajustarContadores(
+  ctx: MutationCtx,
+  clasif: {
+    seccionId: Id<"secciones">;
+    areaId: Id<"areasTematicas">;
+    subtemaId: Id<"subtemas">;
+  },
+  delta: 1 | -1,
+): Promise<void> {
+  const seccion = await ctx.db.get(clasif.seccionId);
+  if (seccion)
+    await ctx.db.patch(clasif.seccionId, {
+      reactivosCount: seccion.reactivosCount + delta,
+    });
+  const area = await ctx.db.get(clasif.areaId);
+  if (area)
+    await ctx.db.patch(clasif.areaId, {
+      reactivosCount: area.reactivosCount + delta,
+    });
+  const subtema = await ctx.db.get(clasif.subtemaId);
+  if (subtema)
+    await ctx.db.patch(clasif.subtemaId, {
+      reactivosCount: subtema.reactivosCount + delta,
+    });
+}
+
+const LETRAS = ["a", "b", "c", "d"] as const;
+const opcionValidator = v.object({ id: v.string(), texto: v.string() });
+const dificultadValidator = v.union(
+  v.literal("facil"),
+  v.literal("medio"),
+  v.literal("dificil"),
+);
+
+/**
+ * Valida el contenido de un reactivo (opción múltiple) y lo devuelve NORMALIZADO
+ * (trims). El cliente refleja estas reglas, pero el servidor es la autoridad: un
+ * cliente manipulado no las salta.
+ */
+function validarContenido(args: {
+  enunciado: string;
+  opciones: { id: string; texto: string }[];
+  opcionCorrecta: string;
+  retroalimentacion: string;
+}) {
+  const enunciado = args.enunciado.trim();
+  if (!enunciado) throw new ConvexError("El enunciado es obligatorio.");
+
+  if (args.opciones.length < 3 || args.opciones.length > 4)
+    throw new ConvexError("Un reactivo debe tener entre 3 y 4 opciones.");
+  const opciones = args.opciones.map((o) => ({ id: o.id, texto: o.texto.trim() }));
+  const ids = new Set<string>();
+  for (const o of opciones) {
+    if (!o.texto) throw new ConvexError("Cada opción debe tener texto.");
+    // Ids canónicos a|b|c|d: son la referencia de las respuestas (LUI-104), no se
+    // aceptan vacíos ni arbitrarios de un cliente manipulado.
+    if (!(LETRAS as readonly string[]).includes(o.id))
+      throw new ConvexError("Id de opción inválido.");
+    if (ids.has(o.id)) throw new ConvexError("Ids de opción duplicados.");
+    ids.add(o.id);
+  }
+  if (!ids.has(args.opcionCorrecta))
+    throw new ConvexError("Debes marcar cuál es la opción correcta.");
+
+  const retroalimentacion = args.retroalimentacion.trim();
+  if (!retroalimentacion)
+    throw new ConvexError(
+      "La explicación de la respuesta correcta es obligatoria.",
+    );
+
+  return { enunciado, opciones, opcionCorrecta: args.opcionCorrecta, retroalimentacion };
+}
+
+export const crear = mutation({
+  args: {
+    subtemaId: v.id("subtemas"),
+    enunciado: v.string(),
+    opciones: v.array(opcionValidator),
+    opcionCorrecta: v.string(),
+    dificultad: dificultadValidator,
+    retroalimentacion: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const { userId } = await requireStaff(ctx);
+    const limpio = validarContenido(args);
+    // Camino ESTRICTO (default `exigirDisponible:true`): no se clasifica contenido
+    // NUEVO en una rama retirada. La clasificación se DERIVA de `subtemaId`.
+    const clasificacion = await resolverClasificacion(ctx, args.subtemaId);
+    const id = await ctx.db.insert("reactivos", {
+      enunciado: limpio.enunciado,
+      opciones: limpio.opciones,
+      opcionCorrecta: limpio.opcionCorrecta,
+      ...clasificacion,
+      dificultad: args.dificultad,
+      retroalimentacion: limpio.retroalimentacion,
+      autorId: userId, // el autor sale de la sesión, nunca del cliente
+      activo: true,
+    });
+    await ajustarContadores(ctx, clasificacion, 1);
+    return { id };
+  },
+});
+
+export const actualizar = mutation({
+  args: {
+    id: v.id("reactivos"),
+    subtemaId: v.id("subtemas"),
+    enunciado: v.string(),
+    opciones: v.array(opcionValidator),
+    opcionCorrecta: v.string(),
+    dificultad: dificultadValidator,
+    retroalimentacion: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const { userId, perfil } = await requireStaff(ctx);
+    const r = await ctx.db.get(args.id);
+    if (!r) throw new ConvexError("El reactivo no existe.");
+    if (perfil.rol !== "admin" && r.autorId !== userId)
+      throw new ConvexError("Solo puedes editar tus propios reactivos.");
+    // Candado: no se edita el CONTENIDO de un reactivo en un examen vivo (lo
+    // corrompería). Desactivarlo sí se permite — eso es `cambiarEstado`.
+    if ((await reactivosBloqueados(ctx)).has(args.id))
+      throw new ConvexError(
+        "Este reactivo está en uso en un examen; no se puede editar, solo desactivar.",
+      );
+    const limpio = validarContenido(args);
+
+    // Mantener la hoja actual se TOLERA aunque esté retirada; MOVER a otra exige que
+    // sea disponible → `exigirDisponible = cambiaSubtema`.
+    const cambiaSubtema = args.subtemaId !== r.subtemaId;
+    const nueva = await resolverClasificacion(ctx, args.subtemaId, {
+      exigirDisponible: cambiaSubtema,
+    });
+    if (cambiaSubtema) {
+      await ajustarContadores(
+        ctx,
+        { seccionId: r.seccionId, areaId: r.areaId, subtemaId: r.subtemaId },
+        -1,
+      );
+      await ajustarContadores(ctx, nueva, 1);
+    }
+
+    await ctx.db.patch(args.id, {
+      enunciado: limpio.enunciado,
+      opciones: limpio.opciones,
+      opcionCorrecta: limpio.opcionCorrecta,
+      ...nueva,
+      dificultad: args.dificultad,
+      retroalimentacion: limpio.retroalimentacion,
+    });
+    return { id: args.id };
+  },
+});
+
+/** Baja/alta lógica del reactivo. SIN candado (un reactivo en uso «solo se puede
+ *  desactivar», AC) y SIN cambio de contadores (`recalcular` cuenta activos e
+ *  inactivos → `activo` es ortogonal al conteo). */
+export const cambiarEstado = mutation({
+  args: { id: v.id("reactivos"), activo: v.boolean() },
+  handler: async (ctx, args) => {
+    const { userId, perfil } = await requireStaff(ctx);
+    const r = await ctx.db.get(args.id);
+    if (!r) throw new ConvexError("El reactivo no existe.");
+    if (perfil.rol !== "admin" && r.autorId !== userId)
+      throw new ConvexError(
+        "Solo puedes cambiar el estado de tus propios reactivos.",
+      );
+    await ctx.db.patch(args.id, { activo: args.activo });
+    return { id: args.id, activo: args.activo };
   },
 });

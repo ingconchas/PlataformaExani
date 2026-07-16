@@ -297,14 +297,12 @@ export function BancoReactivosClient({ basePath }: { basePath: string }) {
         </IconBtn>
         {r.esEditable &&
           (bloqueados.has(r.id) ? (
-            <span
-              role="img"
-              aria-label="Edición bloqueada: en uso en un examen activo"
-              title="Edición bloqueada: en uso en un examen activo"
-              className="inline-flex size-[34px] items-center justify-center text-muted"
+            <IconBtn
+              label={`En uso en un examen activo · abrir «${truncar(r.enunciado, 40)}» para desactivar`}
+              href={`${basePath}/reactivos/${r.id}/editar`}
             >
               <Lock className="size-[17px]" aria-hidden />
-            </span>
+            </IconBtn>
           ) : (
             <IconBtn
               label={`Editar el reactivo «${truncar(r.enunciado, 40)}»`}
@@ -467,8 +465,9 @@ export function BancoReactivosClient({ basePath }: { basePath: string }) {
 
       <p className="mt-3 text-small text-muted">
         Editar aparece solo en tus propios reactivos; los administradores pueden
-        editar todos. Un reactivo en uso en un examen activo queda bloqueado (
-        <Lock className="inline size-3.5 align-[-2px]" aria-hidden />) para todos.
+        editar todos. Un reactivo en uso en un examen activo se bloquea para editar
+        (<Lock className="inline size-3.5 align-[-2px]" aria-hidden />); ábrelo para
+        desactivarlo.
       </p>
 
       {preview && (

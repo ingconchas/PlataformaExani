@@ -389,6 +389,9 @@ const REACTIVO_SIN_EXAMEN = "¿Qué fracción es equivalente a 0.375?"; // (D) e
 const REACTIVO_SOLO_BORRADOR = "¿Cuál es el resultado de 3/4 + 1/6?"; // (A) solo en el borrador → LIBRE
 const REACTIVO_SOLO_FUTURO =
   "En el sistema x + y = 10 y x − y = 2, ¿cuánto vale x?"; // (C) solo en SG3 (futura) → BLOQUEADO
+// (LUI-15) Reactivo en rama RETIRADA («Productos notables») pero LIBRE (en ningún
+// examen) → editable: fixture para probar «mantener una clasificación retirada al editar».
+const REACTIVO_RETIRADO_LIBRE = "¿Cuál es el desarrollo de (x + 3)²?";
 
 // ── Exámenes, asignaciones e intentos (LUI-9) ───────────────────────────────
 // Existen para que el panel de la administradora sea VERIFICABLE: sin ellos,
@@ -901,8 +904,9 @@ export const cargarDatosDePrueba = internalMutation({
     const idSinExamen = reactivoIdPorEnunciado.get(REACTIVO_SIN_EXAMEN);
     const idSoloBorrador = reactivoIdPorEnunciado.get(REACTIVO_SOLO_BORRADOR);
     const idSoloFuturo = reactivoIdPorEnunciado.get(REACTIVO_SOLO_FUTURO);
+    const idRetiradoLibre = reactivoIdPorEnunciado.get(REACTIVO_RETIRADO_LIBRE);
     const apartados = new Set(
-      [idSinExamen, idSoloBorrador, idSoloFuturo].filter(
+      [idSinExamen, idSoloBorrador, idSoloFuturo, idRetiradoLibre].filter(
         Boolean,
       ) as Id<"reactivos">[],
     );
