@@ -1,9 +1,16 @@
 "use client";
 
-import { ChevronDown } from "lucide-react";
+import { type ReactNode } from "react";
+import { Ban, ChevronDown, ChevronUp, Pencil, RotateCcw, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { type FilaTemario } from "./tipos";
+import {
+  type FilaTemario,
+  nivelNombre,
+  puedeBajar,
+  puedeEliminar,
+  puedeSubir,
+} from "./tipos";
 
 /**
  * El árbol del temario: Sección → Área temática → Subtema.
@@ -19,19 +26,63 @@ import { type FilaTemario } from "./tipos";
  * árbol se promueve.
  */
 
+export type AccionesTemario = {
+  onRenombrar: (f: FilaTemario) => void;
+  onDesactivar: (f: FilaTemario) => void;
+  onReactivar: (f: FilaTemario) => void;
+  onEliminar: (f: FilaTemario) => void;
+  onMover: (f: FilaTemario, direccion: "arriba" | "abajo") => void;
+};
+
 /** Indentación del mock: `16 + depth * 28`. `depth` es `nivel - 1` siempre, así
  *  que no viaja por la red: se deriva. */
 const sangria = (nivel: 1 | 2 | 3) => 16 + (nivel - 1) * 28;
 
+function AccionBtn({
+  label,
+  onClick,
+  disabled,
+  className,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        "inline-flex size-[30px] items-center justify-center rounded-control text-muted transition-colors hover:bg-bg hover:text-ink",
+        "disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-muted",
+        className,
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
 function Fila({
   fila,
+  filas,
   expandido,
   onAlternar,
+  acciones,
 }: {
   fila: FilaTemario;
+  filas: FilaTemario[];
   expandido: boolean;
   onAlternar: () => void;
+  acciones: AccionesTemario;
 }) {
+  const nombreNivel = nivelNombre(fila.nivel);
   return (
     <li
       // `aria-level` en el `<li>`: el lector anuncia la profundidad sin que
@@ -43,8 +94,8 @@ function Fila({
         "flex items-center gap-2.5 border-b border-border py-2.5 pr-4",
         fila.nivel === 1 ? "bg-bg" : "bg-surface",
         // Atenuado si él o un ancestro está retirado. No se OCULTA: ocultarlo lo
-        // volvería inalcanzable para renombrar, reordenar o reactivar (Entrega 2)
-        // y rompería el árbol como mapa del catálogo.
+        // volvería inalcanzable para renombrar, reordenar o reactivar y rompería
+        // el árbol como mapa del catálogo.
         !fila.disponible && "opacity-55",
       )}
     >
@@ -90,6 +141,59 @@ function Fila({
       <span className="shrink-0 font-condensed text-[13px] font-semibold tabular-nums text-muted">
         {fila.reactivos} {fila.reactivos === 1 ? "reactivo" : "reactivos"}
       </span>
+
+      {/* Acciones. Par de flechas (deshabilitado en los extremos de la banda) +
+          cluster de edición. El botón Eliminar solo se RENDERIZA cuando es
+          elegible: `<button disabled>` no dispara `title` en Chrome, así que su
+          «por qué no» sería invisible — y la nota al pie enseña la regla. */}
+      <span className="flex shrink-0 items-center gap-0.5 pl-1">
+        <AccionBtn
+          label={`Subir ${nombreNivel} «${fila.nombre}»`}
+          onClick={() => acciones.onMover(fila, "arriba")}
+          disabled={!puedeSubir(filas, fila)}
+        >
+          <ChevronUp className="size-[17px]" aria-hidden />
+        </AccionBtn>
+        <AccionBtn
+          label={`Bajar ${nombreNivel} «${fila.nombre}»`}
+          onClick={() => acciones.onMover(fila, "abajo")}
+          disabled={!puedeBajar(filas, fila)}
+        >
+          <ChevronDown className="size-[17px]" aria-hidden />
+        </AccionBtn>
+      </span>
+      <span className="flex shrink-0 items-center gap-0.5">
+        <AccionBtn
+          label={`Renombrar ${nombreNivel} «${fila.nombre}»`}
+          onClick={() => acciones.onRenombrar(fila)}
+        >
+          <Pencil className="size-[17px]" aria-hidden />
+        </AccionBtn>
+        {fila.activo ? (
+          <AccionBtn
+            label={`Desactivar ${nombreNivel} «${fila.nombre}»`}
+            onClick={() => acciones.onDesactivar(fila)}
+          >
+            <Ban className="size-[17px]" aria-hidden />
+          </AccionBtn>
+        ) : (
+          <AccionBtn
+            label={`Reactivar ${nombreNivel} «${fila.nombre}»`}
+            onClick={() => acciones.onReactivar(fila)}
+          >
+            <RotateCcw className="size-[17px]" aria-hidden />
+          </AccionBtn>
+        )}
+        {puedeEliminar(fila) && (
+          <AccionBtn
+            label={`Eliminar ${nombreNivel} «${fila.nombre}»`}
+            onClick={() => acciones.onEliminar(fila)}
+            className="hover:text-unx-error"
+          >
+            <Trash2 className="size-[17px]" aria-hidden />
+          </AccionBtn>
+        )}
+      </span>
     </li>
   );
 }
@@ -98,10 +202,12 @@ export function TemarioArbol({
   filas,
   estaExpandido,
   onAlternar,
+  acciones,
 }: {
   filas: FilaTemario[];
   estaExpandido: (fila: FilaTemario) => boolean;
   onAlternar: (id: string) => void;
+  acciones: AccionesTemario;
 }) {
   // El servidor ya entrega núcleo primero y módulos después, contiguos, así que
   // el corte es un `findIndex`. La banda «MÓDULOS» del mock se convierte en el
@@ -114,9 +220,7 @@ export function TemarioArbol({
   const visibles = (lista: FilaTemario[]) =>
     lista.filter((f) => {
       if (f.nivel === 1) return true;
-      const seccion = filas.find(
-        (x) => x.nivel === 1 && x.id === f.seccionId,
-      );
+      const seccion = filas.find((x) => x.nivel === 1 && x.id === f.seccionId);
       if (!seccion || !estaExpandido(seccion)) return false;
       if (f.nivel === 2) return true;
       const area = filas.find((x) => x.nivel === 2 && x.id === f.areaId);
@@ -127,8 +231,10 @@ export function TemarioArbol({
     <Fila
       key={fila.id}
       fila={fila}
+      filas={filas}
       expandido={estaExpandido(fila)}
       onAlternar={() => onAlternar(fila.id)}
+      acciones={acciones}
     />
   );
 
