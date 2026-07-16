@@ -83,6 +83,16 @@ function Fila({
   acciones: AccionesTemario;
 }) {
   const nombreNivel = nivelNombre(fila.nivel);
+  // Contexto del padre en los nombres accesibles: los subtemas (y las áreas) pueden
+  // repetir nombre bajo padres distintos, así que sin esto un lector oiría dos
+  // «Renombrar subtema Sucesiones» idénticos. Las secciones son únicas → sin sufijo.
+  const padre =
+    fila.nivel === 2
+      ? filas.find((f) => f.nivel === 1 && f.id === fila.seccionId)
+      : fila.nivel === 3
+        ? filas.find((f) => f.nivel === 2 && f.id === fila.areaId)
+        : undefined;
+  const contexto = padre ? ` de «${padre.nombre}»` : "";
   return (
     <li
       // `aria-level` en el `<li>`: el lector anuncia la profundidad sin que
@@ -148,14 +158,14 @@ function Fila({
           «por qué no» sería invisible — y la nota al pie enseña la regla. */}
       <span className="flex shrink-0 items-center gap-0.5 pl-1">
         <AccionBtn
-          label={`Subir ${nombreNivel} «${fila.nombre}»`}
+          label={`Subir ${nombreNivel} «${fila.nombre}»${contexto}`}
           onClick={() => acciones.onMover(fila, "arriba")}
           disabled={!puedeSubir(filas, fila)}
         >
           <ChevronUp className="size-[17px]" aria-hidden />
         </AccionBtn>
         <AccionBtn
-          label={`Bajar ${nombreNivel} «${fila.nombre}»`}
+          label={`Bajar ${nombreNivel} «${fila.nombre}»${contexto}`}
           onClick={() => acciones.onMover(fila, "abajo")}
           disabled={!puedeBajar(filas, fila)}
         >
@@ -164,21 +174,21 @@ function Fila({
       </span>
       <span className="flex shrink-0 items-center gap-0.5">
         <AccionBtn
-          label={`Renombrar ${nombreNivel} «${fila.nombre}»`}
+          label={`Renombrar ${nombreNivel} «${fila.nombre}»${contexto}`}
           onClick={() => acciones.onRenombrar(fila)}
         >
           <Pencil className="size-[17px]" aria-hidden />
         </AccionBtn>
         {fila.activo ? (
           <AccionBtn
-            label={`Desactivar ${nombreNivel} «${fila.nombre}»`}
+            label={`Desactivar ${nombreNivel} «${fila.nombre}»${contexto}`}
             onClick={() => acciones.onDesactivar(fila)}
           >
             <Ban className="size-[17px]" aria-hidden />
           </AccionBtn>
         ) : (
           <AccionBtn
-            label={`Reactivar ${nombreNivel} «${fila.nombre}»`}
+            label={`Reactivar ${nombreNivel} «${fila.nombre}»${contexto}`}
             onClick={() => acciones.onReactivar(fila)}
           >
             <RotateCcw className="size-[17px]" aria-hidden />
@@ -186,7 +196,7 @@ function Fila({
         )}
         {puedeEliminar(fila) && (
           <AccionBtn
-            label={`Eliminar ${nombreNivel} «${fila.nombre}»`}
+            label={`Eliminar ${nombreNivel} «${fila.nombre}»${contexto}`}
             onClick={() => acciones.onEliminar(fila)}
             className="hover:text-unx-error"
           >

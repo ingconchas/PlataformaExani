@@ -93,10 +93,12 @@ export function TemarioClient() {
     onMover: async (fila, direccion) => {
       setErrorAccion(null);
       // La posición destino se computa ANTES de mover (la flecha ya está
-      // deshabilitada en los extremos, así que el índice es válido).
+      // deshabilitada en los extremos, así que el índice es válido). `i` es el
+      // índice 0-based actual; tras el swap el elemento queda en `i∓1`, y la
+      // posición 1-based que se anuncia es ese índice + 1.
       const hermanos = hermanosDe(filas ?? [], fila);
       const i = hermanos.findIndex((f) => f.id === fila.id);
-      const destino = direccion === "arriba" ? i : i + 1; // 1-based tras el swap
+      const destino = direccion === "arriba" ? i : i + 2;
       try {
         const res = await mover({
           nivel: nivelClave(fila.nivel),
