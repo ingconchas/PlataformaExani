@@ -122,15 +122,50 @@ export default defineSchema({
     .index("by_grupo", ["grupoId"])
     .index("by_instructor", ["instructorId"]),
 
-  // Temario canónico del EXANI II (jerárquico: área → tema).
-  temas: defineTable({
+  // ── Temario institucional (LUI-18) ───────────────────────────────────────
+  // Jerarquía de TRES niveles: Sección → Área temática → Subtema. Es el contrato
+  // de LUI-6, y son tres tablas y no un árbol auto-referente por una razón dura:
+  // `reactivos` lleva las tres referencias a la vez, y con una tabla única las
+  // tres serían `v.id("temas")` — el mismo tipo — así que intercambiarlas
+  // compilaría sin una queja. Aquí `Id<"secciones">` e `Id<"subtemas">` son
+  // disjuntos y ese error es imposible de escribir. Además la profundidad es fija
+  // (Diseño 14 tiene 3 columnas; Diseño 15, 3 selects) y `tipo` solo existe en el
+  // nivel 1.
+  //
+  // `reactivosCount` va DENORMALIZADO: Convex no tiene `count()` que evite leer
+  // los documentos, así que contar leyendo `reactivos` haría que esta pantalla se
+  // suscribiera a la tabla entera (megabytes re-leídos en cada escritura de
+  // cualquier reactivo) y reventaría el tope de 8 MiB por query a ~4 000 reactivos
+  // (el tope de 16384 docs solo muerde bajo 512 B/doc; un reactivo pesa 1–4 KB).
+  // Se impone AHORA porque hoy hay cero escritores de reactivos que retrofitear.
+  // La deriva es cosmética: el gate de borrado usa una sonda `.first()`, no el
+  // contador, y `temario:recalcularContadores` lo repara.
+  //
+  // El `estado` de LUI-6 se implementa como `activo`, siguiendo a `grupos.activo`
+  // y `perfiles.activo`. Desviación de nombre, no de semántica.
+  secciones: defineTable({
     nombre: v.string(),
-    area: v.string(),
-    parentId: v.optional(v.id("temas")),
+    tipo: v.union(v.literal("nucleo"), v.literal("modulo")),
+    activo: v.boolean(),
     orden: v.number(),
-  })
-    .index("by_area", ["area"])
-    .index("by_parent", ["parentId"]),
+    reactivosCount: v.number(),
+  }).index("by_tipo_orden", ["tipo", "orden"]),
+
+  areasTematicas: defineTable({
+    seccionId: v.id("secciones"),
+    nombre: v.string(),
+    activo: v.boolean(),
+    orden: v.number(),
+    reactivosCount: v.number(),
+  }).index("by_seccion_orden", ["seccionId", "orden"]),
+
+  subtemas: defineTable({
+    areaId: v.id("areasTematicas"),
+    nombre: v.string(),
+    activo: v.boolean(),
+    orden: v.number(),
+    reactivosCount: v.number(),
+  }).index("by_area_orden", ["areaId", "orden"]),
 
   // Lecturas: pasajes que agrupan varios reactivos.
   lecturas: defineTable({
@@ -144,7 +179,24 @@ export default defineSchema({
     enunciado: v.string(),
     opciones: v.array(v.object({ id: v.string(), texto: v.string() })),
     opcionCorrecta: v.string(), // id de la opción correcta
-    temaId: v.id("temas"),
+    // Clasificación denormalizada en los TRES niveles (contrato de LUI-6). Los
+    // tres son REQUERIDOS: LUI-15 exige «clasificación completa», y en el Diseño
+    // 14 hasta los reactivos de un módulo traen los tres llenos (ninguna fila
+    // tiene «—»). «Los módulos son planos HASTA que se les den de alta áreas»
+    // describe un estado transitorio del temario, no una clasificación parcial:
+    // un módulo plano todavía no admite reactivos.
+    //
+    // Que sean obligatorios también salva la aritmética del contador: cada
+    // reactivo cae en EXACTAMENTE una hoja, así que `count(sección) = Σ
+    // count(áreas)` — la invariante «32 = 14+10+8» del Diseño 11.
+    //
+    // ⚠️ NUNCA los escribas desde el cliente: la API acepta solo `subtemaId` y
+    // deriva los otros dos con `temario.resolverClasificacion`. Aceptar la terna
+    // permitiría un reactivo cuya sección no es la de su subtema → el contador del
+    // árbol y el filtro del banco darían números distintos con la misma etiqueta.
+    seccionId: v.id("secciones"),
+    areaId: v.id("areasTematicas"),
+    subtemaId: v.id("subtemas"),
     dificultad: v.union(
       v.literal("facil"),
       v.literal("medio"),
@@ -156,7 +208,12 @@ export default defineSchema({
     autorId: v.id("users"),
     activo: v.boolean(),
   })
-    .index("by_tema", ["temaId"])
+    // Los tres índices existen para los filtros EN CASCADA de LUI-14: filtrar por
+    // sección con solo `subtemaId` obligaría a resolver todos los subtemas y hacer
+    // un OR. También sirven de sonda O(1) para el gate de borrado del temario.
+    .index("by_seccion", ["seccionId"])
+    .index("by_area", ["areaId"])
+    .index("by_subtema", ["subtemaId"])
     .index("by_lectura", ["lecturaId"])
     .index("by_autor", ["autorId"]),
 

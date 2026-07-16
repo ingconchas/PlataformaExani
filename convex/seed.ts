@@ -1,8 +1,11 @@
 import { internalMutation } from "./_generated/server";
+import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { inicioDeMesMx } from "./fechas";
 import { CONFIRMACION_SOLO_DEV, exigirDeploymentDeDesarrollo } from "./entorno";
+import { canonizar } from "./texto";
+import { construirTemario, recalcular, resolverClasificacion } from "./temario";
 
 /**
  * Datos de PRUEBA (ficticios) para desarrollo local.
@@ -88,12 +91,90 @@ const ALUMNOS: AlumnoSeed[] = [
   { nombre: "Fernanda", apellidos: "López", correo: "fernanda.alumna@demo.unx.mx", grupo: "Matutino A", activo: true, ultimoAccesoDias: 7 },
 ];
 
+// ── Temario demo (LUI-18) ──────────────────────────────────────────────────
+// SOLO dev. Producción recibe únicamente las 3 secciones del núcleo, por
+// `bootstrap:sembrarTemarioNucleo`; las áreas y subtemas los captura Mayra.
+//
+// DISCRIMINANTE, no decorativo. Cada pieza está puesta para que una
+// implementación mal hecha falle de forma VISIBLE:
+//
+//  · «Productos notables» — subtema INACTIVO **con reactivos**: el contador de
+//    Álgebra debe incluirlos (es la regla del mock: 32 = 14+10+8, y ese 8 es el
+//    inactivo). Un elemento desactivado conserva sus reactivos.
+//  · «Textos expositivos» — área INACTIVA con un subtema ACTIVO debajo: sin esto,
+//    la cascada de escritura y el efectivo-en-lectura son INDISTINGUIBLES. Si
+//    alguien cascadea `activo:false` a los hijos, «Idea principal» dejaría de
+//    estar activo y la prueba lo caza.
+//  · «Triángulos» — subtema con CERO reactivos: debe decir 0 (y es el único
+//    borrable cuando llegue la Entrega 2).
+//  · «Biología» — módulo CON áreas · «Matemáticas financieras» — módulo PLANO:
+//    cazan el separador MÓDULOS y el chevron que promete algo que no existe.
+//  · El `orden` NO es alfabético a propósito (Aritmética antes que Álgebra;
+//    Pensamiento matemático antes que Comprensión lectora): caza ordenar por
+//    `nombre` en vez de por `orden`.
+const TEMARIO_DEMO: Array<{
+  seccion: string;
+  tipo: "nucleo" | "modulo";
+  areas: Array<{
+    nombre: string;
+    activo?: boolean;
+    subtemas: Array<{ nombre: string; activo?: boolean }>;
+  }>;
+}> = [
+  {
+    seccion: "Pensamiento matemático",
+    tipo: "nucleo",
+    areas: [
+      { nombre: "Aritmética", subtemas: [{ nombre: "Operaciones con fracciones" }] },
+      {
+        nombre: "Álgebra",
+        subtemas: [
+          { nombre: "Ecuaciones lineales" },
+          { nombre: "Sistemas de ecuaciones" },
+          { nombre: "Productos notables", activo: false },
+        ],
+      },
+      { nombre: "Geometría", subtemas: [{ nombre: "Triángulos" }] },
+    ],
+  },
+  {
+    seccion: "Comprensión lectora",
+    tipo: "nucleo",
+    areas: [
+      {
+        nombre: "Textos expositivos",
+        activo: false,
+        subtemas: [{ nombre: "Idea principal" }],
+      },
+    ],
+  },
+  { seccion: "Redacción indirecta", tipo: "nucleo", areas: [] },
+  {
+    seccion: "Biología",
+    tipo: "modulo",
+    areas: [{ nombre: "Célula", subtemas: [{ nombre: "Membrana celular" }] }],
+  },
+  { seccion: "Matemáticas financieras", tipo: "modulo", areas: [] },
+];
+
+/** Ruta canónica de un subtema. La llave del upsert es el PATH, no el nombre:
+ *  «Sucesiones» puede existir bajo Álgebra y bajo Geometría. */
+const ruta = (seccion: string, area: string, subtema: string) =>
+  [seccion, area, subtema].map(canonizar).join(" / ");
+
 const REACTIVOS: Array<{
   enunciado: string;
   opciones: { id: string; texto: string }[];
   opcionCorrecta: string;
   dificultad: "facil" | "medio" | "dificil";
   retroalimentacion: string;
+  /** Ruta al subtema. Los reactivos se AÑADEN con contenido coherente en vez de
+   *  reclasificar los de ecuaciones bajo «Comprensión lectora»: un fixture que
+   *  miente no prueba nada. */
+  en: [seccion: string, area: string, subtema: string];
+  /** Solo el reactivo desactivado lo declara. Cuenta igual para el contador: sigue
+   *  teniendo la referencia, así que sigue impidiendo el borrado del nodo. */
+  activo?: boolean;
 }> = [
   {
     enunciado: "¿Cuál es el valor de x en la ecuación 2x + 6 = 14?",
@@ -106,6 +187,7 @@ const REACTIVOS: Array<{
     opcionCorrecta: "b",
     dificultad: "facil",
     retroalimentacion: "2x = 14 − 6 = 8, por lo tanto x = 4.",
+    en: ["Pensamiento matemático", "Álgebra", "Ecuaciones lineales"],
   },
   {
     enunciado: "Si 3x − 9 = 0, ¿cuánto vale x?",
@@ -118,6 +200,7 @@ const REACTIVOS: Array<{
     opcionCorrecta: "b",
     dificultad: "facil",
     retroalimentacion: "3x = 9, entonces x = 3.",
+    en: ["Pensamiento matemático", "Álgebra", "Ecuaciones lineales"],
   },
   {
     enunciado: "Resuelve para x: 5x + 2 = 3x + 10",
@@ -130,6 +213,7 @@ const REACTIVOS: Array<{
     opcionCorrecta: "b",
     dificultad: "medio",
     retroalimentacion: "5x − 3x = 10 − 2 → 2x = 8 → x = 4.",
+    en: ["Pensamiento matemático", "Álgebra", "Ecuaciones lineales"],
   },
   {
     enunciado: "Una recta pasa por los puntos (0, 2) y (2, 6). ¿Cuál es su pendiente?",
@@ -142,6 +226,7 @@ const REACTIVOS: Array<{
     opcionCorrecta: "b",
     dificultad: "medio",
     retroalimentacion: "m = (6 − 2) / (2 − 0) = 4 / 2 = 2.",
+    en: ["Pensamiento matemático", "Álgebra", "Ecuaciones lineales"],
   },
   {
     enunciado: "Si 2(x − 3) = x + 5, ¿cuánto vale x?",
@@ -154,6 +239,124 @@ const REACTIVOS: Array<{
     opcionCorrecta: "c",
     dificultad: "dificil",
     retroalimentacion: "2x − 6 = x + 5 → x = 11.",
+    en: ["Pensamiento matemático", "Álgebra", "Ecuaciones lineales"],
+  },
+
+  // ── Reactivos que hacen DISCRIMINANTE al contador (LUI-18) ───────────────
+  // Se AÑADEN con contenido coherente en vez de reclasificar los de arriba: un
+  // reactivo de ecuaciones colgado de «Comprensión lectora» sería un fixture que
+  // miente y no probaría nada.
+
+  // Otra área de la MISMA sección → caza el roll-up de nivel 1 (si solo se cuenta
+  // la primera área, Pensamiento matemático daría 8 en vez de 10).
+  {
+    enunciado: "¿Cuál es el resultado de 3/4 + 1/6?",
+    opciones: [
+      { id: "a", texto: "4/10" },
+      { id: "b", texto: "11/12" },
+      { id: "c", texto: "1/2" },
+      { id: "d", texto: "7/12" },
+    ],
+    opcionCorrecta: "b",
+    dificultad: "medio",
+    retroalimentacion: "Común denominador 12: 9/12 + 2/12 = 11/12.",
+    en: ["Pensamiento matemático", "Aritmética", "Operaciones con fracciones"],
+  },
+  {
+    enunciado: "¿Qué fracción es equivalente a 0.375?",
+    opciones: [
+      { id: "a", texto: "3/8" },
+      { id: "b", texto: "3/5" },
+      { id: "c", texto: "1/4" },
+      { id: "d", texto: "5/8" },
+    ],
+    opcionCorrecta: "a",
+    dificultad: "facil",
+    retroalimentacion: "0.375 = 375/1000 = 3/8.",
+    en: ["Pensamiento matemático", "Aritmética", "Operaciones con fracciones"],
+  },
+
+  // Segundo subtema de la MISMA área → caza contar solo el primero.
+  {
+    enunciado: "En el sistema x + y = 10 y x − y = 2, ¿cuánto vale x?",
+    opciones: [
+      { id: "a", texto: "4" },
+      { id: "b", texto: "5" },
+      { id: "c", texto: "6" },
+      { id: "d", texto: "8" },
+    ],
+    opcionCorrecta: "c",
+    dificultad: "medio",
+    retroalimentacion: "Sumando ambas ecuaciones: 2x = 12 → x = 6.",
+    en: ["Pensamiento matemático", "Álgebra", "Sistemas de ecuaciones"],
+  },
+
+  // CONTENIDO HISTÓRICO: cuelgan de un subtema RETIRADO. Es lo único que el seed
+  // clasifica con `exigirDisponible:false`, y no es una puerta trasera: son
+  // reactivos que nacieron cuando «Productos notables» estaba activo y
+  // sobrevivieron a su retiro. El contador de Álgebra DEBE incluirlos.
+  {
+    enunciado: "¿Cuál es el desarrollo de (x + 3)²?",
+    opciones: [
+      { id: "a", texto: "x² + 9" },
+      { id: "b", texto: "x² + 6x + 9" },
+      { id: "c", texto: "x² + 3x + 9" },
+      { id: "d", texto: "x² + 6x + 3" },
+    ],
+    opcionCorrecta: "b",
+    dificultad: "facil",
+    retroalimentacion: "(a+b)² = a² + 2ab + b² → x² + 6x + 9.",
+    en: ["Pensamiento matemático", "Álgebra", "Productos notables"],
+  },
+  {
+    // Además DESACTIVADO: si el contador filtrara por `reactivo.activo`, este
+    // desaparecería del número y la pantalla diría un total que no cuadra con la
+    // sonda del gate de borrado.
+    enunciado: "¿Cuál es el resultado de (x + 5)(x − 5)?",
+    opciones: [
+      { id: "a", texto: "x² − 25" },
+      { id: "b", texto: "x² + 25" },
+      { id: "c", texto: "x² − 10x + 25" },
+      { id: "d", texto: "x² − 5" },
+    ],
+    opcionCorrecta: "a",
+    dificultad: "facil",
+    retroalimentacion: "Binomios conjugados: (a+b)(a−b) = a² − b².",
+    en: ["Pensamiento matemático", "Álgebra", "Productos notables"],
+    activo: false,
+  },
+
+  // Bajo un área INACTIVA pero en un subtema ACTIVO → también histórico.
+  {
+    enunciado:
+      "En un texto expositivo, ¿qué elemento expresa la idea principal de un párrafo?",
+    opciones: [
+      { id: "a", texto: "La oración temática" },
+      { id: "b", texto: "El ejemplo final" },
+      { id: "c", texto: "El conector inicial" },
+      { id: "d", texto: "La cita de autoridad" },
+    ],
+    opcionCorrecta: "a",
+    dificultad: "medio",
+    retroalimentacion:
+      "La oración temática enuncia la idea principal; el resto la desarrolla.",
+    en: ["Comprensión lectora", "Textos expositivos", "Idea principal"],
+  },
+
+  // En un MÓDULO → prueba que un módulo con áreas sí admite reactivos.
+  {
+    enunciado: "¿Cuál es la función principal de la membrana celular?",
+    opciones: [
+      { id: "a", texto: "Sintetizar proteínas" },
+      { id: "b", texto: "Regular el paso de sustancias" },
+      { id: "c", texto: "Almacenar información genética" },
+      { id: "d", texto: "Producir energía" },
+    ],
+    opcionCorrecta: "b",
+    dificultad: "facil",
+    retroalimentacion:
+      "La membrana es semipermeable: controla qué entra y qué sale de la célula.",
+    en: ["Biología", "Célula", "Membrana celular"],
   },
 ];
 
@@ -266,27 +469,26 @@ export const limpiarAlumnosE2E = internalMutation({
 });
 
 /**
- * ⚠️ TRANSICIONAL — LUI-18. Esta función **se borra en el commit siguiente**.
+ * Reset del fixture de contenido: temario, reactivos y todo el grafo que cuelga
+ * de ellos.
  *
- * Existe solo para vaciar el grafo de contenido legado (`temas` + `reactivos` y
- * lo que cuelga de ellos) **bajo el schema VIEJO**, antes de pushear el schema
- * nuevo del temario. Convex valida los documentos existentes contra el schema al
- * pushearlo, así que el push del modelo nuevo fallaría con estos documentos
- * presentes; y una vez que `temas` sale del schema, esta función ya no compila.
- * Por eso vive un solo commit: el registro auditable de qué se ejecutó.
- *
- * No es reproducible y no tiene por qué serlo: un clon nuevo arranca con un
- * deployment de dev vacío y jamás la necesita.
+ * El upsert del seed CONVERGE pero no retira: si se renombra un subtema del
+ * fixture o se le quita un reactivo, el viejo se queda ahí para siempre. Esta es
+ * la salida — el precedente exacto es `limpiarAlumnosE2E`.
  *
  * Cascada deliberada: Convex no valida integridad referencial, así que borrar
- * solo `reactivos` dejaría `examenes.reactivoIds` apuntando a fantasmas — y el
- * upsert-por-nombre del seed encontraría los exámenes existentes y conservaría
- * las refs muertas para siempre. Es 100 % dato demo regenerable.
+ * solo `reactivos` no rompería nada de inmediato, pero dejaría
+ * `examenes.reactivoIds` apuntando a fantasmas — y el upsert-por-nombre del seed
+ * encontraría los exámenes existentes y conservaría las refs muertas para
+ * siempre.
+ *
+ * ⚠️ Destructiva y amplia: por eso lleva los dos guards. Es 100 % dato demo
+ * regenerable con `seed:cargarDatosDePrueba`.
  *
  * Ejecutar:
- *   npx convex run seed:purgarLegado '{"confirmar":"SOLO_DEV"}'
+ *   npx convex run seed:limpiarContenidoDemo '{"confirmar":"SOLO_DEV"}'
  */
-export const purgarLegado = internalMutation({
+export const limpiarContenidoDemo = internalMutation({
   args: { confirmar: v.literal(CONFIRMACION_SOLO_DEV) },
   handler: async (ctx) => {
     exigirDeploymentDeDesarrollo();
@@ -298,7 +500,9 @@ export const purgarLegado = internalMutation({
       "asignaciones",
       "examenes",
       "reactivos",
-      "temas",
+      "subtemas",
+      "areasTematicas",
+      "secciones",
     ] as const;
     for (const tabla of tablas) {
       const docs = await ctx.db.query(tabla).collect();
@@ -416,24 +620,99 @@ export const cargarDatosDePrueba = internalMutation({
       }
     }
 
-    // ── 3. Tema (upsert por nombre) ────────────────────────────────────────
-    const temasExistentes = await ctx.db.query("temas").collect();
-    const temaExistente = temasExistentes.find((t) => t.nombre === "Ecuaciones lineales");
-    let temaId: Id<"temas">;
-    if (temaExistente) {
-      temaId = temaExistente._id;
-    } else {
-      temaId = await ctx.db.insert("temas", {
-        nombre: "Ecuaciones lineales",
-        area: "Pensamiento matemático",
-        orden: 1,
-      });
-      insertado.push("tema");
+    // ── 3. Temario (upsert por PATH, no por nombre) ─────────────────────────
+    // La llave es la ruta y no el nombre suelto: con jerarquía, dos subtemas
+    // homónimos bajo padres distintos («Sucesiones» en Álgebra y en Geometría)
+    // colisionarían con el upsert plano que había aquí antes.
+    //
+    // El núcleo NO se duplica en este archivo: sale de `bootstrap:sembrarTemarioNucleo`,
+    // que consume la misma constante `NUCLEO` de `temario.ts`. Así dev y prod no
+    // pueden divergir en los nombres.
+    await ctx.runMutation(internal.bootstrap.sembrarTemarioNucleo, {});
+
+    const subtemaPorRuta = new Map<string, Id<"subtemas">>();
+    {
+      const seccionesExistentes = await ctx.db.query("secciones").collect();
+      const seccionPorNombre = new Map(
+        seccionesExistentes.map((s) => [canonizar(s.nombre), s]),
+      );
+
+      for (const [iSeccion, nodo] of TEMARIO_DEMO.entries()) {
+        let seccion = seccionPorNombre.get(canonizar(nodo.seccion));
+        if (!seccion) {
+          const id = await ctx.db.insert("secciones", {
+            nombre: nodo.seccion,
+            tipo: nodo.tipo,
+            activo: true,
+            orden: iSeccion,
+            reactivosCount: 0,
+          });
+          seccion = (await ctx.db.get(id))!;
+          seccionPorNombre.set(canonizar(nodo.seccion), seccion);
+          insertado.push(`seccion:${nodo.seccion}`);
+        }
+
+        const areasExistentes = await ctx.db
+          .query("areasTematicas")
+          .withIndex("by_seccion_orden", (q) => q.eq("seccionId", seccion!._id))
+          .collect();
+        const areaPorNombre = new Map(
+          areasExistentes.map((a) => [canonizar(a.nombre), a]),
+        );
+
+        for (const [iArea, defArea] of nodo.areas.entries()) {
+          let area = areaPorNombre.get(canonizar(defArea.nombre));
+          if (!area) {
+            const id = await ctx.db.insert("areasTematicas", {
+              seccionId: seccion._id,
+              nombre: defArea.nombre,
+              activo: defArea.activo ?? true,
+              orden: iArea,
+              reactivosCount: 0,
+            });
+            area = (await ctx.db.get(id))!;
+            areaPorNombre.set(canonizar(defArea.nombre), area);
+            insertado.push(`area:${defArea.nombre}`);
+          }
+
+          const subtemasExistentes = await ctx.db
+            .query("subtemas")
+            .withIndex("by_area_orden", (q) => q.eq("areaId", area!._id))
+            .collect();
+          const subtemaPorNombre = new Map(
+            subtemasExistentes.map((s) => [canonizar(s.nombre), s]),
+          );
+
+          for (const [iSub, defSub] of defArea.subtemas.entries()) {
+            let subtema = subtemaPorNombre.get(canonizar(defSub.nombre));
+            if (!subtema) {
+              const id = await ctx.db.insert("subtemas", {
+                areaId: area._id,
+                nombre: defSub.nombre,
+                activo: defSub.activo ?? true,
+                orden: iSub,
+                reactivosCount: 0,
+              });
+              subtema = (await ctx.db.get(id))!;
+              insertado.push(`subtema:${defSub.nombre}`);
+            }
+            subtemaPorRuta.set(
+              ruta(nodo.seccion, defArea.nombre, defSub.nombre),
+              subtema._id,
+            );
+          }
+        }
+      }
     }
 
     // ── 4. Reactivos (upsert por enunciado) ────────────────────────────────
     // Se acumulan los ids: `examenes.reactivoIds` los necesita (LUI-9). Solo los
     // del fixture — nunca los que un instructor haya creado desde la UI.
+    //
+    // La clasificación pasa por `resolverClasificacion` como CUALQUIER escritor:
+    // se manda solo `subtemaId` y el helper deriva área y sección. Aquí no se
+    // arman las ternas a mano, porque entonces el seed no probaría el camino que
+    // LUI-15 va a heredar.
     const reactivosExistentes = await ctx.db.query("reactivos").collect();
     const reactivoIds: Id<"reactivos">[] = [];
     for (const r of REACTIVOS) {
@@ -444,15 +723,33 @@ export const cargarDatosDePrueba = internalMutation({
         reactivoIds.push(existente._id);
         continue;
       }
+      const subtemaId = subtemaPorRuta.get(ruta(...r.en));
+      if (!subtemaId) {
+        throw new Error(
+          `El fixture manda un reactivo a «${r.en.join(" / ")}», que no existe en TEMARIO_DEMO.`,
+        );
+      }
+      // Los reactivos que van a ramas vivas usan el DEFAULT ESTRICTO: si el
+      // camino estricto rechazara por error un nodo disponible, el seed truena
+      // aquí. Solo el contenido histórico (ramas retiradas) pide el escape.
+      const rama = await ctx.db.get(subtemaId);
+      const area = rama ? await ctx.db.get(rama.areaId) : null;
+      const seccion = area ? await ctx.db.get(area.seccionId) : null;
+      const esHistorico =
+        !rama?.activo || !area?.activo || !seccion?.activo;
+      const clasificacion = await resolverClasificacion(ctx, subtemaId, {
+        exigirDisponible: !esHistorico,
+      });
+
       const id = await ctx.db.insert("reactivos", {
         enunciado: r.enunciado,
         opciones: r.opciones,
         opcionCorrecta: r.opcionCorrecta,
-        temaId,
+        ...clasificacion,
         dificultad: r.dificultad,
         retroalimentacion: r.retroalimentacion,
         autorId: instructorUserId,
-        activo: true,
+        activo: r.activo ?? true,
       });
       reactivoIds.push(id);
       insertado.push("reactivo");
@@ -706,6 +1003,64 @@ export const cargarDatosDePrueba = internalMutation({
       .sort((a, b) => b.abreEn - a.abreEn)
       .slice(0, 5);
 
+    // ── Oráculo del temario (LUI-18) ───────────────────────────────────────
+    // Mismo principio que el del panel: se calcula **contra la BD REAL**, y con
+    // un conteo PROPIO —independiente de `temario.construirTemario`— para que un
+    // error en la query se cace igual.
+    //
+    // El conteo se hace leyendo `reactivos` y agregando aquí, NO leyendo
+    // `reactivosCount`: si el oráculo se sirviera del contador denormalizado, no
+    // podría cazar que ese contador esté mal, que es justo lo que debe vigilar.
+    //
+    // Cuenta TODOS los reactivos, activos e inactivos, y sube por el ÁRBOL (no por
+    // las refs denormalizadas del reactivo): así el oráculo tampoco puede heredar
+    // una terna incoherente.
+    await recalcular(ctx);
+
+    const reactivosFinal = await ctx.db.query("reactivos").collect();
+    const subtemasFinal = await ctx.db.query("subtemas").collect();
+    const areasFinal = await ctx.db.query("areasTematicas").collect();
+    const seccionesFinal = await ctx.db.query("secciones").collect();
+
+    const porSubtema = new Map<string, number>();
+    for (const r of reactivosFinal) {
+      porSubtema.set(r.subtemaId, (porSubtema.get(r.subtemaId) ?? 0) + 1);
+    }
+    const areaDeSubtema = new Map(subtemasFinal.map((s) => [s._id, s.areaId]));
+    const seccionDeArea = new Map(areasFinal.map((a) => [a._id, a.seccionId]));
+
+    const porArea = new Map<string, number>();
+    const porSeccion = new Map<string, number>();
+    for (const [subtemaId, n] of porSubtema) {
+      const areaId = areaDeSubtema.get(subtemaId as Id<"subtemas">)!;
+      porArea.set(areaId, (porArea.get(areaId) ?? 0) + n);
+      const seccionId = seccionDeArea.get(areaId)!;
+      porSeccion.set(seccionId, (porSeccion.get(seccionId) ?? 0) + n);
+    }
+
+    const temarioEsperado = {
+      // Las secciones, en el orden que la pantalla DEBE mostrar: núcleo primero.
+      nucleo: seccionesFinal
+        .filter((s) => s.tipo === "nucleo")
+        .sort((a, b) => a.orden - b.orden || a._creationTime - b._creationTime)
+        .map((s) => ({ nombre: s.nombre, reactivos: porSeccion.get(s._id) ?? 0 })),
+      modulos: seccionesFinal
+        .filter((s) => s.tipo === "modulo")
+        .sort((a, b) => a.orden - b.orden || a._creationTime - b._creationTime)
+        .map((s) => ({ nombre: s.nombre, reactivos: porSeccion.get(s._id) ?? 0 })),
+      areas: areasFinal.map((a) => ({
+        nombre: a.nombre,
+        activo: a.activo,
+        reactivos: porArea.get(a._id) ?? 0,
+      })),
+      subtemas: subtemasFinal.map((s) => ({
+        nombre: s.nombre,
+        activo: s.activo,
+        reactivos: porSubtema.get(s._id) ?? 0,
+      })),
+      totalFilas: (await construirTemario(ctx)).length,
+    };
+
     return {
       insertado,
       reparado,
@@ -718,6 +1073,7 @@ export const cargarDatosDePrueba = internalMutation({
           grupo: grupoPorId.get(a.grupoId) ?? "?",
         })),
       },
+      temarioEsperado,
       mensaje:
         insertado.length || reparado.length
           ? `Seed OK — insertado: ${insertado.length ? insertado.join(", ") : "nada"} · reparado: ${reparado.length ? reparado.join(", ") : "nada"}`

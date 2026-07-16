@@ -2,6 +2,8 @@ import { internalMutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v, ConvexError } from "convex/values";
 import { normalizarCorreo } from "./credenciales";
+import { canonizar } from "./texto";
+import { NUCLEO } from "./temario";
 
 const FORMATO_CORREO = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -68,5 +70,68 @@ export const crearAdminInicial = internalMutation({
       userId,
     });
     return { perfilId };
+  },
+});
+
+/**
+ * Siembra las 3 secciones del NÚCLEO del temario (LUI-18).
+ *
+ * Vive en `bootstrap.ts` y no en `seed.ts` porque **no es dato demo**: las
+ * secciones del núcleo son dato institucional real y producción las necesita. Por
+ * eso tampoco lleva el guard solo-dev de `convex/entorno.ts`:
+ *
+ *   npx convex run bootstrap:sembrarTemarioNucleo --prod
+ *
+ * **Es CONVERGENTE (upsert), no rechazante** — a diferencia de
+ * `crearAdminInicial`, que se niega a repetirse. El arranque de un admin es único
+ * e irrepetible; el temario no: mañana puede aparecer una cuarta sección de
+ * núcleo y hay que poder re-correrlo sin duplicar nada.
+ *
+ * Solo el nivel 1: las áreas temáticas y los subtemas los captura Mayra desde
+ * `/admin/temario`. Los mocks no son fuente de verdad del temario canónico — el
+ * Diseño 11 y el 14 ni siquiera coinciden en las áreas de Pensamiento matemático.
+ *
+ * Upsert por `canonizar(nombre)` en TODA la tabla, cruzando tipos: el modal de
+ * alta tiene un único dropdown plano que mezcla núcleos y módulos, así que los
+ * nombres deben ser inequívocos entre ambos.
+ */
+export const sembrarTemarioNucleo = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const existentes = await ctx.db.query("secciones").collect();
+    const porNombre = new Map(existentes.map((s) => [canonizar(s.nombre), s]));
+
+    const insertado: string[] = [];
+    const reparado: string[] = [];
+    for (const [i, nombre] of NUCLEO.entries()) {
+      const previa = porNombre.get(canonizar(nombre));
+      if (!previa) {
+        await ctx.db.insert("secciones", {
+          nombre,
+          tipo: "nucleo",
+          activo: true,
+          orden: i,
+          reactivosCount: 0,
+        });
+        insertado.push(nombre);
+        continue;
+      }
+      // Convergencia acotada: si una sección del núcleo quedó marcada como módulo
+      // (p. ej. creada a mano desde la pantalla antes de correr esto), se corrige
+      // el tipo. `orden` y `activo` NO se tocan: son decisiones del admin, no del
+      // seed, y pisarlas sería que el seed le deshiciera el trabajo.
+      if (previa.tipo !== "nucleo") {
+        await ctx.db.patch(previa._id, { tipo: "nucleo" });
+        reparado.push(`${nombre} (era módulo)`);
+      }
+    }
+    return {
+      insertado,
+      reparado,
+      mensaje:
+        insertado.length || reparado.length
+          ? `Núcleo OK — insertado: ${insertado.length ? insertado.join(", ") : "nada"} · reparado: ${reparado.length ? reparado.join(", ") : "nada"}`
+          : "Las 3 secciones del núcleo ya existían y estaban al día.",
+    };
   },
 });

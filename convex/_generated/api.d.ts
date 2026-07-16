@@ -29,6 +29,8 @@ import type * as politica from "../politica.js";
 import type * as seed from "../seed.js";
 import type * as seedAuth from "../seedAuth.js";
 import type * as sesion from "../sesion.js";
+import type * as temario from "../temario.js";
+import type * as texto from "../texto.js";
 import type * as usuarios from "../usuarios.js";
 
 import type {
@@ -59,6 +61,8 @@ declare const fullApi: ApiFromModules<{
   seed: typeof seed;
   seedAuth: typeof seedAuth;
   sesion: typeof sesion;
+  temario: typeof temario;
+  texto: typeof texto;
   usuarios: typeof usuarios;
 }>;
 

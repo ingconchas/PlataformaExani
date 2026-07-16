@@ -8,17 +8,12 @@ import { type Id } from "./_generated/dataModel";
 import { v, ConvexError } from "convex/values";
 import { requireAdmin } from "./authz";
 import { fueAplicada } from "./metricas";
+import { canonizar } from "./texto";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 function nombreCompleto(nombre: string, apellidos?: string): string {
   return [nombre, apellidos].filter(Boolean).join(" ");
-}
-
-/** Forma canónica para comparar identidad: sin espacios extremos ni dobles, en
- *  minúsculas locales. Así "Matutino A", "matutino a" y "Matutino  A" colisionan. */
-function canonizar(s: string): string {
-  return s.trim().replace(/\s+/g, " ").toLocaleLowerCase("es");
 }
 
 /** Deduplica preservando el orden. */
