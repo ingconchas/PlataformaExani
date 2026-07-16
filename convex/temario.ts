@@ -7,7 +7,7 @@ import {
 } from "./_generated/server";
 import { type Doc, type Id } from "./_generated/dataModel";
 import { v, ConvexError } from "convex/values";
-import { requireAdmin } from "./authz";
+import { requireAdmin, requireStaff } from "./authz";
 import { canonizar } from "./texto";
 import { CONFIRMACION_SOLO_DEV, exigirDeploymentDeDesarrollo } from "./entorno";
 
@@ -324,6 +324,24 @@ export const listarArbol = query({
   args: {},
   handler: async (ctx) => {
     await requireAdmin(ctx);
+    return await construirTemario(ctx);
+  },
+});
+
+/**
+ * El mismo árbol, pero para el STAFF (banco de reactivos, LUI-14/15). A diferencia
+ * de `listarArbol` (`requireAdmin`, la pantalla de gestión), un instructor SÍ puede
+ * leer esto: alimenta los dropdowns en cascada del banco y la clasificación al
+ * crear un reactivo. Devuelve el árbol COMPLETO —activos e inactivos—: un filtro del
+ * banco debe poder alcanzar reactivos bajo ramas retiradas, así que NO se filtra por
+ * `disponible` (esa regla conjuntiva la aplica LUI-15 al ofrecer padres para
+ * contenido nuevo, no al filtrar lo que ya existe). Read-path congelado: reutiliza
+ * `construirTemario` sin tocarlo.
+ */
+export const listarParaStaff = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireStaff(ctx);
     return await construirTemario(ctx);
   },
 });

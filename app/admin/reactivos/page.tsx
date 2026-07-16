@@ -18,5 +18,5 @@ export default function Page() {
       </>
     );
   }
-  return <BancoReactivosClient basePath="/instructor" />;
+  return <BancoReactivosClient basePath="/admin" />;
 }

@@ -26,6 +26,7 @@ import type * as metricas from "../metricas.js";
 import type * as panel from "../panel.js";
 import type * as plantillas from "../plantillas.js";
 import type * as politica from "../politica.js";
+import type * as reactivos from "../reactivos.js";
 import type * as seed from "../seed.js";
 import type * as seedAuth from "../seedAuth.js";
 import type * as sesion from "../sesion.js";
@@ -58,6 +59,7 @@ declare const fullApi: ApiFromModules<{
   panel: typeof panel;
   plantillas: typeof plantillas;
   politica: typeof politica;
+  reactivos: typeof reactivos;
   seed: typeof seed;
   seedAuth: typeof seedAuth;
   sesion: typeof sesion;

@@ -175,6 +175,12 @@ const REACTIVOS: Array<{
   /** Solo el reactivo desactivado lo declara. Cuenta igual para el contador: sigue
    *  teniendo la referencia, así que sigue impidiendo el borrado del nodo. */
   activo?: boolean;
+  /** Banco INSTITUCIONAL (LUI-14): por defecto el autor es el primer instructor;
+   *  algunos declaran otro autor por correo para ejercitar «cada quien edita lo
+   *  suyo» y el filtro por autor —incluido uno INACTIVO (Rubén)—. */
+  autorCorreo?: string;
+  /** Título de la lectura a la que pertenece (LUI-17) → pinta el chip «▤ Lectura». */
+  lectura?: string;
 }> = [
   {
     enunciado: "¿Cuál es el valor de x en la ecuación 2x + 6 = 14?",
@@ -227,6 +233,9 @@ const REACTIVOS: Array<{
     dificultad: "medio",
     retroalimentacion: "m = (6 − 2) / (2 − 0) = 4 / 2 = 2.",
     en: ["Pensamiento matemático", "Álgebra", "Ecuaciones lineales"],
+    // Autor INACTIVO (Rubén, LUI-13): el filtro por autor del banco se deriva de
+    // las FILAS, así que debe seguir siendo filtrable pese a estar desactivado.
+    autorCorreo: "ruben.instructor@demo.unx.mx",
   },
   {
     enunciado: "Si 2(x − 3) = x + 5, ¿cuánto vale x?",
@@ -341,6 +350,8 @@ const REACTIVOS: Array<{
     retroalimentacion:
       "La oración temática enuncia la idea principal; el resto la desarrolla.",
     en: ["Comprensión lectora", "Textos expositivos", "Idea principal"],
+    autorCorreo: "carlos.instructor@demo.unx.mx",
+    lectura: "El calentamiento global",
   },
 
   // En un MÓDULO → prueba que un módulo con áreas sí admite reactivos.
@@ -357,8 +368,27 @@ const REACTIVOS: Array<{
     retroalimentacion:
       "La membrana es semipermeable: controla qué entra y qué sale de la célula.",
     en: ["Biología", "Célula", "Membrana celular"],
+    autorCorreo: "diana.instructor@demo.unx.mx",
   },
 ];
+
+// ── Lecturas (LUI-17) ───────────────────────────────────────────────────────
+const LECTURAS: { titulo: string; contenido: string }[] = [
+  {
+    titulo: "El calentamiento global",
+    contenido:
+      "El calentamiento global es el aumento sostenido de la temperatura media de la " +
+      "Tierra, impulsado por la acumulación de gases de efecto invernadero de origen " +
+      "humano. Sus efectos —deshielo, aumento del nivel del mar y clima extremo— ya son medibles.",
+  },
+];
+
+// Reactivos que hacen DISCRIMINANTE el candado «En uso en un examen activo» (LUI-14),
+// por enunciado. El resto de reactivos va a los exámenes publicados ABIERTOS.
+const REACTIVO_SIN_EXAMEN = "¿Qué fracción es equivalente a 0.375?"; // (D) en ningún examen → LIBRE
+const REACTIVO_SOLO_BORRADOR = "¿Cuál es el resultado de 3/4 + 1/6?"; // (A) solo en el borrador → LIBRE
+const REACTIVO_SOLO_FUTURO =
+  "En el sistema x + y = 10 y x − y = 2, ¿cuánto vale x?"; // (C) solo en SG3 (futura) → BLOQUEADO
 
 // ── Exámenes, asignaciones e intentos (LUI-9) ───────────────────────────────
 // Existen para que el panel de la administradora sea VERIFICABLE: sin ellos,
@@ -500,6 +530,7 @@ export const limpiarContenidoDemo = internalMutation({
       "asignaciones",
       "examenes",
       "reactivos",
+      "lecturas",
       "subtemas",
       "areasTematicas",
       "secciones",
@@ -705,22 +736,65 @@ export const cargarDatosDePrueba = internalMutation({
       }
     }
 
-    // ── 4. Reactivos (upsert por enunciado) ────────────────────────────────
-    // Se acumulan los ids: `examenes.reactivoIds` los necesita (LUI-9). Solo los
-    // del fixture — nunca los que un instructor haya creado desde la UI.
+    // ── 3b. Lecturas (upsert por título) — LUI-14/17 ───────────────────────
+    // Deben existir ANTES que los reactivos: un reactivo referencia su lectura por
+    // `lecturaId`. El seed casi no las usa; basta una, ligada a un reactivo, para
+    // ejercitar el chip «▤ Lectura» y `reactivos.obtener`.
+    const lecturasExistentes = await ctx.db.query("lecturas").collect();
+    const lecturaIdPorTitulo = new Map<string, Id<"lecturas">>();
+    for (const l of LECTURAS) {
+      const datosLectura = { contenido: l.contenido, autorId: instructorUserId };
+      const existente = lecturasExistentes.find((x) => x.titulo === l.titulo);
+      if (existente) {
+        await ctx.db.patch(existente._id, datosLectura);
+        lecturaIdPorTitulo.set(l.titulo, existente._id);
+        reparado.push(`lectura:${l.titulo}`);
+      } else {
+        const id = await ctx.db.insert("lecturas", {
+          titulo: l.titulo,
+          ...datosLectura,
+        });
+        lecturaIdPorTitulo.set(l.titulo, id);
+        insertado.push(`lectura:${l.titulo}`);
+      }
+    }
+
+    // ── 4. Reactivos (upsert por enunciado; converge autor/lectura) ────────
+    // La membresía en exámenes ya NO se acumula aquí (era la misma para todos);
+    // se decide POR examen en el paso 7 vía `reactivoIdPorEnunciado`.
     //
     // La clasificación pasa por `resolverClasificacion` como CUALQUIER escritor:
     // se manda solo `subtemaId` y el helper deriva área y sección. Aquí no se
     // arman las ternas a mano, porque entonces el seed no probaría el camino que
     // LUI-15 va a heredar.
     const reactivosExistentes = await ctx.db.query("reactivos").collect();
-    const reactivoIds: Id<"reactivos">[] = [];
+    const reactivoIdPorEnunciado = new Map<string, Id<"reactivos">>();
     for (const r of REACTIVOS) {
+      // Autor: por defecto el primer instructor; algunos declaran otro (banco
+      // INSTITUCIONAL de LUI-14 → varios autores). La lectura, si la hay, ya está
+      // sembrada (paso 3b).
+      const autorId =
+        (r.autorCorreo && instructorUserIdPorCorreo.get(norm(r.autorCorreo))) ||
+        instructorUserId;
+      const lecturaId = r.lectura ? lecturaIdPorTitulo.get(r.lectura) : undefined;
+
       const existente = reactivosExistentes.find(
         (x) => x.enunciado === r.enunciado,
       );
       if (existente) {
-        reactivoIds.push(existente._id);
+        // CONVERGER (antes hacía `continue` a secas): el fixture ahora fija autor,
+        // lectura, dificultad y estado; una BD dev ya sembrada debe adoptarlos. NO
+        // se toca la clasificación (subtemaId/areaId/seccionId) → los contadores del
+        // temario (LUI-18) no se mueven. `lecturaId: undefined` limpia el campo,
+        // igual que `puntaje: undefined` en los intentos.
+        await ctx.db.patch(existente._id, {
+          autorId,
+          lecturaId,
+          dificultad: r.dificultad,
+          activo: r.activo ?? true,
+        });
+        reactivoIdPorEnunciado.set(r.enunciado, existente._id);
+        reparado.push("reactivo");
         continue;
       }
       const subtemaId = subtemaPorRuta.get(ruta(...r.en));
@@ -748,10 +822,11 @@ export const cargarDatosDePrueba = internalMutation({
         ...clasificacion,
         dificultad: r.dificultad,
         retroalimentacion: r.retroalimentacion,
-        autorId: instructorUserId,
+        lecturaId,
+        autorId,
         activo: r.activo ?? true,
       });
-      reactivoIds.push(id);
+      reactivoIdPorEnunciado.set(r.enunciado, id);
       insertado.push("reactivo");
     }
 
@@ -814,13 +889,42 @@ export const cargarDatosDePrueba = internalMutation({
     }
 
     // ── 7. Exámenes (upsert por título; converge los campos) ───────────────
+    // Membresía de reactivos POR examen (ya NO la misma para todos), para que el
+    // candado de LUI-14 discrimine:
+    //  · el resto de reactivos → a los publicados ABIERTOS → BLOQUEADOS.
+    //  · REACTIVO_SOLO_BORRADOR → solo al borrador (Simulacro Final) → LIBRE (un
+    //    borrador no bloquea, aunque contenga el reactivo).
+    //  · REACTIVO_SOLO_FUTURO → solo a SG3 (publicado, asignación FUTURA) →
+    //    BLOQUEADO: prueba que «publicado con asignaciones» NO filtra por `abreEn`.
+    //  · REACTIVO_SIN_EXAMEN → a ninguno → LIBRE.
+    const todosLosReactivoIds = [...reactivoIdPorEnunciado.values()];
+    const idSinExamen = reactivoIdPorEnunciado.get(REACTIVO_SIN_EXAMEN);
+    const idSoloBorrador = reactivoIdPorEnunciado.get(REACTIVO_SOLO_BORRADOR);
+    const idSoloFuturo = reactivoIdPorEnunciado.get(REACTIVO_SOLO_FUTURO);
+    const apartados = new Set(
+      [idSinExamen, idSoloBorrador, idSoloFuturo].filter(
+        Boolean,
+      ) as Id<"reactivos">[],
+    );
+    const restoReactivos = todosLosReactivoIds.filter((id) => !apartados.has(id));
+    const tituloFuturo = ASIGNACIONES.find((a) => a.cuando === "futura")?.examen;
+    const membresiaDe = (e: (typeof EXAMENES)[number]): Id<"reactivos">[] => {
+      if (e.estado === "borrador")
+        return idSoloBorrador
+          ? [...restoReactivos, idSoloBorrador]
+          : restoReactivos;
+      if (e.titulo === tituloFuturo)
+        return idSoloFuturo ? [...restoReactivos, idSoloFuturo] : restoReactivos;
+      return restoReactivos;
+    };
+
     const examenesExistentes = await ctx.db.query("examenes").collect();
     const examenIdPorTitulo = new Map<string, Id<"examenes">>();
     for (const e of EXAMENES) {
       const datos = {
         titulo: e.titulo,
         descripcion: e.descripcion,
-        reactivoIds,
+        reactivoIds: membresiaDe(e),
         duracionMin: e.duracionMin,
         estado: e.estado,
         autorId: instructorUserId,

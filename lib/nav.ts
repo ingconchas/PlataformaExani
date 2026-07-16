@@ -22,8 +22,12 @@ export const adminNav: NavItem[] = [
   { label: "Grupos", href: "/admin/grupos", icon: Layers },
   { label: "Usuarios y permisos", href: "/admin/usuarios", icon: Shield },
   { label: "Temario", href: "/admin/temario", icon: BookOpen },
+  { label: "Banco de reactivos", href: "/admin/reactivos", icon: FileQuestion },
   { label: "Resumen de exámenes", href: "/admin/examenes", icon: ClipboardList },
 ];
+// ⚠️ «Banco de reactivos» va en el menú pero NO en `EXTRAS_SHORTCUT`: los accesos
+// directos del panel (LUI-9) se derivan por `flatMap` y `e2e-lui9` aserta que son
+// EXACTAMENTE 5. Una entrada de shortcut aquí los volvería 6 y rompería esa prueba.
 
 export type ShortcutItem = NavItem & { description: string; tone: Tone };
 

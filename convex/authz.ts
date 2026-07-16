@@ -43,3 +43,18 @@ export async function requireAdmin(ctx: Ctx): Promise<Sesion> {
   }
   return sesion;
 }
+
+/**
+ * Exige que la sesión sea de STAFF (administrador **o** instructor) ACTIVO. El
+ * banco de reactivos (LUI-14) y la lectura del temario que lo alimenta son
+ * institucionales: ambos roles los consultan. Rechaza a `alumno`. Devuelve
+ * `{ userId, perfil }`; el `userId` sirve para «autor propio» (comparar el
+ * `autorId` del registro OBJETIVO contra este `userId`).
+ */
+export async function requireStaff(ctx: Ctx): Promise<Sesion> {
+  const sesion = await requireSesion(ctx);
+  if (sesion.perfil.rol === "alumno") {
+    throw new ConvexError("Requiere permisos de instructor o administrador.");
+  }
+  return sesion;
+}
