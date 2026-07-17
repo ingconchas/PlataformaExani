@@ -528,6 +528,18 @@ export const limpiarContenidoDemo = internalMutation({
   handler: async (ctx) => {
     exigirDeploymentDeDesarrollo();
     const borrado: Record<string, number> = {};
+
+    // Blobs de imagen (LUI-15 E3): borrar ANTES que los reactivos. Si no, el blob del
+    // reactivo referenciado sobrevive (el sweeper lo conserva) y al desaparecer el doc
+    // queda huérfano → el E2E fugaría storage entre corridas. Set = dedup, tolera datos
+    // manuales/históricos que violen la exclusividad (sin doble-borrado).
+    const reactivosConImagen = await ctx.db.query("reactivos").collect();
+    const blobs = new Set(
+      reactivosConImagen.flatMap((r) => (r.imagenId ? [r.imagenId] : [])),
+    );
+    for (const blob of blobs) await ctx.storage.delete(blob);
+    borrado.imagenes = blobs.size;
+
     // Orden: de las hojas hacia la raíz del grafo de contenido.
     const tablas = [
       "respuestas",
@@ -545,6 +557,19 @@ export const limpiarContenidoDemo = internalMutation({
       for (const d of docs) await ctx.db.delete(d._id);
       borrado[tabla] = docs.length;
     }
+
+    // Cuotas de subida (`subida_imagen:<userId>`): sin esto, cada corrida del E2E consume
+    // tokens que se acumularían hasta gatillar el rate limit aunque el código esté bien.
+    // La tabla `cuotas` es de decenas de filas (clave por usuario).
+    const cuotas = await ctx.db.query("cuotas").collect();
+    let cuotasSubida = 0;
+    for (const c of cuotas)
+      if (c.clave.startsWith("subida_imagen:")) {
+        await ctx.db.delete(c._id);
+        cuotasSubida++;
+      }
+    borrado.cuotasSubida = cuotasSubida;
+
     return { borrado };
   },
 });

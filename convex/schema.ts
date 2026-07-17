@@ -218,7 +218,10 @@ export default defineSchema({
     .index("by_area", ["areaId"])
     .index("by_subtema", ["subtemaId"])
     .index("by_lectura", ["lecturaId"])
-    .index("by_autor", ["autorId"]),
+    .index("by_autor", ["autorId"])
+    // Exclusividad 1 blob ↔ 1 reactivo + sonda del sweeper «¿este blob sigue
+    // referenciado?» en O(1), sin escanear la tabla (LUI-15 E3).
+    .index("by_imagen", ["imagenId"]),
 
   // Exámenes armados con el constructor (conjunto ordenado de reactivos).
   examenes: defineTable({

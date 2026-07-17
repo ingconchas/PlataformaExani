@@ -1,6 +1,6 @@
 "use client";
 
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
 import { type FunctionReturnType } from "convex/server";
@@ -20,7 +20,9 @@ import {
 import { Input, Label } from "@/components/ui/input";
 import { RichTextEditor } from "@/components/ui/rich-text-editor";
 import { Select } from "@/components/ui/select";
+import { ImageUpload } from "@/components/ui/image-upload";
 import { aTextoPlano, sanear } from "@/convex/sanitizar";
+import { MAX_BYTES, TIPOS_PERMITIDOS } from "@/convex/imagenes";
 import { cn } from "@/lib/utils";
 
 /** Estilos para renderizar el HTML saneado (strong/em/sup/sub) de forma consistente
@@ -117,6 +119,7 @@ function Formulario({
   const crear = useMutation(api.reactivos.crear);
   const actualizar = useMutation(api.reactivos.actualizar);
   const cambiarEstado = useMutation(api.reactivos.cambiarEstado);
+  const generarUrl = useMutation(api.reactivos.generarUrlDeSubida);
 
   // Estado inicial derivado de `inicial` UNA sola vez (el wrapper monta este
   // componente ya con los datos cargados).
@@ -141,10 +144,92 @@ function Formulario({
   const [sucio, setSucio] = useState(false);
   const tocar = () => setSucio(true);
 
+  // ── Imagen (E3) ──────────────────────────────────────────────────────────────
+  const [imagenId, setImagenId] = useState<Id<"_storage"> | null>(
+    inicial?.imagenId ?? null,
+  );
+  const [imagenUrl, setImagenUrl] = useState<string | null>(
+    inicial?.imagenUrl ?? null,
+  );
+  // Solo se conoce el nombre del archivo recién elegido; al recargar de BD no se
+  // persiste (decisión: sin campo en el modelo) → el control muestra «Imagen adjunta».
+  const [imagenNombre, setImagenNombre] = useState<string | null>(null);
+  const [subiendoImagen, setSubiendoImagen] = useState(false);
+  // El POST de subida solo devuelve `storageId` (no una URL de lectura): para ver el
+  // archivo recién elegido de inmediato se usa un objectURL, revocado al
+  // reemplazar/quitar/desmontar para no fugar memoria.
+  const objectUrlRef = useRef<string | null>(null);
+  const montado = useRef(true);
+  useEffect(() => {
+    montado.current = true;
+    return () => {
+      montado.current = false;
+      if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
+    };
+  }, []);
+
+  async function elegirImagen(file: File) {
+    setError(null);
+    if (!TIPOS_PERMITIDOS.has(file.type))
+      return setError("Formato no permitido: usa PNG, JPG, WEBP o GIF.");
+    if (file.size > MAX_BYTES)
+      return setError("La imagen supera el límite de 5 MB.");
+    // Snapshot para restaurar la imagen anterior si el POST falla (nota de auditoría).
+    const prev = {
+      id: imagenId,
+      url: imagenUrl,
+      nombre: imagenNombre,
+      objectUrl: objectUrlRef.current,
+    };
+    // objectURL ANTES del await → vista previa inmediata del archivo local.
+    const url = URL.createObjectURL(file);
+    objectUrlRef.current = url;
+    setImagenUrl(url);
+    setImagenNombre(file.name);
+    setSubiendoImagen(true);
+    tocar();
+    try {
+      const destino = await generarUrl();
+      const res = await fetch(destino, {
+        method: "POST",
+        headers: { "Content-Type": file.type },
+        body: file,
+      });
+      if (!res.ok) throw new Error(`POST ${res.status}`);
+      const { storageId } = (await res.json()) as { storageId: Id<"_storage"> };
+      if (!montado.current) return URL.revokeObjectURL(url);
+      setImagenId(storageId);
+    } catch (err) {
+      URL.revokeObjectURL(url);
+      if (!montado.current) return;
+      objectUrlRef.current = prev.objectUrl;
+      setImagenId(prev.id);
+      setImagenUrl(prev.url);
+      setImagenNombre(prev.nombre);
+      setError(mensajeDeError(err));
+    } finally {
+      if (montado.current) setSubiendoImagen(false);
+    }
+  }
+
+  function quitarImagen() {
+    if (objectUrlRef.current) {
+      URL.revokeObjectURL(objectUrlRef.current);
+      objectUrlRef.current = null;
+    }
+    setImagenId(null);
+    setImagenUrl(null);
+    setImagenNombre(null);
+    tocar();
+  }
+
   // Estados especiales de edición.
   const soloLectura = esEdicion && !inicial.esEditable; // reactivo ajeno abierto por URL
   const bloqueado = esEdicion && inicial.enUso; // en uso → no editar contenido
   const camposDeshabilitados = soloLectura || bloqueado || enviando;
+  // Bloqueo del submit mientras sube una imagen: guardar sin el `storageId` persistiría el
+  // reactivo SIN imagen y dejaría el blob huérfano.
+  const ocupado = enviando || subiendoImagen;
 
   // ── Cascada de clasificación (disponible + tolera la cadena actual retirada) ──
   const secciones = temario.filter((f) => f.nivel === 1);
@@ -208,6 +293,8 @@ function Formulario({
   async function guardar(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
+    if (subiendoImagen)
+      return setError("Espera a que termine de subir la imagen.");
     if (!aTextoPlano(enunciado).trim())
       return setError("Escribe el enunciado.");
     const textos = opciones.map((o) => o.texto.trim());
@@ -222,7 +309,7 @@ function Formulario({
       return setError("Completa la clasificación: sección, área y subtema.");
     if (!dificultad) return setError("Elige el nivel de dificultad.");
 
-    const datos = {
+    const base = {
       subtemaId: subtemaId as Id<"subtemas">,
       enunciado, // HTML enriquecido; el servidor lo sanea
       opciones: textos.map((texto, i) => ({ id: LETRAS[i], texto })),
@@ -232,8 +319,19 @@ function Formulario({
     };
     setEnviando(true);
     try {
-      if (inicial) await actualizar({ id: inicial.id, ...datos });
-      else await crear(datos);
+      if (inicial) {
+        // Op discriminada de imagen respecto a la que traía el reactivo.
+        const previa = inicial.imagenId ?? null;
+        const imagen =
+          imagenId === previa
+            ? ({ op: "mantener" } as const)
+            : imagenId === null
+              ? ({ op: "quitar" } as const)
+              : ({ op: "reemplazar", imagenId } as const);
+        await actualizar({ id: inicial.id, ...base, imagen });
+      } else {
+        await crear({ ...base, imagenId: imagenId ?? undefined });
+      }
       router.push(`${basePath}/reactivos`);
     } catch (err) {
       setError(mensajeDeError(err));
@@ -287,6 +385,17 @@ function Formulario({
               tocar();
             }}
           />
+          <div className="mt-2">
+            <ImageUpload
+              ariaLabel="Imagen del reactivo"
+              previewUrl={imagenUrl}
+              fileName={imagenNombre}
+              uploading={subiendoImagen}
+              disabled={camposDeshabilitados}
+              onPick={elegirImagen}
+              onRemove={quitarImagen}
+            />
+          </div>
         </div>
 
         <div>
@@ -456,7 +565,7 @@ function Formulario({
               <Button
                 variant={inicial.activo ? "danger" : "secondary"}
                 onClick={alternarEstado}
-                disabled={enviando}
+                disabled={ocupado}
               >
                 {inicial.activo ? "Desactivar" : "Reactivar"}
               </Button>
@@ -466,12 +575,14 @@ function Formulario({
                 Cancelar
               </Button>
               {!bloqueado && (
-                <Button type="submit" disabled={enviando}>
-                  {enviando
-                    ? "Guardando…"
-                    : esEdicion
-                      ? "Guardar cambios"
-                      : "Guardar reactivo"}
+                <Button type="submit" disabled={ocupado}>
+                  {subiendoImagen
+                    ? "Subiendo…"
+                    : enviando
+                      ? "Guardando…"
+                      : esEdicion
+                        ? "Guardar cambios"
+                        : "Guardar reactivo"}
                 </Button>
               )}
             </div>
@@ -494,6 +605,14 @@ function Formulario({
             <p className="mt-2 text-body font-medium text-muted">
               Tu pregunta aparecerá aquí…
             </p>
+          )}
+          {imagenUrl && (
+            // eslint-disable-next-line @next/next/no-img-element -- objectURL local o URL de storage
+            <img
+              src={imagenUrl}
+              alt="Imagen del reactivo"
+              className="mt-3 max-h-40 w-fit rounded-card border border-border"
+            />
           )}
           <div className="mt-3 grid gap-2">
             {opciones.map((o, i) => (

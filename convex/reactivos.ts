@@ -1,14 +1,18 @@
 import {
   query,
   mutation,
+  internalMutation,
   type QueryCtx,
   type MutationCtx,
 } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { type Doc, type Id } from "./_generated/dataModel";
 import { v, ConvexError } from "convex/values";
 import { requireStaff } from "./authz";
 import { resolverClasificacion } from "./temario";
 import { sanear, aTextoPlano, textoPlanoAHtml, MAX_HTML } from "./sanitizar";
+import { validarImagen, barrer, GRACIA_MS, LOTE } from "./imagenes";
+import { consumirCuotas, CUOTAS, textoEspera } from "./cuotas";
 
 type Ctx = QueryCtx | MutationCtx;
 
@@ -303,6 +307,28 @@ function validarContenido(args: {
   return { enunciado, opciones, opcionCorrecta: args.opcionCorrecta, retroalimentacion };
 }
 
+/**
+ * URL de subida efímera para adjuntar una imagen a un reactivo (LUI-15 E3). El cliente
+ * hace POST del archivo a esta URL y recibe un `storageId`, que luego pasa a
+ * `crear`/`actualizar` (donde se VALIDA — esta mutation no adjunta nada). Cuota por
+ * usuario porque Convex sube SIN límite de tamaño propio: sin ella un cliente manipulado
+ * inundaría el storage sin adjuntar jamás (el sweeper solo acota la duración, no el volumen).
+ */
+export const generarUrlDeSubida = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const { userId } = await requireStaff(ctx);
+    const cuota = await consumirCuotas(ctx, [
+      { clave: `subida_imagen:${userId}`, def: CUOTAS.subidaImagenUsuario },
+    ]);
+    if (!cuota.ok)
+      throw new ConvexError(
+        `Demasiadas subidas seguidas; intenta de nuevo en ${textoEspera(cuota.esperaMs)}.`,
+      );
+    return await ctx.storage.generateUploadUrl();
+  },
+});
+
 export const crear = mutation({
   args: {
     subtemaId: v.id("subtemas"),
@@ -311,10 +337,14 @@ export const crear = mutation({
     opcionCorrecta: v.string(),
     dificultad: dificultadValidator,
     retroalimentacion: v.string(),
+    imagenId: v.optional(v.id("_storage")),
   },
   handler: async (ctx, args) => {
     const { userId } = await requireStaff(ctx);
     const limpio = validarContenido(args);
+    // Imagen opcional (E3): el `storageId` llega del cliente → se VALIDA (metadata real,
+    // tipo raster, tamaño, exclusividad) antes de adjuntarlo.
+    if (args.imagenId) await validarImagen(ctx, args.imagenId);
     // Camino ESTRICTO (default `exigirDisponible:true`): no se clasifica contenido
     // NUEVO en una rama retirada. La clasificación se DERIVA de `subtemaId`.
     const clasificacion = await resolverClasificacion(ctx, args.subtemaId);
@@ -326,6 +356,7 @@ export const crear = mutation({
       dificultad: args.dificultad,
       retroalimentacion: limpio.retroalimentacion,
       contenidoFormato: "html", // enunciado/explicación ya saneados (E2)
+      imagenId: args.imagenId,
       autorId: userId, // el autor sale de la sesión, nunca del cliente
       activo: true,
     });
@@ -343,6 +374,13 @@ export const actualizar = mutation({
     opcionCorrecta: v.string(),
     dificultad: dificultadValidator,
     retroalimentacion: v.string(),
+    // Op discriminada de imagen (E3): conservar / quitar / reemplazar. Un opcional NO
+    // distinguiría «conservar» de «quitar».
+    imagen: v.union(
+      v.object({ op: v.literal("mantener") }),
+      v.object({ op: v.literal("quitar") }),
+      v.object({ op: v.literal("reemplazar"), imagenId: v.id("_storage") }),
+    ),
   },
   handler: async (ctx, args) => {
     const { userId, perfil } = await requireStaff(ctx);
@@ -373,6 +411,20 @@ export const actualizar = mutation({
       await ajustarContadores(ctx, nueva, 1);
     }
 
+    // ── Imagen (E3): el candado de arriba ya impidió llegar aquí si el reactivo está en
+    // uso → la imagen, como el texto, no cambia en un examen vivo. `nuevaImagen` es lo que
+    // quedará en el doc; `borrarViejo`, el blob a eliminar tras el patch. ──
+    let nuevaImagen: Id<"_storage"> | undefined = r.imagenId;
+    let borrarViejo: Id<"_storage"> | undefined;
+    if (args.imagen.op === "quitar") {
+      nuevaImagen = undefined;
+      borrarViejo = r.imagenId;
+    } else if (args.imagen.op === "reemplazar") {
+      await validarImagen(ctx, args.imagen.imagenId, args.id);
+      nuevaImagen = args.imagen.imagenId;
+      borrarViejo = r.imagenId;
+    }
+
     await ctx.db.patch(args.id, {
       enunciado: limpio.enunciado,
       opciones: limpio.opciones,
@@ -381,7 +433,12 @@ export const actualizar = mutation({
       dificultad: args.dificultad,
       retroalimentacion: limpio.retroalimentacion,
       contenidoFormato: "html", // al editar, el contenido queda saneado como HTML
+      imagenId: nuevaImagen,
     });
+    // Borrado del blob viejo TRAS el patch. Transaccional: si lanzara (no debería, por
+    // exclusividad), se revierte también el patch y el reactivo queda intacto, sin fuga.
+    if (borrarViejo && borrarViejo !== nuevaImagen)
+      await ctx.storage.delete(borrarViejo);
     return { id: args.id };
   },
 });
@@ -401,5 +458,47 @@ export const cambiarEstado = mutation({
       );
     await ctx.db.patch(args.id, { activo: args.activo });
     return { id: args.id, activo: args.activo };
+  },
+});
+
+/**
+ * Sweeper de blobs de imagen huérfanos (LUI-15 E3; target del cron en `crons.ts`). Borra
+ * blobs de `_storage` SIN referencia y más viejos que `GRACIA_MS`. Corre en PROD y dev
+ * (los huérfanos se acumulan en prod) → **SIN `exigirDeploymentDeDesarrollo`** (ese guard
+ * lanzaría en prod, justo donde debe correr).
+ *
+ * El `corte` se fija UNA vez (1ª página) y se propaga sin cambiar en cada continuación:
+ * un cursor solo es válido con la MISMA consulta. Se valida la FORMA (una continuación con
+ * `cursor` sin `corte` recalcularía el corte y rompería el cursor) y que el `corte` nunca
+ * sea más reciente que la gracia (un `--prod` por CLI no puede barrer blobs frescos).
+ * La lógica de gracia CERO para pruebas vive aparte, en `pruebasImagenes.barrerAhoraDev`
+ * (dev-guarded); aquí NO existe.
+ */
+export const barrerImagenesHuerfanas = internalMutation({
+  args: {
+    cursor: v.optional(v.union(v.string(), v.null())),
+    corte: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const primeraPagina = args.cursor === undefined && args.corte === undefined;
+    const continuacion =
+      typeof args.cursor === "string" && typeof args.corte === "number";
+    if (!primeraPagina && !continuacion)
+      throw new ConvexError(
+        "barrerImagenesHuerfanas: la 1ª página va sin args; una continuación lleva { cursor, corte } juntos.",
+      );
+    const limite = Date.now() - GRACIA_MS;
+    const corte = args.corte ?? limite;
+    if (corte > limite)
+      throw new ConvexError(
+        "barrerImagenesHuerfanas: el corte no puede ser más reciente que la gracia.",
+      );
+    const res = await barrer(ctx, corte, args.cursor ?? null, LOTE);
+    if (!res.isDone)
+      await ctx.scheduler.runAfter(0, internal.reactivos.barrerImagenesHuerfanas, {
+        cursor: res.continueCursor,
+        corte,
+      });
+    return { borradas: res.borradas, isDone: res.isDone };
   },
 });

@@ -11,8 +11,10 @@ import { v } from "convex/values";
  * Rate limiting propio (LUI-103, Entrega 2). Token bucket, sin componentes de
  * Convex.
  *
- * **El recurso protegido es la CUOTA DE ENVÍO DE CORREO, no la CPU ni la BD.**
- * De ahí salen las dos decisiones que explican todo lo demás:
+ * **Los recursos protegidos son la CUOTA DE ENVÍO DE CORREO y —desde LUI-15 E3— el
+ * ALMACENAMIENTO de blobs (bucket `subidaImagenUsuario`, cobrado en
+ * `reactivos.generarUrlDeSubida`), no la CPU ni la BD.** Para el correo, de ahí salen
+ * las dos decisiones que explican todo lo demás:
  *
  * 1. **La cuota se cobra donde se gasta el recurso**, es decir DESPUÉS de
  *    resolver al destinatario (ver `invitaciones.solicitarRecuperacion`). Un
@@ -68,6 +70,16 @@ export const CUOTAS = {
   /** Reenvío de invitación a UNA cuenta. Absorbe el doble clic; la invitación
    *  dura 72 h, así que 2 reenvíos en 10 min a la misma cuenta ya es un error. */
   reenvioPerfil: { capacidad: 2, msPorToken: 10 * MIN },
+  /**
+   * Subida de imagen de reactivos (LUI-15 E3). Aquí el recurso protegido es el
+   * ALMACENAMIENTO: `generateUploadUrl` crea el blob en el POST **sin límite de tamaño
+   * propio** y la validación (5 MB) corre al ADJUNTAR, DESPUÉS; sin cuota, un cliente
+   * manipulado subiría archivos enormes y nunca adjuntaría. Ráfaga 40 = una sesión de
+   * autoría pesada + la suite E2E (~5 tokens/corrida, reiniciada en el reset del seed);
+   * recarga 1/3 min (~20/hora) acota el abuso sostenido. El sweeper acota la DURACIÓN de
+   * la fuga; esta cuota acota el VOLUMEN. Clave por `userId`, como el resto.
+   */
+  subidaImagenUsuario: { capacidad: 40, msPorToken: 3 * MIN },
 } satisfies Record<string, DefCuota>;
 
 export type ResultadoCuota = { ok: true } | { ok: false; esperaMs: number };

@@ -31,4 +31,13 @@ crons.interval(
   {},
 );
 
+// Sweeper de imágenes de reactivos huérfanas (LUI-15 E3). Sin args: la 1ª página fija el
+// corte en `Date.now() - GRACIA_MS` y se auto-reagenda propagándolo (ver reactivos.ts).
+crons.interval(
+  "barrer imagenes huerfanas de reactivos",
+  { hours: 24 },
+  internal.reactivos.barrerImagenesHuerfanas,
+  {},
+);
+
 export default crons;
