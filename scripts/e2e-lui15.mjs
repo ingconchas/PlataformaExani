@@ -538,7 +538,7 @@ try {
     .fill("E2E cuota");
   await page.getByLabel("Imagen del reactivo").setInputFiles(FIXTURE_IMG);
   check(
-    "con el bucket drenado, generarUrlDeSubida rechaza con mensaje de espera",
+    "con el bucket drenado, la subida por HTTP action rechaza con mensaje de espera",
     await esperar(async () =>
       ((await page.textContent("body")) ?? "").includes("Demasiadas subidas"),
     ),

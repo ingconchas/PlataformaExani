@@ -73,13 +73,15 @@ export async function validarImagen(
     );
   if (meta.size > MAX_BYTES)
     throw new ConvexError("La imagen supera el límite de 5 MB.");
-  // Exclusividad 1 blob ↔ 1 reactivo: impide que un cliente manipulado aliaste la
-  // imagen de otro reactivo (y con ello induzca borrar un blob aún en uso).
-  const otro = await ctx.db
+  // Exclusividad 1 blob ↔ 1 reactivo: impide que un cliente manipulado aliaste la imagen de
+  // otro reactivo (y con ello induzca borrar un blob aún en uso). Se COLECTAN todos los
+  // dueños y se busca CUALQUIERA distinto de `duenoActual`: un `.first()` podría devolver al
+  // propio `duenoActual` y ocultar a un tercero si hubiera una violación por datos manuales.
+  const duenos = await ctx.db
     .query("reactivos")
     .withIndex("by_imagen", (q) => q.eq("imagenId", imagenId))
-    .first();
-  if (otro && otro._id !== duenoActual)
+    .collect();
+  if (duenos.some((r) => r._id !== duenoActual))
     throw new ConvexError("Esa imagen ya pertenece a otro reactivo.");
 }
 

@@ -2,6 +2,7 @@
 
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
+import { useAuthToken } from "@convex-dev/auth/react";
 import { ConvexError } from "convex/values";
 import { type FunctionReturnType } from "convex/server";
 import { useRouter } from "next/navigation";
@@ -119,7 +120,7 @@ function Formulario({
   const crear = useMutation(api.reactivos.crear);
   const actualizar = useMutation(api.reactivos.actualizar);
   const cambiarEstado = useMutation(api.reactivos.cambiarEstado);
-  const generarUrl = useMutation(api.reactivos.generarUrlDeSubida);
+  const authToken = useAuthToken();
 
   // Estado inicial derivado de `inicial` UNA sola vez (el wrapper monta este
   // componente ya con los datos cargados).
@@ -189,13 +190,24 @@ function Formulario({
     setSubiendoImagen(true);
     tocar();
     try {
-      const destino = await generarUrl();
-      const res = await fetch(destino, {
+      // Subida por el HTTP action autenticado: valida tamaño/tipo ANTES de almacenar
+      // (la URL de subida de Convex no tiene tope de tamaño).
+      const sitio = (process.env.NEXT_PUBLIC_CONVEX_URL ?? "").replace(
+        /\.cloud$/,
+        ".site",
+      );
+      const res = await fetch(`${sitio}/reactivos/imagen`, {
         method: "POST",
-        headers: { "Content-Type": file.type },
+        headers: {
+          "Content-Type": file.type,
+          Authorization: `Bearer ${authToken ?? ""}`,
+        },
         body: file,
       });
-      if (!res.ok) throw new Error(`POST ${res.status}`);
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new ConvexError(data.error ?? "No se pudo subir la imagen.");
+      }
       const { storageId } = (await res.json()) as { storageId: Id<"_storage"> };
       if (!montado.current) return URL.revokeObjectURL(url);
       setImagenId(storageId);

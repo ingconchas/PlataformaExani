@@ -69,6 +69,39 @@ export const adjuntarBlobAReactivoDev = internalMutation({
   },
 });
 
+/** Adjunta el MISMO blob a los DOS primeros reactivos (simula una violación de exclusividad
+ *  por datos manuales) para probar la exclusividad robusta y el borrado seguro. */
+export const adjuntarBlobADosReactivosDev = internalMutation({
+  args: { ...CONF, storageId: v.id("_storage") },
+  handler: async (ctx, args) => {
+    exigirDeploymentDeDesarrollo();
+    const dos = await ctx.db.query("reactivos").take(2);
+    if (dos.length < 2)
+      throw new ConvexError("Se necesitan ≥2 reactivos sembrados.");
+    for (const r of dos) await ctx.db.patch(r._id, { imagenId: args.storageId });
+    return { r1: dos[0]._id, r2: dos[1]._id };
+  },
+});
+
+/** Suelta la imagen de un reactivo (patch `imagenId` → undefined). */
+export const detachReactivoDev = internalMutation({
+  args: { ...CONF, reactivoId: v.id("reactivos") },
+  handler: async (ctx, args) => {
+    exigirDeploymentDeDesarrollo();
+    await ctx.db.patch(args.reactivoId, { imagenId: undefined });
+    return { ok: true as const };
+  },
+});
+
+/** ¿Algún reactivo referencia el blob? (borrado seguro con 2 referencias). */
+export const blobReferenciadoDev = internalQuery({
+  args: { ...CONF, storageId: v.id("_storage") },
+  handler: async (ctx, args) => {
+    exigirDeploymentDeDesarrollo();
+    return { referenciado: await blobReferenciado(ctx, args.storageId) };
+  },
+});
+
 /** ¿Sigue existiendo el blob? (para afirmar que la gracia conserva un huérfano fresco). */
 export const blobExisteDev = internalQuery({
   args: { ...CONF, storageId: v.id("_storage") },
@@ -289,6 +322,40 @@ export const correrPruebasImagenesDev = internalAction({
       check("sweeper pág.2 borró un huérfano (el cursor avanzó)", p2.borradas === 1);
       check("sweeper: mismo corte en ambas páginas", p1.corte === p2.corte);
       await barrerTodo(); // limpia el resto de huérfanos de esta sección
+
+      // ── 2b. Exclusividad ROBUSTA + borrado seguro con DOS referencias (Medio 2) ──
+      // Con el mismo blob en dos reactivos (violación por datos manuales): `.collect()` ve
+      // al OTRO dueño aunque `duenoActual` también referencie; y soltar un dueño deja el
+      // blob referenciado por el otro → `actualizar` NO lo borraría (usa `blobReferenciado`).
+      const dup = await guardar("image/png");
+      const { r1, r2 } = await ctx.runMutation(
+        internal.pruebasImagenes.adjuntarBlobADosReactivosDev,
+        { confirmar: C, storageId: dup },
+      );
+      void r2;
+      check(
+        "exclusividad ve al OTRO dueño aunque duenoActual también referencie",
+        (
+          await ctx.runMutation(internal.pruebasImagenes.probarValidarImagen, {
+            confirmar: C,
+            imagenId: dup,
+            duenoActual: r1,
+          })
+        ).rechazado,
+      );
+      await ctx.runMutation(internal.pruebasImagenes.detachReactivoDev, {
+        confirmar: C,
+        reactivoId: r1,
+      });
+      check(
+        "tras soltar un dueño, el blob SIGUE referenciado por el otro (borrado seguro)",
+        (
+          await ctx.runQuery(internal.pruebasImagenes.blobReferenciadoDev, {
+            confirmar: C,
+            storageId: dup,
+          })
+        ).referenciado,
+      );
 
       // ── 3. Gracia productiva: un huérfano FRESCO no se borra ───────────────
       const fresco = await guardar("image/png");

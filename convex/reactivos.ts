@@ -11,7 +11,7 @@ import { v, ConvexError } from "convex/values";
 import { requireStaff } from "./authz";
 import { resolverClasificacion } from "./temario";
 import { sanear, aTextoPlano, textoPlanoAHtml, MAX_HTML } from "./sanitizar";
-import { validarImagen, barrer, GRACIA_MS, LOTE } from "./imagenes";
+import { validarImagen, blobReferenciado, barrer, GRACIA_MS, LOTE } from "./imagenes";
 import { consumirCuotas, CUOTAS, textoEspera } from "./cuotas";
 
 type Ctx = QueryCtx | MutationCtx;
@@ -308,16 +308,22 @@ function validarContenido(args: {
 }
 
 /**
- * URL de subida efímera para adjuntar una imagen a un reactivo (LUI-15 E3). El cliente
- * hace POST del archivo a esta URL y recibe un `storageId`, que luego pasa a
- * `crear`/`actualizar` (donde se VALIDA — esta mutation no adjunta nada). Cuota por
- * usuario porque Convex sube SIN límite de tamaño propio: sin ella un cliente manipulado
- * inundaría el storage sin adjuntar jamás (el sweeper solo acota la duración, no el volumen).
+ * Autoriza una subida de imagen: staff + cuota por usuario. La invoca el HTTP action
+ * `/reactivos/imagen` (`convex/http.ts`) DESPUÉS de validar el tamaño real y ANTES de
+ * `storage.store`. Es `internalMutation` (no client-facing); el `userId` ya viene
+ * autenticado por el HTTP action (`getAuthUserId`). **La barrera de TAMAÑO vive en el HTTP
+ * action** (la URL de subida de Convex no la tiene); esta cuota acota el VOLUMEN de
+ * operaciones y el sweeper la DURACIÓN — capas adicionales, no la barrera de bytes.
  */
-export const generarUrlDeSubida = mutation({
-  args: {},
-  handler: async (ctx) => {
-    const { userId } = await requireStaff(ctx);
+export const autorizarSubida = internalMutation({
+  args: { userId: v.id("users") },
+  handler: async (ctx, { userId }) => {
+    const perfil = await ctx.db
+      .query("perfiles")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .first();
+    if (!perfil || !perfil.activo || perfil.rol === "alumno")
+      throw new ConvexError("Requiere permisos de instructor o administrador.");
     const cuota = await consumirCuotas(ctx, [
       { clave: `subida_imagen:${userId}`, def: CUOTAS.subidaImagenUsuario },
     ]);
@@ -325,7 +331,7 @@ export const generarUrlDeSubida = mutation({
       throw new ConvexError(
         `Demasiadas subidas seguidas; intenta de nuevo en ${textoEspera(cuota.esperaMs)}.`,
       );
-    return await ctx.storage.generateUploadUrl();
+    return null;
   },
 });
 
@@ -435,9 +441,15 @@ export const actualizar = mutation({
       contenidoFormato: "html", // al editar, el contenido queda saneado como HTML
       imagenId: nuevaImagen,
     });
-    // Borrado del blob viejo TRAS el patch. Transaccional: si lanzara (no debería, por
-    // exclusividad), se revierte también el patch y el reactivo queda intacto, sin fuga.
-    if (borrarViejo && borrarViejo !== nuevaImagen)
+    // Borrado del blob viejo TRAS el patch, SOLO si ningún OTRO reactivo lo referencia (el
+    // patch ya movió ESTE reactivo fuera de `borrarViejo`, así que `blobReferenciado` mira a
+    // los demás). Protege contra una violación de exclusividad por datos manuales/históricos:
+    // no deja rota la imagen de otro reactivo. Transaccional: un fallo revierte también el patch.
+    if (
+      borrarViejo &&
+      borrarViejo !== nuevaImagen &&
+      !(await blobReferenciado(ctx, borrarViejo))
+    )
       await ctx.storage.delete(borrarViejo);
     return { id: args.id };
   },
