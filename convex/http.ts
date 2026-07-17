@@ -45,21 +45,26 @@ const subirImagenReactivo = httpAction(async (ctx, request) => {
   if (declarado > MAX_BYTES)
     return json({ error: "La imagen supera el límite de 5 MB." }, 413);
 
+  // Autorizar (staff + cuota) ANTES de materializar el cuerpo: un rol inválido (403) o una
+  // cuota agotada (429) no debe siquiera leer el archivo.
+  try {
+    await ctx.runMutation(internal.reactivos.autorizarSubida, { userId });
+  } catch (e) {
+    const data =
+      e instanceof ConvexError
+        ? (e.data as { tipo?: string; mensaje?: string })
+        : null;
+    return json(
+      { error: data?.mensaje ?? "No autorizado." },
+      data?.tipo === "cuota" ? 429 : 403,
+    );
+  }
+
   // Leer el cuerpo y RE-verificar el tamaño real (defensa ante un Content-Length mentido):
   // `store` solo se llama si cumple → nunca se persiste un blob > 5 MB.
   const blob = await request.blob();
   if (blob.size > MAX_BYTES)
     return json({ error: "La imagen supera el límite de 5 MB." }, 413);
-
-  // Autorización (staff) + cuota por usuario, justo antes de almacenar.
-  try {
-    await ctx.runMutation(internal.reactivos.autorizarSubida, { userId });
-  } catch (e) {
-    return json(
-      { error: e instanceof ConvexError ? String(e.data) : "No autorizado." },
-      429,
-    );
-  }
 
   const storageId = await ctx.storage.store(blob);
   return json({ storageId }, 200);

@@ -5,7 +5,13 @@ import {
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v, ConvexError } from "convex/values";
-import { validarImagen, barrer, blobReferenciado, LOTE } from "./imagenes";
+import {
+  validarImagen,
+  barrer,
+  blobReferenciado,
+  borrarSiHuerfano,
+  LOTE,
+} from "./imagenes";
 import { exigirDeploymentDeDesarrollo, CONFIRMACION_SOLO_DEV } from "./entorno";
 
 /**
@@ -93,12 +99,14 @@ export const detachReactivoDev = internalMutation({
   },
 });
 
-/** ¿Algún reactivo referencia el blob? (borrado seguro con 2 referencias). */
-export const blobReferenciadoDev = internalQuery({
-  args: { ...CONF, storageId: v.id("_storage") },
+/** Ejecuta la RAMA PRODUCTIVA de borrado (`borrarSiHuerfano`, la misma que usa
+ *  `reactivos.actualizar`) y reporta si el blob sobrevivió — cierra el hueco de regresión. */
+export const probarBorrarSiHuerfanoDev = internalMutation({
+  args: { ...CONF, viejo: v.id("_storage"), nuevo: v.optional(v.id("_storage")) },
   handler: async (ctx, args) => {
     exigirDeploymentDeDesarrollo();
-    return { referenciado: await blobReferenciado(ctx, args.storageId) };
+    await borrarSiHuerfano(ctx, args.viejo, args.nuevo);
+    return { sigueExistiendo: (await ctx.db.system.get(args.viejo)) !== null };
   },
 });
 
@@ -125,7 +133,7 @@ export const diagnosticoBlobsDev = internalQuery({
 });
 
 /** Vacía el bucket de subida de un usuario (por correo) para que el E2E pruebe el rechazo
- *  por cuota de `generarUrlDeSubida`. El reset del seed (que borra `subida_imagen:*`) lo
+ *  por cuota (`autorizarSubida`). El reset del seed (que borra `subida_imagen:*`) lo
  *  restaura. */
 export const drenarCuotaSubidaDev = internalMutation({
   args: { ...CONF, correo: v.string() },
@@ -348,13 +356,13 @@ export const correrPruebasImagenesDev = internalAction({
         reactivoId: r1,
       });
       check(
-        "tras soltar un dueño, el blob SIGUE referenciado por el otro (borrado seguro)",
+        "borrado seguro: `borrarSiHuerfano` CONSERVA el blob si otro reactivo lo referencia",
         (
-          await ctx.runQuery(internal.pruebasImagenes.blobReferenciadoDev, {
-            confirmar: C,
-            storageId: dup,
-          })
-        ).referenciado,
+          await ctx.runMutation(
+            internal.pruebasImagenes.probarBorrarSiHuerfanoDev,
+            { confirmar: C, viejo: dup },
+          )
+        ).sigueExistiendo,
       );
 
       // ── 3. Gracia productiva: un huérfano FRESCO no se borra ───────────────

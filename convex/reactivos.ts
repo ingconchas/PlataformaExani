@@ -11,7 +11,7 @@ import { v, ConvexError } from "convex/values";
 import { requireStaff } from "./authz";
 import { resolverClasificacion } from "./temario";
 import { sanear, aTextoPlano, textoPlanoAHtml, MAX_HTML } from "./sanitizar";
-import { validarImagen, blobReferenciado, barrer, GRACIA_MS, LOTE } from "./imagenes";
+import { validarImagen, borrarSiHuerfano, barrer, GRACIA_MS, LOTE } from "./imagenes";
 import { consumirCuotas, CUOTAS, textoEspera } from "./cuotas";
 
 type Ctx = QueryCtx | MutationCtx;
@@ -323,14 +323,18 @@ export const autorizarSubida = internalMutation({
       .withIndex("by_user", (q) => q.eq("userId", userId))
       .first();
     if (!perfil || !perfil.activo || perfil.rol === "alumno")
-      throw new ConvexError("Requiere permisos de instructor o administrador.");
+      throw new ConvexError({
+        tipo: "rol",
+        mensaje: "Requiere permisos de instructor o administrador.",
+      });
     const cuota = await consumirCuotas(ctx, [
       { clave: `subida_imagen:${userId}`, def: CUOTAS.subidaImagenUsuario },
     ]);
     if (!cuota.ok)
-      throw new ConvexError(
-        `Demasiadas subidas seguidas; intenta de nuevo en ${textoEspera(cuota.esperaMs)}.`,
-      );
+      throw new ConvexError({
+        tipo: "cuota",
+        mensaje: `Demasiadas subidas seguidas; intenta de nuevo en ${textoEspera(cuota.esperaMs)}.`,
+      });
     return null;
   },
 });
@@ -441,16 +445,10 @@ export const actualizar = mutation({
       contenidoFormato: "html", // al editar, el contenido queda saneado como HTML
       imagenId: nuevaImagen,
     });
-    // Borrado del blob viejo TRAS el patch, SOLO si ningún OTRO reactivo lo referencia (el
-    // patch ya movió ESTE reactivo fuera de `borrarViejo`, así que `blobReferenciado` mira a
-    // los demás). Protege contra una violación de exclusividad por datos manuales/históricos:
-    // no deja rota la imagen de otro reactivo. Transaccional: un fallo revierte también el patch.
-    if (
-      borrarViejo &&
-      borrarViejo !== nuevaImagen &&
-      !(await blobReferenciado(ctx, borrarViejo))
-    )
-      await ctx.storage.delete(borrarViejo);
+    // Borrado del blob viejo TRAS el patch (transaccional: un fallo revierte también el
+    // patch). `borrarSiHuerfano` sólo borra si ya ningún OTRO reactivo lo referencia — no
+    // rompe la imagen de otro reactivo ante una violación de exclusividad por datos manuales.
+    await borrarSiHuerfano(ctx, borrarViejo, nuevaImagen);
     return { id: args.id };
   },
 });

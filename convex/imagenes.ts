@@ -27,8 +27,9 @@ export const TIPOS_PERMITIDOS = new Set([
   "image/gif",
 ]);
 
-/** Límite de ADJUNCIÓN (no de subida: Convex sube sin límite propio salvo el timeout
- *  del POST; el VOLUMEN lo acota la cuota de `generarUrlDeSubida`). */
+/** Tope de tamaño de imagen. Lo IMPONE el HTTP action de subida (`convex/http.ts`) ANTES
+ *  de `storage.store`; aquí se re-valida como defensa en profundidad. El VOLUMEN de
+ *  operaciones lo acota además la cuota (`reactivos.autorizarSubida`). */
 export const MAX_BYTES = 5 * 1024 * 1024;
 
 /** Gracia del sweeper: un blob SIN referencia más viejo que esto es basura. Da margen
@@ -52,6 +53,22 @@ export async function blobReferenciado(
     .withIndex("by_imagen", (q) => q.eq("imagenId", imagenId))
     .first();
   return dueno !== null;
+}
+
+/**
+ * Borra el blob VIEJO tras un reemplazo/quita, SOLO si ya ningún reactivo lo referencia
+ * (el patch del llamador ya movió ESTE reactivo fuera de `viejo`, así que `blobReferenciado`
+ * mira a los demás). Protege contra una violación de exclusividad por datos manuales: no
+ * deja rota la imagen de otro reactivo. Es la rama de borrado que usa `reactivos.actualizar`
+ * (y que prueba `test:imagenes` directamente).
+ */
+export async function borrarSiHuerfano(
+  ctx: MutationCtx,
+  viejo: Id<"_storage"> | undefined,
+  nuevo: Id<"_storage"> | undefined,
+): Promise<void> {
+  if (viejo && viejo !== nuevo && !(await blobReferenciado(ctx, viejo)))
+    await ctx.storage.delete(viejo);
 }
 
 /**

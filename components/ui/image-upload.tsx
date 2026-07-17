@@ -5,7 +5,7 @@ import { ImagePlus, X } from "lucide-react";
 
 /**
  * Control de imagen del formulario de reactivo (LUI-15 E3). PRESENTACIONAL: la subida
- * real (`generarUrlDeSubida` + POST) la orquesta el formulario y pasa el resultado por
+ * real (POST al HTTP action `/reactivos/imagen`) la orquesta el formulario y pasa el resultado por
  * `previewUrl`/`onPick`; aquí solo va el `<input type=file>` oculto y la UI. Vacío =
  * enlace «+ Adjuntar imagen»; con imagen = miniatura + chip removible. Respeta `disabled`
  * (candado/solo-lectura) y `uploading` (mientras llega el `storageId`).
