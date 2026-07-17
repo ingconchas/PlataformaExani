@@ -8,7 +8,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DifficultyMeter } from "@/components/ui/difficulty-meter";
 import { Modal } from "@/components/ui/modal";
+import { sanear } from "@/convex/sanitizar";
 import { cn } from "@/lib/utils";
+
+// El enunciado/explicación son HTML SANEADO (LUI-15 E2). `obtener` ya los entrega
+// saneados; re-sanear en lectura es idempotente = defensa en profundidad.
+const CLASE_RICO =
+  "[&_strong]:font-semibold [&_em]:italic [&_sup]:align-super [&_sup]:text-[0.7em] [&_sub]:align-sub [&_sub]:text-[0.7em]";
 
 /**
  * Vista de SOLO LECTURA de un reactivo (LUI-14: «revisar antes de usarlo en un
@@ -85,7 +91,10 @@ export function ReactivoPreviewModal({
             />
           )}
 
-          <p className="text-body font-medium text-ink">{r.enunciado}</p>
+          <div
+            className={cn("text-body font-medium text-ink", CLASE_RICO)}
+            dangerouslySetInnerHTML={{ __html: sanear(r.enunciado) }}
+          />
 
           <ul className="grid gap-2">
             {r.opciones.map((o) => {
@@ -118,7 +127,10 @@ export function ReactivoPreviewModal({
           {r.retroalimentacion && (
             <div className="rounded-card bg-bg px-3 py-2 text-small text-text">
               <span className="font-semibold">Retroalimentación: </span>
-              {r.retroalimentacion}
+              <span
+                className={CLASE_RICO}
+                dangerouslySetInnerHTML={{ __html: sanear(r.retroalimentacion) }}
+              />
             </div>
           )}
         </div>

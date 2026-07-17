@@ -281,7 +281,9 @@ const REACTIVOS: Array<{
     ],
     opcionCorrecta: "a",
     dificultad: "facil",
-    retroalimentacion: "0.375 = 375/1000 = 3/8.",
+    // El `<` literal es a propósito (LUI-15 E2): reactivo LEGADO libre que el E2E edita
+    // para probar que `textoPlanoAHtml` lo escapa y TipTap no lo interpreta como tag.
+    retroalimentacion: "0.375 = 375/1000 = 3/8, y 3/8 < 1/2.",
     en: ["Pensamiento matemático", "Aritmética", "Operaciones con fracciones"],
   },
 

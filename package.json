@@ -8,6 +8,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test:sanitizar": "tsx scripts/test-sanitizar.ts",
     "e2e:lui9": "node scripts/e2e-lui9.mjs",
     "e2e:lui14": "node scripts/e2e-lui14.mjs",
     "e2e:lui15": "node scripts/e2e-lui15.mjs",
@@ -20,6 +21,17 @@
   "dependencies": {
     "@auth/core": "^0.41.1",
     "@convex-dev/auth": "^0.0.94",
+    "@tiptap/extension-bold": "^3.28.0",
+    "@tiptap/extension-document": "^3.28.0",
+    "@tiptap/extension-hard-break": "^3.28.0",
+    "@tiptap/extension-italic": "^3.28.0",
+    "@tiptap/extension-paragraph": "^3.28.0",
+    "@tiptap/extension-subscript": "^3.28.0",
+    "@tiptap/extension-superscript": "^3.28.0",
+    "@tiptap/extension-text": "^3.28.0",
+    "@tiptap/extensions": "^3.28.0",
+    "@tiptap/pm": "^3.28.0",
+    "@tiptap/react": "^3.28.0",
     "clsx": "^2.1.1",
     "convex": "^1.42.1",
     "lucide-react": "^1.24.0",
@@ -37,6 +49,7 @@
     "eslint-config-next": "16.2.10",
     "playwright": "1.61.1",
     "tailwindcss": "^4",
+    "tsx": "^4.23.1",
     "typescript": "^5"
   }
 }

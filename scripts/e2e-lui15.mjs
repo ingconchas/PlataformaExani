@@ -128,12 +128,16 @@ try {
 
   console.log("1 · Alta de un reactivo (opción múltiple, presentación directa)");
   await page.goto(`${BASE}/instructor/reactivos/nuevo`);
-  await page.fill("#enunciado", ENUN_NUEVO);
+  await page
+    .getByRole("textbox", { name: "Enunciado del reactivo" })
+    .fill(ENUN_NUEVO);
   await page.getByPlaceholder("Opción A").fill("Alfa");
   await page.getByPlaceholder("Opción B").fill("Beta");
   await page.getByPlaceholder("Opción C").fill("Gamma");
   await page.getByLabel("Marcar la opción B como correcta").check();
-  await page.fill("#explicacion", "Porque beta es la correcta.");
+  await page
+    .getByRole("textbox", { name: "Explicación de la respuesta correcta" })
+    .fill("Porque beta es la correcta.");
   await seleccionar(page, "Sección", "Pensamiento matemático");
   await seleccionar(page, "Área temática", "Álgebra");
   await seleccionar(page, "Subtema", "Ecuaciones lineales");
@@ -154,7 +158,9 @@ try {
 
   console.log("\n2 · Validación: no guarda incompleto");
   await page.goto(`${BASE}/instructor/reactivos/nuevo`);
-  await page.fill("#enunciado", "Incompleto");
+  await page
+    .getByRole("textbox", { name: "Enunciado del reactivo" })
+    .fill("Incompleto");
   await page.getByRole("button", { name: "Guardar reactivo" }).click();
   check(
     "un reactivo sin opciones/correcta/explicación muestra error",
@@ -179,7 +185,9 @@ try {
       ((await page.getByLabel("Subtema").textContent()) ?? "").includes("(retirado)"),
     ),
   );
-  await page.fill("#enunciado", "¿Cuál es el desarrollo de (x + 3)²? [E2E editado]");
+  await page
+    .getByRole("textbox", { name: "Enunciado del reactivo" })
+    .fill("¿Cuál es el desarrollo de (x + 3)²? [E2E editado]");
   await page.getByRole("button", { name: "Guardar cambios" }).click();
   await page.waitForURL(/\/instructor\/reactivos$/, { timeout: 15_000 });
   await esperar(async () => (await filas(page).count()) > 0);
@@ -245,6 +253,86 @@ try {
     (await filaAjeno.getByRole("link", { name: /para desactivar/ }).count()) === 0,
   );
 
+  console.log("\n9 · Texto enriquecido (E2): negrita + superíndice");
+  await page.goto(`${BASE}/instructor/reactivos/nuevo`);
+  const grupoEnun = page.getByRole("group", {
+    name: "Editor: Enunciado del reactivo",
+  });
+  await grupoEnun.getByRole("textbox").click();
+  await page.keyboard.type("x");
+  await grupoEnun.getByRole("button", { name: "Superíndice" }).click();
+  await page.keyboard.type("2");
+  await grupoEnun.getByRole("button", { name: "Superíndice" }).click(); // apaga
+  await page.keyboard.type(" en ");
+  await grupoEnun.getByRole("button", { name: "Negrita" }).click();
+  await page.keyboard.type("negrita E2E");
+  await page.getByPlaceholder("Opción A").fill("Uno");
+  await page.getByPlaceholder("Opción B").fill("Dos");
+  await page.getByPlaceholder("Opción C").fill("Tres");
+  await page.getByLabel("Marcar la opción A como correcta").check();
+  await page
+    .getByRole("textbox", { name: "Explicación de la respuesta correcta" })
+    .fill("Explicación del reactivo enriquecido.");
+  await seleccionar(page, "Sección", "Pensamiento matemático");
+  await seleccionar(page, "Área temática", "Álgebra");
+  await seleccionar(page, "Subtema", "Ecuaciones lineales");
+  await page.getByRole("button", { name: "Básico" }).click();
+  await page.getByRole("button", { name: "Guardar reactivo" }).click();
+  await page.waitForURL(/\/instructor\/reactivos$/, { timeout: 15_000 });
+  await esperar(async () => (await filas(page).count()) > 0);
+  await buscar(page, "negrita E2E");
+  const filaRico = filaDe(page, "negrita E2E");
+  const textoCelda = (await filaRico.textContent()) ?? "";
+  check(
+    "el banco muestra TEXTO PLANO (sin tags)",
+    (await filaRico.count()) === 1 &&
+      !textoCelda.includes("<strong>") &&
+      !textoCelda.includes("<sup>"),
+    `celda: ${textoCelda.slice(0, 60)}`,
+  );
+  await filaRico.getByRole("button", { name: /^Ver el reactivo/ }).click();
+  const dlgRico = page.getByRole("dialog");
+  check(
+    "el preview RENDERIZA la negrita (<strong>)",
+    await esperar(async () => (await dlgRico.locator("strong").count()) >= 1),
+  );
+  check(
+    "el preview RENDERIZA el superíndice (<sup>)",
+    (await dlgRico.locator("sup").count()) >= 1,
+  );
+  await page.keyboard.press("Escape");
+
+  console.log("\n10 · Editar un LEGADO (texto plano con «<») no lo mangea");
+  await page.goto(`${BASE}/instructor/reactivos`);
+  await esperar(async () => (await filas(page).count()) > 0);
+  await buscar(page, "0.375");
+  await filaDe(page, "0.375")
+    .getByRole("button", { name: /^Ver el reactivo/ })
+    .click();
+  const dlgLegado = page.getByRole("dialog");
+  check(
+    "el preview de un legado muestra el «<» literal (no mangeado)",
+    await esperar(async () =>
+      ((await dlgLegado.textContent()) ?? "").includes("3/8 < 1/2"),
+    ),
+  );
+  await page.keyboard.press("Escape");
+  await buscar(page, "0.375");
+  await filaDe(page, "0.375")
+    .getByRole("link", { name: /^Editar el reactivo/ })
+    .click();
+  await page.waitForURL(/\/reactivos\/.+\/editar$/, { timeout: 15_000 });
+  check(
+    "el editor de explicación cargó el «<» literal del legado",
+    await esperar(async () =>
+      (
+        (await page
+          .getByRole("textbox", { name: "Explicación de la respuesta correcta" })
+          .textContent()) ?? ""
+      ).includes("3/8 < 1/2"),
+    ),
+  );
+
   // ── Admin (Mayra): contadores + edita ajenos ────────────────────────────────
   console.log("\n7 · Contadores del temario (admin)");
   const ctxAdmin = await navegador.newContext();
@@ -257,8 +345,8 @@ try {
   await esperarAdmin(async () => (await contarNodo(pageAdmin, "Ecuaciones lineales")) !== null);
   // Base Ecuaciones lineales = 5; +1 por el alta (§1) +1 por el movimiento (§4) = 7.
   check(
-    "«Ecuaciones lineales» subió a 7 (alta +1, movimiento +1)",
-    (await contarNodo(pageAdmin, "Ecuaciones lineales")) === 7,
+    "«Ecuaciones lineales» subió a 8 (alta §1 +1, movimiento §4 +1, enriquecido §9 +1)",
+    (await contarNodo(pageAdmin, "Ecuaciones lineales")) === 8,
     `recibido: ${await contarNodo(pageAdmin, "Ecuaciones lineales")}`,
   );
   // Base Productos notables = 2; −1 por el movimiento hacia afuera (§4) = 1.

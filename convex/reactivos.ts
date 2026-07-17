@@ -8,6 +8,7 @@ import { type Doc, type Id } from "./_generated/dataModel";
 import { v, ConvexError } from "convex/values";
 import { requireStaff } from "./authz";
 import { resolverClasificacion } from "./temario";
+import { sanear, aTextoPlano, textoPlanoAHtml, MAX_HTML } from "./sanitizar";
 
 type Ctx = QueryCtx | MutationCtx;
 
@@ -115,7 +116,9 @@ export const listar = query({
     const esAdmin = sesion.perfil.rol === "admin";
     return reactivos.map((r) => ({
       id: r._id,
-      enunciado: r.enunciado,
+      // La lista muestra/busca TEXTO PLANO: si es HTML → strip; si es legado → tal cual.
+      enunciado:
+        r.contenidoFormato === "html" ? aTextoPlano(r.enunciado) : r.enunciado,
       dificultad: r.dificultad,
       // Ids de clasificación para el filtro EN CASCADA del cliente (compara por id,
       // no por nombre → inmune a homónimos bajo padres distintos).
@@ -180,10 +183,21 @@ export const obtener = query({
 
     return {
       id: r._id,
-      enunciado: r.enunciado,
+      // Enunciado/explicación SIEMPRE como HTML SEGURO para el editor y el preview: si ya
+      // es HTML → `sanear` (defensa en profundidad ante import/edición manual de BD); si es
+      // legado (sin `contenidoFormato`) → `textoPlanoAHtml` (escapa el `<` literal).
+      enunciado:
+        r.contenidoFormato === "html"
+          ? sanear(r.enunciado)
+          : textoPlanoAHtml(r.enunciado),
       opciones: r.opciones,
       opcionCorrecta: r.opcionCorrecta,
-      retroalimentacion: r.retroalimentacion ?? null,
+      retroalimentacion:
+        r.retroalimentacion == null
+          ? null
+          : r.contenidoFormato === "html"
+            ? sanear(r.retroalimentacion)
+            : textoPlanoAHtml(r.retroalimentacion),
       dificultad: r.dificultad,
       // Ids para prellenar el formulario de edición (LUI-15); el preview los ignora.
       seccionId: r.seccionId,
@@ -255,8 +269,14 @@ function validarContenido(args: {
   opcionCorrecta: string;
   retroalimentacion: string;
 }) {
-  const enunciado = args.enunciado.trim();
-  if (!enunciado) throw new ConvexError("El enunciado es obligatorio.");
+  if (args.enunciado.length > MAX_HTML || args.retroalimentacion.length > MAX_HTML)
+    throw new ConvexError("El contenido es demasiado largo.");
+  // Enunciado y explicación son HTML enriquecido (E2): se SANEAN a la whitelist y se
+  // valida «no vacío» sobre el TEXTO PLANO (un `<p></p>`/solo-espacios no cuenta). Las
+  // OPCIONES siguen siendo texto plano.
+  const enunciado = sanear(args.enunciado);
+  if (!aTextoPlano(enunciado).trim())
+    throw new ConvexError("El enunciado es obligatorio.");
 
   if (args.opciones.length < 3 || args.opciones.length > 4)
     throw new ConvexError("Un reactivo debe tener entre 3 y 4 opciones.");
@@ -274,8 +294,8 @@ function validarContenido(args: {
   if (!ids.has(args.opcionCorrecta))
     throw new ConvexError("Debes marcar cuál es la opción correcta.");
 
-  const retroalimentacion = args.retroalimentacion.trim();
-  if (!retroalimentacion)
+  const retroalimentacion = sanear(args.retroalimentacion);
+  if (!aTextoPlano(retroalimentacion).trim())
     throw new ConvexError(
       "La explicación de la respuesta correcta es obligatoria.",
     );
@@ -305,6 +325,7 @@ export const crear = mutation({
       ...clasificacion,
       dificultad: args.dificultad,
       retroalimentacion: limpio.retroalimentacion,
+      contenidoFormato: "html", // enunciado/explicación ya saneados (E2)
       autorId: userId, // el autor sale de la sesión, nunca del cliente
       activo: true,
     });
@@ -359,6 +380,7 @@ export const actualizar = mutation({
       ...nueva,
       dificultad: args.dificultad,
       retroalimentacion: limpio.retroalimentacion,
+      contenidoFormato: "html", // al editar, el contenido queda saneado como HTML
     });
     return { id: args.id };
   },

@@ -18,9 +18,15 @@ import {
   type NivelDificultad,
 } from "@/components/ui/difficulty-meter";
 import { Input, Label } from "@/components/ui/input";
+import { RichTextEditor } from "@/components/ui/rich-text-editor";
 import { Select } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
+import { aTextoPlano, sanear } from "@/convex/sanitizar";
 import { cn } from "@/lib/utils";
+
+/** Estilos para renderizar el HTML saneado (strong/em/sup/sub) de forma consistente
+ *  en las vistas previas. */
+const CLASE_RICO =
+  "[&_strong]:font-semibold [&_em]:italic [&_sup]:align-super [&_sup]:text-[0.7em] [&_sub]:align-sub [&_sub]:text-[0.7em]";
 
 type FilaTemario = FunctionReturnType<typeof api.temario.listarParaStaff>[number];
 type Reactivo = NonNullable<FunctionReturnType<typeof api.reactivos.obtener>>;
@@ -202,15 +208,15 @@ function Formulario({
   async function guardar(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
-    const enun = enunciado.trim();
-    if (!enun) return setError("Escribe el enunciado.");
+    if (!aTextoPlano(enunciado).trim())
+      return setError("Escribe el enunciado.");
     const textos = opciones.map((o) => o.texto.trim());
     if (textos.length < 3) return setError("Agrega al menos 3 opciones.");
     if (textos.some((t) => !t))
       return setError("Cada opción debe tener texto.");
     if (correctaIdx < 0 || correctaIdx >= textos.length)
       return setError("Marca cuál es la opción correcta.");
-    if (!retroalimentacion.trim())
+    if (!aTextoPlano(retroalimentacion).trim())
       return setError("Escribe la explicación de la respuesta correcta.");
     if (!subtemaId)
       return setError("Completa la clasificación: sección, área y subtema.");
@@ -218,11 +224,11 @@ function Formulario({
 
     const datos = {
       subtemaId: subtemaId as Id<"subtemas">,
-      enunciado: enun,
+      enunciado, // HTML enriquecido; el servidor lo sanea
       opciones: textos.map((texto, i) => ({ id: LETRAS[i], texto })),
       opcionCorrecta: LETRAS[correctaIdx],
       dificultad,
-      retroalimentacion: retroalimentacion.trim(),
+      retroalimentacion, // HTML enriquecido; el servidor lo sanea
     };
     setEnviando(true);
     try {
@@ -271,22 +277,16 @@ function Formulario({
         )}
 
         <div>
-          <Label htmlFor="enunciado">Enunciado</Label>
-          <Textarea
-            id="enunciado"
-            rows={3}
+          <Label>Enunciado</Label>
+          <RichTextEditor
+            ariaLabel="Enunciado del reactivo"
             value={enunciado}
             disabled={camposDeshabilitados}
-            onChange={(e) => {
-              setEnunciado(e.target.value);
+            onChange={(html) => {
+              setEnunciado(html);
               tocar();
             }}
-            placeholder="Escribe la pregunta. Para potencias/subíndices usa unicode: x², H₂O…"
           />
-          <p className="mt-1 text-caption text-muted">
-            El editor con formato (negritas, cursiva, super/subíndice) y la imagen
-            llegan en la Entrega 2.
-          </p>
         </div>
 
         <div>
@@ -365,18 +365,19 @@ function Formulario({
         </div>
 
         <div>
-          <Label htmlFor="explicacion">Explicación de la respuesta correcta</Label>
-          <Textarea
-            id="explicacion"
-            rows={2}
+          <Label>Explicación de la respuesta correcta</Label>
+          <RichTextEditor
+            ariaLabel="Explicación de la respuesta correcta"
             value={retroalimentacion}
             disabled={camposDeshabilitados}
-            onChange={(e) => {
-              setRetro(e.target.value);
+            onChange={(html) => {
+              setRetro(html);
               tocar();
             }}
-            placeholder="Por qué es correcta. El alumno la verá al revisar sus respuestas."
           />
+          <p className="mt-1 text-caption text-muted">
+            El alumno la verá al revisar sus respuestas.
+          </p>
         </div>
 
         {/* Clasificación */}
@@ -484,9 +485,16 @@ function Formulario({
           <p className="font-condensed text-caption font-semibold uppercase tracking-[0.06em] text-muted">
             Vista previa · así lo verá el alumno
           </p>
-          <p className="mt-2 whitespace-pre-wrap text-body font-medium text-ink">
-            {enunciado || "Tu pregunta aparecerá aquí…"}
-          </p>
+          {aTextoPlano(enunciado).trim() ? (
+            <div
+              className={cn("mt-2 text-body font-medium text-ink", CLASE_RICO)}
+              dangerouslySetInnerHTML={{ __html: sanear(enunciado) }}
+            />
+          ) : (
+            <p className="mt-2 text-body font-medium text-muted">
+              Tu pregunta aparecerá aquí…
+            </p>
+          )}
           <div className="mt-3 grid gap-2">
             {opciones.map((o, i) => (
               <div

@@ -205,6 +205,9 @@ export default defineSchema({
     lecturaId: v.optional(v.id("lecturas")),
     imagenId: v.optional(v.id("_storage")), // imagen opcional (Convex file storage)
     retroalimentacion: v.optional(v.string()),
+    // Formato del enunciado/explicación (LUI-15 E2): "html" = HTML saneado; AUSENTE =
+    // texto plano LEGADO (E1/seed). `obtener` convierte el legado a HTML para el editor.
+    contenidoFormato: v.optional(v.literal("html")),
     autorId: v.id("users"),
     activo: v.boolean(),
   })
