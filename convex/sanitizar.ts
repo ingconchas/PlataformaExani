@@ -90,6 +90,10 @@ export function aTextoPlano(html: string): string {
     .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => desdeCodigo(parseInt(h, 16)))
     .replace(/&#(\d+);/g, (_, d) => desdeCodigo(parseInt(d, 10)))
     .replace(/&amp;/gi, "&") // AL FINAL: evita doble-decodificar `&amp;lt;` → `<`
+    // Caracteres INVISIBLES: sin esto, un `&#x200B;`/U+200B pasaría la validación de
+    // «no vacío» (sobrevive a `.trim()`) → un reactivo visualmente vacío.
+    .replace(/\p{Cf}/gu, "") // formato invisible (U+200B, U+2060, U+200E, BOM…) → fuera
+    .replace(/\p{Cc}/gu, " ") // control (incl. \n\t) → espacio (no juntar palabras)
     .replace(/\s+/g, " ")
     .trim();
 }

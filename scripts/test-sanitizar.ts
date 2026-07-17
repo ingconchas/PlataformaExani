@@ -20,6 +20,12 @@ function check(nombre: string, cond: boolean, detalle = "") {
 const sinCrudos = (out: string) =>
   !out.replace(/<\/?(?:b|strong|i|em|sup|sub|p)>|<br>/g, "").includes("<");
 
+// Caracteres INVISIBLES construidos por code point (evita literales invisibles en el
+// fuente): zero-width space, word joiner, LTR mark.
+const ZWSP = String.fromCodePoint(0x200b);
+const WJ = String.fromCodePoint(0x2060);
+const LRM = String.fromCodePoint(0x200e);
+
 const PAYLOADS = [
   "<script>alert(1)</script>",
   "<img src=x onerror=alert(1)>",
@@ -51,6 +57,8 @@ const PAYLOADS = [
   "<svg><animate onbegin=alert(1)></svg>",
   "texto plano sin tags con 3 < 5 y a & b",
   "<strong>ok</strong> <sup>2</sup> <sub>3</sub> <em>i</em>",
+  "<scr\x00ipt>alert(1)</scr\x00ipt>", // null byte
+  "＜script＞alert(1)＜/script＞", // fullwidth U+FF1C / U+FF1E
 ];
 
 console.log("test-sanitizar · saneador");
@@ -83,6 +91,14 @@ check("aTextoPlano junta inline: x2", aTextoPlano("x<sup>2</sup>") === "x2");
 check(
   "aTextoPlano no doble-decodifica",
   aTextoPlano("&amp;lt;script&amp;gt;") === "&lt;script&gt;",
+);
+// Contenido INVISIBLE: no debe contar como «no vacío» (medio de auditoría) — ni directo
+// ni codificado.
+check("aTextoPlano vacía invisible codificado", aTextoPlano("&#x200B;&#x2060;") === "");
+check("aTextoPlano vacía invisible directo", aTextoPlano(ZWSP + WJ + LRM) === "");
+check(
+  "aTextoPlano conserva lo visible entre invisibles",
+  aTextoPlano(ZWSP + "hola" + ZWSP) === "hola",
 );
 
 // textoPlanoAHtml: escape COMPLETO (legado literal seguro).

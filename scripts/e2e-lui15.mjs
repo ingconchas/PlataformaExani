@@ -332,6 +332,21 @@ try {
       ).includes("3/8 < 1/2"),
     ),
   );
+  // Guardar → persiste como HTML (contenidoFormato:"html") → reabrir el preview y
+  // confirmar que el «<» sobrevivió a la persistencia (round-trip real, no solo lectura).
+  await page.getByRole("button", { name: "Guardar cambios" }).click();
+  await page.waitForURL(/\/instructor\/reactivos$/, { timeout: 15_000 });
+  await buscar(page, "0.375");
+  await filaDe(page, "0.375")
+    .getByRole("button", { name: /^Ver el reactivo/ })
+    .click();
+  check(
+    "tras guardar (ahora html), el «<» sobrevive en el preview",
+    await esperar(async () =>
+      ((await page.getByRole("dialog").textContent()) ?? "").includes("3/8 < 1/2"),
+    ),
+  );
+  await page.keyboard.press("Escape");
 
   // ── Admin (Mayra): contadores + edita ajenos ────────────────────────────────
   console.log("\n7 · Contadores del temario (admin)");
