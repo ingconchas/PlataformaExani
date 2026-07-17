@@ -90,9 +90,13 @@ export function aTextoPlano(html: string): string {
     .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => desdeCodigo(parseInt(h, 16)))
     .replace(/&#(\d+);/g, (_, d) => desdeCodigo(parseInt(d, 10)))
     .replace(/&amp;/gi, "&") // AL FINAL: evita doble-decodificar `&amp;lt;` → `<`
-    // Caracteres INVISIBLES: sin esto, un `&#x200B;`/U+200B pasaría la validación de
-    // «no vacío» (sobrevive a `.trim()`) → un reactivo visualmente vacío.
-    .replace(/\p{Cf}/gu, "") // formato invisible (U+200B, U+2060, U+200E, BOM…) → fuera
+    // Caracteres INVISIBLES: sin esto, un reactivo hecho SOLO de ellos pasaría la
+    // validación de «no vacío» (sobreviven a `.trim()`). NO basta \p{Cf}: hay invisibles
+    // de otras categorías —selector de variación U+FE0F y CGJ U+034F son Mn; U+180B,
+    // U+17B4 y los rellenos Hangul son Other_Default_Ignorable— así que se cubre TODO el
+    // conjunto Default_Ignorable_Code_Point además de Cf (que aporta las marcas de
+    // concatenación árabes que DI omite).
+    .replace(/[\p{Cf}\p{Default_Ignorable_Code_Point}]/gu, "")
     .replace(/\p{Cc}/gu, " ") // control (incl. \n\t) → espacio (no juntar palabras)
     .replace(/\s+/g, " ")
     .trim();

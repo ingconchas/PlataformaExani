@@ -25,6 +25,12 @@ const sinCrudos = (out: string) =>
 const ZWSP = String.fromCodePoint(0x200b);
 const WJ = String.fromCodePoint(0x2060);
 const LRM = String.fromCodePoint(0x200e);
+// Default_Ignorable que NO son Cf (evaden \p{Cf}): VS-16 y CGJ son Mn; FVS1 y la vocal
+// inherente jemer son Other_Default_Ignorable.
+const VS16 = String.fromCodePoint(0xfe0f);
+const CGJ = String.fromCodePoint(0x034f);
+const FVS1 = String.fromCodePoint(0x180b);
+const KHVI = String.fromCodePoint(0x17b4);
 
 const PAYLOADS = [
   "<script>alert(1)</script>",
@@ -100,6 +106,15 @@ check(
   "aTextoPlano conserva lo visible entre invisibles",
   aTextoPlano(ZWSP + "hola" + ZWSP) === "hola",
 );
+// Default_Ignorable NO-Cf: U+FE0F, U+034F, U+180B, U+17B4 (directo y codificado). \p{Cf}
+// solo NO los caza; \p{Default_Ignorable_Code_Point} sí.
+check("aTextoPlano vacía DI directo", aTextoPlano(VS16 + CGJ + FVS1 + KHVI) === "");
+check(
+  "aTextoPlano vacía DI codificado",
+  aTextoPlano("&#xFE0F;&#x34F;&#x180B;&#x17B4;") === "",
+);
+check("aTextoPlano vacía solo VS16", aTextoPlano(VS16) === "");
+check("aTextoPlano conserva la base sin su selector", aTextoPlano("x" + VS16) === "x");
 
 // textoPlanoAHtml: escape COMPLETO (legado literal seguro).
 check(
