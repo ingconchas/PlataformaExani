@@ -25,7 +25,7 @@ import {
   DifficultyMeter,
   type NivelDificultad,
 } from "@/components/ui/difficulty-meter";
-import { Input, Label } from "@/components/ui/input";
+import { Label } from "@/components/ui/input";
 import { RichTextEditor } from "@/components/ui/rich-text-editor";
 import { Select } from "@/components/ui/select";
 import { ImageUpload } from "@/components/ui/image-upload";
@@ -41,12 +41,20 @@ import {
 import { cn } from "@/lib/utils";
 import { CLASE_RICO } from "./clase-rico";
 import { MaterialReactivo } from "./material-reactivo";
+import {
+  EditorOpciones,
+  LETRAS,
+  MAX_OPCIONES,
+  MIN_OPCIONES,
+  SelectorDificultad,
+  validarPregunta,
+} from "./campos-pregunta";
 
 type FilaTemario = FunctionReturnType<typeof api.temario.listarParaStaff>[number];
 type Reactivo = NonNullable<FunctionReturnType<typeof api.reactivos.obtener>>;
 
-const LETRAS = ["a", "b", "c", "d"] as const;
-const NIVELES: NivelDificultad[] = ["facil", "medio", "dificil"];
+// `LETRAS`, el editor de opciones, el selector de dificultad y el espejo de validación viven
+// en `campos-pregunta` porque los comparte el drawer de preguntas de lectura (LUI-17).
 
 /** Un renglón del material con IDENTIDAD propia. El `uid` es estado de cliente: no se
  *  persiste ni viaja en la mutation — solo existe para que React reconcilie por identidad
@@ -361,14 +369,22 @@ function Formulario({
     tocar();
   };
   const agregarOpcion = () => {
-    if (opciones.length >= 4) return;
+    if (opciones.length >= MAX_OPCIONES) return;
     setOpciones((prev) => [...prev, { texto: "" }]);
     tocar();
   };
   const quitarOpcion = (i: number) => {
-    if (opciones.length <= 3) return;
+    if (opciones.length <= MIN_OPCIONES) return;
     setOpciones((prev) => prev.filter((_, j) => j !== i));
     setCorrectaIdx((c) => (c === i ? -1 : c > i ? c - 1 : c));
+    tocar();
+  };
+  const marcarCorrecta = (i: number) => {
+    setCorrectaIdx(i);
+    tocar();
+  };
+  const elegirDificultad = (n: NivelDificultad) => {
+    setDificultad(n);
     tocar();
   };
 
@@ -480,16 +496,17 @@ function Formulario({
     setError(null);
     if (subiendoImagen)
       return setError("Espera a que termine de subir la imagen.");
-    if (!aTextoPlano(enunciado).trim())
-      return setError("Escribe el enunciado.");
+    // Espejo compartido con el drawer de lecturas; el ORDEN se conserva y las dos
+    // comprobaciones PROPIAS del reactivo (subtema y dificultad) van después, tal como
+    // estaban.
+    const malPregunta = validarPregunta({
+      enunciado,
+      opciones,
+      correctaIdx,
+      retroalimentacion,
+    });
+    if (malPregunta) return setError(malPregunta);
     const textos = opciones.map((o) => o.texto.trim());
-    if (textos.length < 3) return setError("Agrega al menos 3 opciones.");
-    if (textos.some((t) => !t))
-      return setError("Cada opción debe tener texto.");
-    if (correctaIdx < 0 || correctaIdx >= textos.length)
-      return setError("Marca cuál es la opción correcta.");
-    if (!aTextoPlano(retroalimentacion).trim())
-      return setError("Escribe la explicación de la respuesta correcta.");
     if (!subtemaId)
       return setError("Completa la clasificación: sección, área y subtema.");
     if (!dificultad) return setError("Elige el nivel de dificultad.");
@@ -662,60 +679,15 @@ function Formulario({
         </p>
 
         {/* Opciones */}
-        <div>
-          <span className="mb-1.5 block text-small font-medium text-ink">
-            Opciones de respuesta (marca la correcta)
-          </span>
-          <div className="grid gap-2">
-            {opciones.map((o, i) => (
-              <div key={i} className="flex items-center gap-2.5">
-                <label className="inline-flex shrink-0 items-center gap-2">
-                  <input
-                    type="radio"
-                    name="correcta"
-                    checked={i === correctaIdx}
-                    disabled={camposDeshabilitados}
-                    onChange={() => {
-                      setCorrectaIdx(i);
-                      tocar();
-                    }}
-                    className="size-4 accent-unx-blue"
-                    aria-label={`Marcar la opción ${LETRAS[i].toUpperCase()} como correcta`}
-                  />
-                  <span className="w-4 font-condensed font-semibold text-muted">
-                    {LETRAS[i].toUpperCase()}
-                  </span>
-                </label>
-                <Input
-                  value={o.texto}
-                  disabled={camposDeshabilitados}
-                  onChange={(e) => setOpcionTexto(i, e.target.value)}
-                  placeholder={`Opción ${LETRAS[i].toUpperCase()}`}
-                />
-                {opciones.length > 3 && !camposDeshabilitados && (
-                  <button
-                    type="button"
-                    onClick={() => quitarOpcion(i)}
-                    aria-label={`Quitar la opción ${LETRAS[i].toUpperCase()}`}
-                    className="inline-flex size-9 shrink-0 items-center justify-center rounded-control text-muted transition-colors hover:bg-bg hover:text-unx-error"
-                  >
-                    <Trash2 className="size-[17px]" aria-hidden />
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-          {!camposDeshabilitados && (
-            <button
-              type="button"
-              onClick={agregarOpcion}
-              disabled={opciones.length >= 4}
-              className="mt-2 inline-flex items-center gap-1 text-small font-semibold text-unx-blue disabled:cursor-not-allowed disabled:text-disabled-text"
-            >
-              <Plus className="size-4" aria-hidden /> Agregar opción (máx. 4)
-            </button>
-          )}
-        </div>
+        <EditorOpciones
+          opciones={opciones}
+          correctaIdx={correctaIdx}
+          disabled={camposDeshabilitados}
+          onTexto={setOpcionTexto}
+          onCorrecta={marcarCorrecta}
+          onAgregar={agregarOpcion}
+          onQuitar={quitarOpcion}
+        />
 
         <div>
           <Label>Explicación de la respuesta correcta</Label>
@@ -771,34 +743,11 @@ function Formulario({
         </div>
 
         {/* Dificultad */}
-        <div>
-          <span className="mb-1.5 block text-small font-medium text-ink">
-            Nivel de dificultad
-          </span>
-          <div className="grid grid-cols-3 gap-2">
-            {NIVELES.map((n) => (
-              <button
-                key={n}
-                type="button"
-                disabled={camposDeshabilitados}
-                onClick={() => {
-                  setDificultad(n);
-                  tocar();
-                }}
-                aria-pressed={dificultad === n}
-                className={cn(
-                  "rounded-card border p-3 text-left transition-colors",
-                  dificultad === n
-                    ? "border-unx-blue ring-1 ring-unx-blue"
-                    : "border-border hover:bg-bg",
-                  camposDeshabilitados && "cursor-not-allowed opacity-60",
-                )}
-              >
-                <DifficultyMeter level={n} size="chip" showLabel />
-              </button>
-            ))}
-          </div>
-        </div>
+        <SelectorDificultad
+          valor={dificultad}
+          disabled={camposDeshabilitados}
+          onChange={elegirDificultad}
+        />
 
         {error && <Alert kind="error">{error}</Alert>}
 
