@@ -58,25 +58,37 @@ function ejecutar(cmd, args) {
     let salida = "";
     p.stdout.on("data", (b) => (salida += b));
     p.stderr.on("data", (b) => (salida += b));
-    p.on("close", () => resolve(salida));
-    p.on("error", () => resolve(""));
+    p.on("close", (code) => resolve({ code, salida }));
+    p.on("error", (e) => resolve({ code: -1, salida: String(e) }));
   });
 }
 
+/** `npx convex run` que ABORTA si el subproceso falla. Ignorar el código de salida haría
+ *  que la suite corriera sobre datos de la corrida anterior: eso debilita justo la
+ *  afirmación de idempotencia (correrla dos veces) y produce verdes dependientes del
+ *  estado previo. */
+async function correrConvex(fn) {
+  const { code, salida } = await ejecutar("npx", [
+    "convex", "run", fn, '{"confirmar":"SOLO_DEV"}',
+  ]);
+  if (code !== 0)
+    throw new Error(`«convex run ${fn}» salió con código ${code}: ${salida.trim()}`);
+}
+
 async function pizarraLimpia() {
-  await ejecutar("npx", [
-    "convex", "run", "seed:limpiarContenidoDemo", '{"confirmar":"SOLO_DEV"}',
-  ]);
-  await ejecutar("npx", [
-    "convex", "run", "seed:cargarDatosDePrueba", '{"confirmar":"SOLO_DEV"}',
-  ]);
-  await ejecutar("npx", [
-    "convex", "run", "seedAuth:credencialesDemo", '{"confirmar":"SOLO_DEV"}',
-  ]);
+  await correrConvex("seed:limpiarContenidoDemo");
+  await correrConvex("seed:cargarDatosDePrueba");
+  await correrConvex("seedAuth:credencialesDemo");
 }
 
 console.log("\nE2E LUI-16 · pizarra limpia + credenciales…");
-await pizarraLimpia();
+try {
+  await pizarraLimpia();
+} catch (e) {
+  // Sin fixture no hay prueba: mejor morir aquí que dar un verde sobre datos viejos.
+  console.error(`\n✘ No se pudo preparar la BD de dev — ${e.message}`);
+  process.exit(1);
+}
 
 const navegador = await chromium.launch({ headless: !HEADED });
 
@@ -155,15 +167,21 @@ async function abrirPreview(pg, texto) {
   await buscar(pg, texto);
   await filaDe(pg, texto).getByRole("button", { name: /^Ver el reactivo/ }).click();
   const dialogo = pg.getByRole("dialog");
-  const cargado = await poller(pg)(async () =>
-    ((await dialogo.textContent().catch(() => "")) ?? "").includes(
-      "Explicación E2E de la respuesta correcta.",
-    ),
+  const contiene = async (marcador) =>
+    ((await dialogo.textContent().catch(() => "")) ?? "").includes(marcador);
+  // Marcador inequívoco de contenido CARGADO: la explicación solo la pinta el modal cuando
+  // `obtener` ya resolvió. Los reactivos del seed traen otra explicación, así que sirve
+  // también el propio enunciado.
+  const cargado = await poller(pg)(
+    async () =>
+      (await contiene("Explicación E2E de la respuesta correcta.")) ||
+      (await contiene(texto.slice(0, 24))),
   );
-  // Los reactivos del seed traen otra explicación: basta con que el enunciado esté pintado.
+  // ⚠️ Si NO cargó hay que MORIR, no seguir: una aserción negativa posterior («no pinta
+  // recuadro de material») pasaría en verde contra el estado de carga.
   if (!cargado)
-    await poller(pg)(async () =>
-      ((await dialogo.textContent().catch(() => "")) ?? "").includes(texto.slice(0, 24)),
+    throw new Error(
+      `El modal de «${texto}» no cargó su contenido: las aserciones negativas serían falsos verdes.`,
     );
 }
 
@@ -530,7 +548,14 @@ try {
 } finally {
   await navegador.close();
   console.log("\nRestaurando el fixture…");
-  await pizarraLimpia();
+  // Aquí NO se relanza (taparía el resultado de la suite), pero un fallo de restauración
+  // deja la BD de dev sucia para la siguiente corrida → se cuenta como fallo.
+  try {
+    await pizarraLimpia();
+  } catch (e) {
+    fallos++;
+    console.error(`  ✘ no se pudo restaurar el fixture — ${e.message}`);
+  }
 }
 
 console.log(`\n${ok} pruebas OK, ${fallos} fallos`);

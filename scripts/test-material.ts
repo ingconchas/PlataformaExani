@@ -116,14 +116,23 @@ check(
   `renglón de ${MAX_HTML_RENGLON + 1} caracteres se rechaza`,
   rechazo(cols(["a".repeat(MAX_HTML_RENGLON + 1), "b"], relleno(2))) !== null,
 );
-// La longitud del ARREGLO se comprueba PRIMERO: si no, serían 8 192 barridos de regex
-// contra el límite de 1 s de CPU para acabar rechazando igual.
-const inicio = Date.now();
-check(
-  "8 193 renglones se rechazan por longitud ANTES de sanear",
-  rechazo(cols(Array.from({ length: 8193 }, () => "x".repeat(MAX_HTML_RENGLON)), relleno(2))) !== null,
+// La longitud del ARREGLO se comprueba PRIMERO: si no, serían hasta 8 192 barridos de
+// regex contra el límite de 1 s de CPU para acabar rechazando igual.
+//
+// El ORDEN se demuestra con el MENSAJE, no con un cronómetro (un umbral de reloj de pared
+// es inestable en CI congestionado): estos renglones violan AMBAS reglas a la vez —son
+// 8 193 y cada uno excede `MAX_HTML_RENGLON`—, así que el mensaje dice cuál corrió antes.
+const ambasReglas = cols(
+  Array.from({ length: 8193 }, () => "x".repeat(MAX_HTML_RENGLON + 1)),
+  relleno(2),
 );
-check("…y ese rechazo es inmediato (<100 ms)", Date.now() - inicio < 100, `${Date.now() - inicio} ms`);
+const mensajeOrden = rechazo(ambasReglas);
+check("8 193 renglones se rechazan", mensajeOrden !== null);
+check(
+  "…por LONGITUD DEL ARREGLO, no por renglón ⇒ el conteo corre ANTES de sanear",
+  mensajeOrden?.includes("renglones.") === true && !mensajeOrden?.includes("El renglón"),
+  `mensaje: «${mensajeOrden}»`,
+);
 
 console.log("5 · ⭐ Cota agregada en BYTES (vector discriminante)");
 // Este vector es el ÚNICO que distingue una implementación correcta de una que mida con

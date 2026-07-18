@@ -90,7 +90,12 @@ function Lista({
             <span className="shrink-0 font-condensed font-semibold text-muted">
               {etiqueta(i)}
             </span>
-            <span
+            {/* `div`, NO `span`: `sanear` permite `<p>` en su whitelist y TipTap envuelve
+                en párrafos, así que el contenido puede ser de BLOQUE. Un `span` no lo
+                admite → el navegador reestructuraría el DOM en la hidratación y el
+                contenido se saldría del contenedor que lleva `flex-1`. Mismo criterio que
+                los otros sinks (la vista previa del formulario y el modal ya usan `div`). */}
+            <div
               className={cn("min-w-0 flex-1", CLASE_RICO)}
               dangerouslySetInnerHTML={{ __html: sanear(html) }}
             />
