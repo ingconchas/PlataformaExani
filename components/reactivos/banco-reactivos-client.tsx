@@ -267,6 +267,14 @@ export function BancoReactivosClient({ basePath }: { basePath: string }) {
         <div className="flex items-center gap-2">
           <span className="font-medium text-ink">{truncar(r.enunciado, 100)}</span>
           {!r.activo && <Badge tone="neutral">Desactivado</Badge>}
+          {/* Presentación (LUI-16). Solo viaja el discriminante, no los renglones: la
+              celda sigue mostrando el enunciado en TEXTO PLANO y el material NO es
+              buscable en esta entrega. */}
+          {r.presentacion !== "directa" && (
+            <Badge tone="neutral">
+              {r.presentacion === "columnas" ? "Columnas" : "Ordenamiento"}
+            </Badge>
+          )}
         </div>
         {r.tieneLectura && (
           <span className="mt-1 inline-flex w-fit items-center gap-1 rounded-full bg-unx-blue-tint px-2 py-0.5 text-caption font-semibold text-unx-blue">

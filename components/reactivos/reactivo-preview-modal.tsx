@@ -10,11 +10,10 @@ import { DifficultyMeter } from "@/components/ui/difficulty-meter";
 import { Modal } from "@/components/ui/modal";
 import { sanear } from "@/convex/sanitizar";
 import { cn } from "@/lib/utils";
-
 // El enunciado/explicación son HTML SANEADO (LUI-15 E2). `obtener` ya los entrega
 // saneados; re-sanear en lectura es idempotente = defensa en profundidad.
-const CLASE_RICO =
-  "[&_strong]:font-semibold [&_em]:italic [&_sup]:align-super [&_sup]:text-[0.7em] [&_sub]:align-sub [&_sub]:text-[0.7em]";
+import { CLASE_RICO } from "./clase-rico";
+import { MaterialReactivo } from "./material-reactivo";
 
 /**
  * Vista de SOLO LECTURA de un reactivo (LUI-14: «revisar antes de usarlo en un
@@ -95,6 +94,10 @@ export function ReactivoPreviewModal({
             className={cn("text-body font-medium text-ink", CLASE_RICO)}
             dangerouslySetInnerHTML={{ __html: sanear(r.enunciado) }}
           />
+
+          {/* Material de columnas/ordenamiento (LUI-16): SIEMPRE entre el enunciado y las
+              opciones. Se monta incondicionalmente — devuelve null si no hay material. */}
+          <MaterialReactivo material={r.material} />
 
           <ul className="grid gap-2">
             {r.opciones.map((o) => {

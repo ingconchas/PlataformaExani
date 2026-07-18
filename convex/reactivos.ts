@@ -12,6 +12,13 @@ import { requireStaff } from "./authz";
 import { resolverClasificacion } from "./temario";
 import { sanear, aTextoPlano, textoPlanoAHtml, MAX_HTML } from "./sanitizar";
 import { validarImagen, borrarSiHuerfano, barrer, GRACIA_MS, LOTE } from "./imagenes";
+import {
+  intencionMaterialValidator,
+  materialValidator,
+  resolverIntencionMaterial,
+  sanearMaterial,
+  validarMaterial,
+} from "./material";
 import { consumirCuotas, CUOTAS, textoEspera } from "./cuotas";
 
 type Ctx = QueryCtx | MutationCtx;
@@ -140,6 +147,11 @@ export const listar = query({
         : null,
       activo: r.activo,
       esEditable: esAdmin || r.autorId === sesion.userId,
+      // Solo el DISCRIMINANTE de presentación (≤13 bytes) para la insignia del banco. Los
+      // renglones JAMÁS: `listar` es LEAN a propósito (§ arriba) y el material puede pesar
+      // tanto como un enunciado. La búsqueda del banco sigue operando solo sobre el
+      // enunciado — el material NO es buscable.
+      presentacion: r.material?.tipo ?? "directa",
     }));
   },
 });
@@ -202,6 +214,10 @@ export const obtener = query({
           : r.contenidoFormato === "html"
             ? sanear(r.retroalimentacion)
             : textoPlanoAHtml(r.retroalimentacion),
+      // Material de columnas/ordenamiento (LUI-16) re-saneado renglón por renglón, o `null`
+      // si el reactivo es de presentación directa. Ver `sanearMaterial`: NO se bifurca por
+      // `contenidoFormato`.
+      material: r.material ? sanearMaterial(r.material) : null,
       dificultad: r.dificultad,
       // Ids para prellenar el formulario de edición (LUI-15); el preview los ignora.
       seccionId: r.seccionId,
@@ -348,10 +364,17 @@ export const crear = mutation({
     dificultad: dificultadValidator,
     retroalimentacion: v.string(),
     imagenId: v.optional(v.id("_storage")),
+    // Material de columnas/ordenamiento (LUI-16). AUSENTE = presentación DIRECTA. En un
+    // insert no hay nada previo que preservar, así que aquí el opcional plano sí basta
+    // (en `actualizar` NO — ver `intencionMaterialValidator`).
+    material: v.optional(materialValidator),
   },
   handler: async (ctx, args) => {
     const { userId } = await requireStaff(ctx);
     const limpio = validarContenido(args);
+    // Se valida ANTES de escribir nada (mismo criterio que la imagen): renglones saneados,
+    // cotas por lista/renglón y cota agregada en BYTES.
+    const material = args.material ? validarMaterial(args.material) : undefined;
     // Imagen opcional (E3): el `storageId` llega del cliente → se VALIDA (metadata real,
     // tipo raster, tamaño, exclusividad) antes de adjuntarlo.
     if (args.imagenId) await validarImagen(ctx, args.imagenId);
@@ -367,6 +390,7 @@ export const crear = mutation({
       retroalimentacion: limpio.retroalimentacion,
       contenidoFormato: "html", // enunciado/explicación ya saneados (E2)
       imagenId: args.imagenId,
+      material, // ausente = pregunta directa
       autorId: userId, // el autor sale de la sesión, nunca del cliente
       activo: true,
     });
@@ -391,6 +415,11 @@ export const actualizar = mutation({
       v.object({ op: v.literal("quitar") }),
       v.object({ op: v.literal("reemplazar"), imagenId: v.id("_storage") }),
     ),
+    // Intención de material (LUI-16). ⚠️ AUSENTE = MANTENER, no «quitar»: un
+    // `v.optional(materialValidator)` plano sería incompatible hacia atrás — un cliente
+    // viejo (ventana de despliegue, pestaña abierta, rollback) omitiría el argumento y el
+    // `patch` BORRARÍA el material en silencio. Ver `intencionMaterialValidator`.
+    material: v.optional(intencionMaterialValidator),
   },
   handler: async (ctx, args) => {
     const { userId, perfil } = await requireStaff(ctx);
@@ -444,6 +473,10 @@ export const actualizar = mutation({
       retroalimentacion: limpio.retroalimentacion,
       contenidoFormato: "html", // al editar, el contenido queda saneado como HTML
       imagenId: nuevaImagen,
+      // Fragmento de patch del material (LUI-16). Se ESPARCE, no se asigna: `{}` deja la
+      // clave fuera del patch (mantener), `{ material: undefined }` la incluye y borra el
+      // campo. Escribir `material: algo` aquí reintroduciría el borrado silencioso.
+      ...resolverIntencionMaterial(args.material),
     });
     // Borrado del blob viejo TRAS el patch (transaccional: un fallo revierte también el
     // patch). `borrarSiHuerfano` sólo borra si ya ningún OTRO reactivo lo referencia — no

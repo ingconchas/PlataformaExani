@@ -9,10 +9,12 @@
     "start": "next start",
     "lint": "eslint",
     "test:sanitizar": "tsx scripts/test-sanitizar.ts",
+    "test:material": "tsx scripts/test-material.ts",
     "test:imagenes": "node scripts/test-imagenes.mjs",
     "e2e:lui9": "node scripts/e2e-lui9.mjs",
     "e2e:lui14": "node scripts/e2e-lui14.mjs",
     "e2e:lui15": "node scripts/e2e-lui15.mjs",
+    "e2e:lui16": "node scripts/e2e-lui16.mjs",
     "e2e:lui18": "node scripts/e2e-lui18.mjs",
     "e2e:lui103": "node scripts/e2e-lui103.mjs"
   },

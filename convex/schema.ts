@@ -1,6 +1,7 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { authTables } from "@convex-dev/auth/server";
+import { materialValidator } from "./material";
 
 /**
  * Modelo de datos inicial — Plataforma Exani II (UNX Simuladores).
@@ -208,6 +209,23 @@ export default defineSchema({
     // Formato del enunciado/explicación (LUI-15 E2): "html" = HTML saneado; AUSENTE =
     // texto plano LEGADO (E1/seed). `obtener` convierte el legado a HTML para el editor.
     contenidoFormato: v.optional(v.literal("html")),
+    // Presentación del reactivo (LUI-16). El campo ES la unión discriminada: su presencia
+    // y su `tipo` SON la presentación (`material?.tipo ?? "directa"`). AUSENTE = «pregunta
+    // directa» — mismo contrato que `contenidoFormato` ausente = legado, así que no hay
+    // migración ni backfill. Dos campos (`presentacion` + `material`) admitirían estados
+    // ilegales: «columnas» sin material, o «directa» con material zombi.
+    //
+    // ⚠️ La bifurcación de `contenidoFormato` NO aplica al material: sus renglones son
+    // SIEMPRE HTML saneado (`convex/material.ts`), sin importar `contenidoFormato`, que
+    // describe exclusivamente `enunciado` y `retroalimentacion`. No existe material legado.
+    //
+    // ⚠️ Las etiquetas (1,2,3… / a,b,c…) son POSICIONALES: se derivan del índice al pintar,
+    // NO se persiste un id por renglón (sería una segunda fuente de verdad que puede
+    // contradecir la posición). Consecuencia asumida: quitar un renglón desplaza la
+    // numeración y las opciones que la referencian («1b, 2c, 3a») quedan descuadradas —
+    // el servidor no puede detectarlo porque las opciones son texto libre. El formulario
+    // pide confirmación al quitar; el candado de edición protege lo ya asignado.
+    material: v.optional(materialValidator),
     autorId: v.id("users"),
     activo: v.boolean(),
   })

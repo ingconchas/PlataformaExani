@@ -1,6 +1,13 @@
 "use client";
 
-import { type FormEvent, useEffect, useRef, useState } from "react";
+import {
+  type Dispatch,
+  type FormEvent,
+  type SetStateAction,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { useAuthToken } from "@convex-dev/auth/react";
 import { ConvexError } from "convex/values";
@@ -22,20 +29,36 @@ import { Input, Label } from "@/components/ui/input";
 import { RichTextEditor } from "@/components/ui/rich-text-editor";
 import { Select } from "@/components/ui/select";
 import { ImageUpload } from "@/components/ui/image-upload";
+import { Tabs } from "@/components/ui/tabs";
 import { aTextoPlano, sanear } from "@/convex/sanitizar";
 import { MAX_BYTES, TIPOS_PERMITIDOS } from "@/convex/imagenes";
+import {
+  MAX_RENGLONES,
+  MIN_COLUMNA,
+  MIN_ELEMENTOS,
+  type MaterialDeReactivo,
+} from "@/convex/material";
 import { cn } from "@/lib/utils";
-
-/** Estilos para renderizar el HTML saneado (strong/em/sup/sub) de forma consistente
- *  en las vistas previas. */
-const CLASE_RICO =
-  "[&_strong]:font-semibold [&_em]:italic [&_sup]:align-super [&_sup]:text-[0.7em] [&_sub]:align-sub [&_sub]:text-[0.7em]";
+import { CLASE_RICO } from "./clase-rico";
+import { MaterialReactivo } from "./material-reactivo";
 
 type FilaTemario = FunctionReturnType<typeof api.temario.listarParaStaff>[number];
 type Reactivo = NonNullable<FunctionReturnType<typeof api.reactivos.obtener>>;
 
 const LETRAS = ["a", "b", "c", "d"] as const;
 const NIVELES: NivelDificultad[] = ["facil", "medio", "dificil"];
+
+/** Un renglón del material con IDENTIDAD propia. El `uid` es estado de cliente: no se
+ *  persiste ni viaja en la mutation — solo existe para que React reconcilie por identidad
+ *  y no por posición (ver el bloque de estado del material). */
+type Renglon = { uid: string; html: string };
+type Presentacion = "directa" | "columnas" | "ordenamiento";
+
+const PRESENTACIONES: { id: Presentacion; label: string }[] = [
+  { id: "directa", label: "Pregunta directa" },
+  { id: "columnas", label: "Relación de columnas" },
+  { id: "ordenamiento", label: "Ordenamiento" },
+];
 
 function mensajeDeError(e: unknown): string {
   if (e instanceof ConvexError) return String(e.data);
@@ -144,6 +167,53 @@ function Formulario({
   const [enviando, setEnviando] = useState(false);
   const [sucio, setSucio] = useState(false);
   const tocar = () => setSucio(true);
+
+  // ── Material de columnas/ordenamiento (LUI-16) ────────────────────────────────
+  // ⚠️ Cada renglón lleva un `uid` ESTABLE minteado al crearse, y JAMÁS se usa el índice
+  // como `key`. `RichTextEditor` es NO CONTROLADO: lee `value` una sola vez al montar. Con
+  // `key={i}`, borrar el renglón de en medio de [A,B,C] dejaría el estado en [A,C] pero
+  // React conservaría montado el editor `key=1` **con B dentro** y desmontaría el tercero:
+  // la UI mostraría [A,B], el estado diría [A,C], y la siguiente tecla escribiría B encima
+  // de C. Corrupción silenciosa, sin un solo error. (Las OPCIONES sí usan `key={i}` y
+  // funcionan porque `<Input>` es controlado — copiar ese patrón aquí es el bug.)
+  //
+  // Los uids INICIALES se derivan del índice al montar (prefijo «i»); los renglones que se
+  // agregan después toman uid del contador (prefijo «n»). Prefijos distintos ⇒ un renglón
+  // nuevo NUNCA reutiliza el uid de uno borrado, y el contador solo se toca en manejadores
+  // de evento — leer un ref durante el render está prohibido (`react-hooks/refs`).
+  // Los uids solo tienen que ser únicos entre HERMANOS, así que columna 1 y columna 2
+  // pueden repetir «i0» sin problema.
+  const proximoUid = useRef(0);
+  const nuevoRenglon = (): Renglon => ({ uid: `n${proximoUid.current++}`, html: "" });
+  const desdeHtml = (xs: string[]): Renglon[] =>
+    xs.map((html, i) => ({ uid: `i${i}`, html }));
+  const vacios = (n: number): Renglon[] =>
+    Array.from({ length: n }, (_, i) => ({ uid: `i${i}`, html: "" }));
+
+  // Los valores iniciales se calculan en el INICIALIZADOR de `useState`, nunca en render:
+  // en render se regenerarían en cada pulsación → remonte por tecla → pérdida de foco y
+  // del historial de deshacer.
+  const [presentacion, setPresentacion] = useState<Presentacion>(
+    inicial?.material?.tipo ?? "directa",
+  );
+  const [columna1, setColumna1] = useState<Renglon[]>(() =>
+    inicial?.material?.tipo === "columnas"
+      ? desdeHtml(inicial.material.columna1)
+      : vacios(MIN_COLUMNA + 1),
+  );
+  const [columna2, setColumna2] = useState<Renglon[]>(() =>
+    inicial?.material?.tipo === "columnas"
+      ? desdeHtml(inicial.material.columna2)
+      : vacios(MIN_COLUMNA + 1),
+  );
+  const [elementos, setElementos] = useState<Renglon[]>(() =>
+    inicial?.material?.tipo === "ordenamiento"
+      ? desdeHtml(inicial.material.elementos)
+      : vacios(MIN_ELEMENTOS),
+  );
+  // Anuncio para lector de pantalla al agregar/quitar renglones (la lista cambia de
+  // tamaño sin que nada más lo comunique).
+  const [aviso, setAviso] = useState("");
 
   // ── Imagen (E3) ──────────────────────────────────────────────────────────────
   const [imagenId, setImagenId] = useState<Id<"_storage"> | null>(
@@ -302,6 +372,109 @@ function Formulario({
     tocar();
   };
 
+  // ── Editor de renglones del material (por UID, nunca por índice: el índice pudo
+  // cambiar entre el render y el evento) ────────────────────────────────────────
+  type SetRenglones = Dispatch<SetStateAction<Renglon[]>>;
+  const setRenglon = (set: SetRenglones, uid: string, html: string) => {
+    set((prev) => prev.map((r) => (r.uid === uid ? { ...r, html } : r)));
+    tocar();
+  };
+  const agregarRenglon = (set: SetRenglones, etiqueta: string) => {
+    set((prev) => (prev.length >= MAX_RENGLONES ? prev : [...prev, nuevoRenglon()]));
+    setAviso(`Renglón agregado a ${etiqueta}.`);
+    tocar();
+  };
+  const quitarRenglon = (
+    set: SetRenglones,
+    uid: string,
+    minimo: number,
+    etiqueta: string,
+  ) => {
+    // Las opciones de respuesta referencian POSICIONES («1b, 2c, 3a»), y el servidor no
+    // puede detectar que quedaron descuadradas: son texto libre por contrato. Por eso se
+    // confirma explícitamente en vez de validar.
+    if (
+      !window.confirm(
+        "Al quitar un renglón se renumeran los siguientes. Las opciones de respuesta " +
+          "que referencian posiciones («1b, 2c, 3a») pueden quedar mal: revísalas antes " +
+          "de guardar.\n\n¿Quitar el renglón?",
+      )
+    )
+      return;
+    set((prev) => (prev.length <= minimo ? prev : prev.filter((r) => r.uid !== uid)));
+    setAviso(`Renglón quitado de ${etiqueta}. Revisa las opciones de respuesta.`);
+    tocar();
+  };
+
+  /** El material que se PERSISTE, derivado de la presentación activa. Cambiar de pestaña
+   *  no destruye el estado local (un clic accidental es recuperable con otro clic): lo que
+   *  decide qué se guarda es esta derivación. */
+  function materialActual(): MaterialDeReactivo | undefined {
+    if (presentacion === "columnas")
+      return {
+        tipo: "columnas",
+        columna1: columna1.map((r) => r.html),
+        columna2: columna2.map((r) => r.html),
+      };
+    if (presentacion === "ordenamiento")
+      return { tipo: "ordenamiento", elementos: elementos.map((r) => r.html) };
+    return undefined;
+  }
+
+  /** Una lista repetible de renglones del material. `titulo` da el nombre accesible de
+   *  cada editor («Columna 1, renglón 2») — determinista y por POSICIÓN, que es lo que
+   *  referencian las opciones de respuesta. */
+  const listaRenglones = (
+    titulo: string,
+    renglones: Renglon[],
+    set: SetRenglones,
+    minimo: number,
+    marca: (i: number) => string,
+  ) => (
+    <div>
+      <span className="mb-1.5 block text-small font-medium text-ink">{titulo}</span>
+      <div className="grid gap-2">
+        {renglones.map((r, i) => (
+          // key={r.uid}, NUNCA el índice — ver el bloque de estado del material.
+          <div key={r.uid} className="flex items-start gap-2">
+            <span className="mt-2.5 w-5 shrink-0 font-condensed font-semibold text-muted">
+              {marca(i)}
+            </span>
+            <div className="min-w-0 flex-1">
+              <RichTextEditor
+                ariaLabel={`${titulo}, renglón ${i + 1}`}
+                value={r.html}
+                disabled={camposDeshabilitados}
+                onChange={(html) => setRenglon(set, r.uid, html)}
+              />
+            </div>
+            {renglones.length > minimo && !camposDeshabilitados && (
+              <button
+                type="button"
+                onClick={() => quitarRenglon(set, r.uid, minimo, titulo)}
+                aria-label={`Quitar el renglón ${i + 1} de ${titulo}`}
+                className="mt-1.5 inline-flex size-9 shrink-0 items-center justify-center rounded-control text-muted transition-colors hover:bg-bg hover:text-unx-error"
+              >
+                <Trash2 className="size-[17px]" aria-hidden />
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+      {!camposDeshabilitados && (
+        <button
+          type="button"
+          onClick={() => agregarRenglon(set, titulo)}
+          disabled={renglones.length >= MAX_RENGLONES}
+          className="mt-2 inline-flex items-center gap-1 text-small font-semibold text-unx-blue disabled:cursor-not-allowed disabled:text-disabled-text"
+        >
+          <Plus className="size-4" aria-hidden /> Agregar renglón a {titulo} (máx.{" "}
+          {MAX_RENGLONES})
+        </button>
+      )}
+    </div>
+  );
+
   async function guardar(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
@@ -320,6 +493,26 @@ function Formulario({
     if (!subtemaId)
       return setError("Completa la clasificación: sección, área y subtema.");
     if (!dificultad) return setError("Elige el nivel de dificultad.");
+
+    // Espejo de las reglas del material; la AUTORIDAD es el servidor (`convex/material.ts`),
+    // que las revalida ante un cliente manipulado.
+    const material = materialActual();
+    if (material) {
+      const minimo = material.tipo === "columnas" ? MIN_COLUMNA : MIN_ELEMENTOS;
+      const listas: [string, string[]][] =
+        material.tipo === "columnas"
+          ? [
+              ["la columna 1", material.columna1],
+              ["la columna 2", material.columna2],
+            ]
+          : [["la lista de elementos", material.elementos]];
+      for (const [etiqueta, renglones] of listas) {
+        if (renglones.length < minimo)
+          return setError(`Agrega al menos ${minimo} renglones a ${etiqueta}.`);
+        if (renglones.some((h) => !aTextoPlano(h).trim()))
+          return setError(`Hay un renglón vacío en ${etiqueta}.`);
+      }
+    }
 
     const base = {
       subtemaId: subtemaId as Id<"subtemas">,
@@ -340,9 +533,19 @@ function Formulario({
             : imagenId === null
               ? ({ op: "quitar" } as const)
               : ({ op: "reemplazar", imagenId } as const);
-        await actualizar({ id: inicial.id, ...base, imagen });
+        await actualizar({
+          id: inicial.id,
+          ...base,
+          imagen,
+          // Intención SIEMPRE explícita. El default de compatibilidad («argumento ausente =
+          // mantener») existe para un cliente viejo que no conoce el campo, no para este:
+          // aquí sabemos exactamente si hay material o si volvió a pregunta directa.
+          material: material
+            ? ({ op: "reemplazar", material } as const)
+            : ({ op: "quitar" } as const),
+        });
       } else {
-        await crear({ ...base, imagenId: imagenId ?? undefined });
+        await crear({ ...base, imagenId: imagenId ?? undefined, material });
       }
       router.push(`${basePath}/reactivos`);
     } catch (err) {
@@ -414,20 +617,49 @@ function Formulario({
           <span className="mb-1.5 block text-small font-medium text-ink">
             Presentación
           </span>
-          <div className="inline-flex rounded-control border border-border bg-bg p-1 text-small">
-            <span className="rounded-[6px] bg-surface px-3 py-1.5 font-semibold text-unx-blue shadow-card">
-              Pregunta directa
-            </span>
-            <span className="px-3 py-1.5 text-disabled-text">
-              Relación de columnas
-            </span>
-            <span className="px-3 py-1.5 text-disabled-text">Ordenamiento</span>
-          </div>
+          <Tabs
+            tabs={PRESENTACIONES}
+            activeId={presentacion}
+            disabled={camposDeshabilitados}
+            onChange={(id) => {
+              // Cambiar de pestaña NO borra las listas: un clic accidental en «Pregunta
+              // directa» se recupera con otro clic. Lo que se persiste lo decide
+              // `materialActual()` al guardar.
+              setPresentacion(id as Presentacion);
+              tocar();
+            }}
+          />
           <p className="mt-1 text-caption text-muted">
-            Todas las presentaciones se contestan como opción múltiple. Relación de
-            columnas y ordenamiento llegan en LUI-16.
+            Todas las presentaciones se contestan como opción múltiple: las opciones son
+            combinaciones («1b, 2c, 3a») o secuencias («3, 2, 1, 4»).
           </p>
         </div>
+
+        {presentacion === "columnas" && (
+          <div className="grid gap-4 rounded-card border border-border bg-bg/50 p-4">
+            {listaRenglones("Columna 1", columna1, setColumna1, MIN_COLUMNA, (i) => `${i + 1}.`)}
+            {listaRenglones("Columna 2", columna2, setColumna2, MIN_COLUMNA, (i) =>
+              `${String.fromCharCode(97 + i)}.`,
+            )}
+          </div>
+        )}
+
+        {presentacion === "ordenamiento" && (
+          <div className="rounded-card border border-border bg-bg/50 p-4">
+            {listaRenglones(
+              "Elementos a ordenar",
+              elementos,
+              setElementos,
+              MIN_ELEMENTOS,
+              (i) => `${i + 1}.`,
+            )}
+          </div>
+        )}
+
+        {/* Cambios de tamaño de las listas para lector de pantalla. */}
+        <p aria-live="polite" className="sr-only">
+          {aviso}
+        </p>
 
         {/* Opciones */}
         <div>
@@ -626,6 +858,10 @@ function Formulario({
               className="mt-3 max-h-40 w-fit rounded-card border border-border"
             />
           )}
+          {/* El material va entre el enunciado y las opciones, igual que en el player.
+              Aquí recibe HTML CRUDO de TipTap (nunca pasó por el servidor): el componente
+              lo sanea, que es justo por qué el saneo vive dentro y no en el llamador. */}
+          <MaterialReactivo material={materialActual()} className="mt-3" />
           <div className="mt-3 grid gap-2">
             {opciones.map((o, i) => (
               <div
