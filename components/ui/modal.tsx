@@ -16,6 +16,13 @@ type ModalProps = {
   width?: number;
   /** true = posición absolute (para previews dentro de un contenedor relative). */
   contained?: boolean;
+  /**
+   * `"right"` = panel lateral a altura completa pegado al borde derecho (drawer de
+   * preguntas de lectura, LUI-17). Solo cambia el layout: la gestión de foco, el Tab
+   * cíclico, el Escape y la restauración del foco son los MISMOS — que es justo por lo
+   * que esto es una prop y no un `drawer.tsx` que los duplicara u omitiera.
+   */
+  position?: "center" | "right";
 };
 
 /**
@@ -30,7 +37,9 @@ export function Modal({
   onClose,
   width = 440,
   contained = false,
+  position = "center",
 }: ModalProps) {
+  const lateral = position === "right";
   const titleId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -38,7 +47,11 @@ export function Modal({
     const elementoPrevio = document.activeElement as HTMLElement | null;
     const panel = panelRef.current;
     // Foco inicial: primer campo del formulario si lo hay; si no, el primer enfocable.
-    const primerCampo = panel?.querySelector<HTMLElement>("input, select, textarea");
+    // `[contenteditable]` incluido para TipTap: no es input/select/textarea, así que sin él
+    // el foco caería en el primer botón de su barra de herramientas («Negrita»).
+    const primerCampo = panel?.querySelector<HTMLElement>(
+      'input, select, textarea, [contenteditable="true"]',
+    );
     const enfocables = panel?.querySelectorAll<HTMLElement>(FOCUSABLE);
     (primerCampo ?? enfocables?.[0] ?? panel)?.focus();
 
@@ -81,8 +94,9 @@ export function Modal({
   return (
     <div
       className={cn(
-        "z-50 flex items-center justify-center bg-ink/45 p-5",
+        "z-50 flex bg-ink/45",
         contained ? "absolute inset-0" : "fixed inset-0",
+        lateral ? "items-stretch justify-end" : "items-center justify-center p-5",
       )}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose?.();
@@ -95,7 +109,12 @@ export function Modal({
         aria-labelledby={title ? titleId : undefined}
         tabIndex={-1}
         style={{ maxWidth: width }}
-        className="flex w-full flex-col gap-3 rounded-modal bg-surface p-6 shadow-modal outline-none"
+        className={cn(
+          "flex w-full flex-col gap-3 bg-surface p-6 outline-none",
+          lateral
+            ? "h-full overflow-y-auto border-l border-border shadow-modal"
+            : "rounded-modal shadow-modal",
+        )}
       >
         {title && (
           <div className="flex items-start justify-between gap-3">

@@ -51,11 +51,16 @@ export function RichTextEditor({
   onChange,
   ariaLabel,
   disabled = false,
+  minHeight = 80,
 }: {
   value: string;
   onChange: (html: string) => void;
   ariaLabel: string;
   disabled?: boolean;
+  /** Alto mínimo del área editable, en px. Se aplica por `style` y NO por una clase de
+   *  Tailwind construida al vuelo: el compilador no detecta clases dinámicas y la regla
+   *  no llegaría al CSS del build. */
+  minHeight?: number;
 }) {
   const editor = useEditor({
     extensions: EXTENSIONES,
@@ -68,7 +73,8 @@ export function RichTextEditor({
         role: "textbox",
         "aria-multiline": "true",
         "aria-label": ariaLabel,
-        class: "min-h-[80px] px-3 py-2.5 text-body text-ink focus:outline-none",
+        style: `min-height:${minHeight}px`,
+        class: "px-3 py-2.5 text-body text-ink focus:outline-none",
       },
     },
   });
