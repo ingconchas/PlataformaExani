@@ -457,6 +457,13 @@ export const agregarPregunta = mutation({
     // lectura antes de seguir añadiéndole preguntas.
     const clasificacion = await resolverClasificacion(ctx, ternaDe(l).subtemaId);
 
+    // ⚠️ Renumerar ANTES de insertar, no después. Si el `orden` persistido venía corrupto
+    // (p. ej. `[0,0,5]` por edición manual o import), insertar con `bloque.length` daría 2 y
+    // al reordenar quedaría `[0,0,2,5]`: la pregunta nueva acabaría ANTES de la que tenía 5,
+    // rompiendo la semántica de «al final» que promete esta mutation. Saneando primero, el
+    // bloque ya es 0..n-1 y `bloque.length` ES la última posición.
+    await renumerar(ctx, args.lecturaId, bloque);
+
     const id = await ctx.db.insert("reactivos", {
       enunciado: limpio.enunciado,
       opciones: limpio.opciones,
@@ -465,17 +472,11 @@ export const agregarPregunta = mutation({
       dificultad: args.dificultad,
       retroalimentacion: limpio.retroalimentacion,
       contenidoFormato: "html",
-      // `bloque.length` es la posición TENTATIVA; la renumeración de abajo la corrige.
       bloque: { lecturaId: args.lecturaId, orden: bloque.length },
       autorId: l.autorId, // la autoría es la de la LECTURA
       activo: true,
     });
     await ajustarContadores(ctx, clasificacion, 1);
-    // ⚠️ Renumerar TAMBIÉN al agregar: si el `orden` persistido venía corrupto (p. ej.
-    // `[0,0,5]` por edición manual), `bloque.length` daría 2 y la banda seguiría sin ser
-    // densa ni la nueva pregunta quedaría al final visual. «Renumerar en cada escritura» es
-    // la disciplina que sustituye al constraint único que un `.index()` NO da.
-    await renumerar(ctx, args.lecturaId, await reactivosDeLectura(ctx, args.lecturaId));
     return { id };
   },
 });

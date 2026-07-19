@@ -416,9 +416,16 @@ const REACTIVOS: Array<{
 ];
 
 // ── Lecturas (LUI-17) ───────────────────────────────────────────────────────
-// La única lectura del fixture queda como BLOQUE DE UNA sola pregunta, es decir
-// «Incompleta» (publicar exige ≥ 2): fixture discriminante del gate de LUI-21 sin añadir
-// reactivos nuevos —lo que habría roto los tres conteos absolutos de `e2e-lui14`—.
+// DOS lecturas, cada una discriminante de algo distinto:
+//  · «El calentamiento global» — BLOQUE DE UNA sola pregunta, o sea «Incompleta» (publicar
+//    exige ≥ 2): fixture del gate de LUI-21. Vive en rama RETIRADA, así que además ejercita
+//    el camino histórico (editable manteniendo la hoja, sin admitir preguntas nuevas).
+//  · «El valor de la objecion en un debate» — BLOQUE DE DOS preguntas en rama VIVA, con solo
+//    la primera en un examen publicado y asignado: la hermana queda apartada de todos los
+//    exámenes, así que su candado solo puede venir de la EXPANSIÓN al bloque.
+// Con ellas el fixture pasa de 12 a 14 reactivos (`e2e-lui14` lo refleja); las tres trampas
+// de conteo de esa suite se respetan: ninguna pregunta nueva es «Avanzado», ninguna es de
+// Carlos y ninguna contiene «párrafo».
 // Su clasificación es la misma rama RETIRADA donde vive su pregunta, así que también ejercita
 // el camino histórico: se puede editar manteniendo la hoja, pero no admite preguntas nuevas.
 // ⚠️ `autorCorreo` es el de su pregunta A PROPÓSITO: la autoría de una pregunta de bloque es

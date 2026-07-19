@@ -372,6 +372,7 @@ function Formulario({
               disabled={filas.length >= MAX_PREGUNTAS}
               onClick={() => {
                 nonce.current += 1;
+                setError(null); // que un error del FORMULARIO no aparezca dentro del drawer
                 setDestino({ tipo: "nueva", nonce: nonce.current });
               }}
             >
@@ -431,6 +432,7 @@ function Formulario({
                         label={`Editar la pregunta ${i + 1}`}
                         onClick={() => {
                           nonce.current += 1;
+                          setError(null);
                           setDestino({
                             tipo: "editar",
                             id: f.id,
