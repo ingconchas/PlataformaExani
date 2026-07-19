@@ -327,16 +327,21 @@ export const obtener = query({
 // (instructor solo lo suyo; admin todo) y mantenimiento INCREMENTAL de
 // `reactivosCount` (el contrato que LUI-18 dejó para acá, temario.ts:141).
 
-/** Suma `delta` (±1) al contador denormalizado de los 3 ancestros. Cada reactivo cae
- *  en EXACTAMENTE una hoja → preserva `count(sección)=Σcount(áreas)`. */
-async function ajustarContadores(
+/** Suma `delta` al contador denormalizado de los 3 ancestros. Cada reactivo cae en
+ *  EXACTAMENTE una hoja → preserva `count(sección)=Σcount(áreas)`.
+ *
+ *  `delta` es un `number` y no `±1` porque mover una LECTURA mueve su bloque entero
+ *  (LUI-17): se llama UNA vez con ±n en vez de n veces con ±1. Llamarlo en bucle sería
+ *  correcto (read-your-writes) pero invita a «optimizarlo» sacando el `get` del bucle, que
+ *  reintroduce el lost update. */
+export async function ajustarContadores(
   ctx: MutationCtx,
   clasif: {
     seccionId: Id<"secciones">;
     areaId: Id<"areasTematicas">;
     subtemaId: Id<"subtemas">;
   },
-  delta: 1 | -1,
+  delta: number,
 ): Promise<void> {
   const seccion = await ctx.db.get(clasif.seccionId);
   if (seccion)
@@ -368,7 +373,7 @@ const dificultadValidator = v.union(
  * (trims). El cliente refleja estas reglas, pero el servidor es la autoridad: un
  * cliente manipulado no las salta.
  */
-function validarContenido(args: {
+export function validarContenido(args: {
   enunciado: string;
   opciones: { id: string; texto: string }[];
   opcionCorrecta: string;

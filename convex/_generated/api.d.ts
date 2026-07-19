@@ -11,6 +11,7 @@
 import type * as alumnos from "../alumnos.js";
 import type * as auth from "../auth.js";
 import type * as authz from "../authz.js";
+import type * as bloque from "../bloque.js";
 import type * as bootstrap from "../bootstrap.js";
 import type * as correo from "../correo.js";
 import type * as credenciales from "../credenciales.js";
@@ -24,6 +25,7 @@ import type * as imagenes from "../imagenes.js";
 import type * as instructores from "../instructores.js";
 import type * as invitaciones from "../invitaciones.js";
 import type * as lecturaCompat from "../lecturaCompat.js";
+import type * as lecturas from "../lecturas.js";
 import type * as material from "../material.js";
 import type * as metricas from "../metricas.js";
 import type * as panel from "../panel.js";
@@ -49,6 +51,7 @@ declare const fullApi: ApiFromModules<{
   alumnos: typeof alumnos;
   auth: typeof auth;
   authz: typeof authz;
+  bloque: typeof bloque;
   bootstrap: typeof bootstrap;
   correo: typeof correo;
   credenciales: typeof credenciales;
@@ -62,6 +65,7 @@ declare const fullApi: ApiFromModules<{
   instructores: typeof instructores;
   invitaciones: typeof invitaciones;
   lecturaCompat: typeof lecturaCompat;
+  lecturas: typeof lecturas;
   material: typeof material;
   metricas: typeof metricas;
   panel: typeof panel;
