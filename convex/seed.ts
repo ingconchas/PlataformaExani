@@ -146,6 +146,14 @@ const TEMARIO_DEMO: Array<{
         activo: false,
         subtemas: [{ nombre: "Idea principal" }],
       },
+      // ⚠️ Área ACTIVA en Comprensión lectora (LUI-17). Sin ella, la ÚNICA área de la
+      // sección estaría retirada, ningún subtema suyo sería `disponible`, y la cascada de
+      // clasificación —que solo ofrece disponibles— haría IMPOSIBLE crear una lectura de
+      // comprensión lectora por la UI. Es lo que vuelve verificable la feature.
+      {
+        nombre: "Textos argumentativos",
+        subtemas: [{ nombre: "Tesis y argumentos" }],
+      },
     ],
   },
   { seccion: "Redacción indirecta", tipo: "nucleo", areas: [] },
@@ -375,9 +383,26 @@ const REACTIVOS: Array<{
 ];
 
 // ── Lecturas (LUI-17) ───────────────────────────────────────────────────────
-const LECTURAS: { titulo: string; contenido: string }[] = [
+// La única lectura del fixture queda como BLOQUE DE UNA sola pregunta, es decir
+// «Incompleta» (publicar exige ≥ 2): fixture discriminante del gate de LUI-21 sin añadir
+// reactivos nuevos —lo que habría roto los tres conteos absolutos de `e2e-lui14`—.
+// Su clasificación es la misma rama RETIRADA donde vive su pregunta, así que también ejercita
+// el camino histórico: se puede editar manteniendo la hoja, pero no admite preguntas nuevas.
+// ⚠️ `autorCorreo` es el de su pregunta A PROPÓSITO: la autoría de una pregunta de bloque es
+// la de su lectura, y si divergieran, `e2e-lui14` §7 (filtro por «Carlos Lora» = 1 fila) y §8
+// dejarían de pasar.
+const LECTURAS: {
+  titulo: string;
+  contenido: string;
+  autorCorreo: string;
+  en: [string, string, string];
+  dificultad: "facil" | "medio" | "dificil";
+}[] = [
   {
     titulo: "El calentamiento global",
+    autorCorreo: "carlos.instructor@demo.unx.mx",
+    en: ["Comprensión lectora", "Textos expositivos", "Idea principal"],
+    dificultad: "medio",
     contenido:
       "El calentamiento global es el aumento sostenido de la temperatura media de la " +
       "Tierra, impulsado por la acumulación de gases de efecto invernadero de origen " +
@@ -772,8 +797,39 @@ export const cargarDatosDePrueba = internalMutation({
     // ejercitar el chip «▤ Lectura» y `reactivos.obtener`.
     const lecturasExistentes = await ctx.db.query("lecturas").collect();
     const lecturaIdPorTitulo = new Map<string, Id<"lecturas">>();
+    const lecturaAutorPorTitulo = new Map<string, Id<"users">>();
     for (const l of LECTURAS) {
-      const datosLectura = { contenido: l.contenido, autorId: instructorUserId };
+      const subtemaLectura = subtemaPorRuta.get(ruta(...l.en));
+      if (!subtemaLectura) {
+        throw new Error(
+          `El fixture manda la lectura «${l.titulo}» a «${l.en.join(" / ")}», que no existe en TEMARIO_DEMO.`,
+        );
+      }
+      // Mismo escape que los reactivos: el contenido HISTÓRICO (rama retirada) no puede
+      // exigir `disponible`, o el seed truena.
+      const ramaL = await ctx.db.get(subtemaLectura);
+      const areaL = ramaL ? await ctx.db.get(ramaL.areaId) : null;
+      const seccionL = areaL ? await ctx.db.get(areaL.seccionId) : null;
+      const clasifLectura = await resolverClasificacion(ctx, subtemaLectura, {
+        exigirDisponible: Boolean(
+          ramaL?.activo && areaL?.activo && seccionL?.activo,
+        ),
+      });
+      const autorLectura =
+        instructorUserIdPorCorreo.get(norm(l.autorCorreo)) ?? instructorUserId;
+      lecturaAutorPorTitulo.set(l.titulo, autorLectura);
+      // CONVERGE todo lo que el fixture fija (no solo contenido y autor): una BD dev
+      // sembrada antes de LUI-17 tiene lecturas SIN clasificación ni estado, y quedarían a
+      // medio migrar. `contenidoFormato` se fija explícitamente para que el contenido y su
+      // bandera no puedan desincronizarse.
+      const datosLectura = {
+        contenido: l.contenido,
+        contenidoFormato: undefined, // el fixture es texto plano LEGADO, a propósito
+        ...clasifLectura,
+        dificultad: l.dificultad,
+        autorId: autorLectura,
+        activo: true,
+      };
       const existente = lecturasExistentes.find((x) => x.titulo === l.titulo);
       if (existente) {
         await ctx.db.patch(existente._id, datosLectura);
@@ -803,10 +859,22 @@ export const cargarDatosDePrueba = internalMutation({
       // Autor: por defecto el primer instructor; algunos declaran otro (banco
       // INSTITUCIONAL de LUI-14 → varios autores). La lectura, si la hay, ya está
       // sembrada (paso 3b).
-      const autorId =
-        (r.autorCorreo && instructorUserIdPorCorreo.get(norm(r.autorCorreo))) ||
-        instructorUserId;
       const lecturaId = r.lectura ? lecturaIdPorTitulo.get(r.lectura) : undefined;
+      // La autoría de una pregunta de BLOQUE es la de su lectura (LUI-17): si divergieran,
+      // `esEditable` de la pregunta y el de su lectura se contradirían y el autor de la
+      // pregunta podría retirarla del bloque de otro.
+      const autorId = r.lectura
+        ? (lecturaAutorPorTitulo.get(r.lectura) ?? instructorUserId)
+        : (r.autorCorreo && instructorUserIdPorCorreo.get(norm(r.autorCorreo))) ||
+          instructorUserId;
+      // Los reactivos con lectura se siembran como BLOQUE. El `orden` es la posición del
+      // reactivo dentro de los que declaran esa misma lectura.
+      const bloque = lecturaId
+        ? {
+            lecturaId,
+            orden: REACTIVOS.filter((x) => x.lectura === r.lectura).indexOf(r),
+          }
+        : undefined;
 
       const existente = reactivosExistentes.find(
         (x) => x.enunciado === r.enunciado,
@@ -819,7 +887,8 @@ export const cargarDatosDePrueba = internalMutation({
         // igual que `puntaje: undefined` en los intentos.
         await ctx.db.patch(existente._id, {
           autorId,
-          lecturaId,
+          lecturaId: undefined, // campo DEPRECADO: lo sustituye `bloque` (Fase A)
+          bloque,
           dificultad: r.dificultad,
           activo: r.activo ?? true,
         });
@@ -852,7 +921,7 @@ export const cargarDatosDePrueba = internalMutation({
         ...clasificacion,
         dificultad: r.dificultad,
         retroalimentacion: r.retroalimentacion,
-        lecturaId,
+        bloque,
         autorId,
         activo: r.activo ?? true,
       });

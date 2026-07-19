@@ -117,7 +117,7 @@ async function seleccionar(pg, etiqueta, label) {
 
 async function limpiar(pg) {
   await pg.getByRole("button", { name: "Limpiar filtros" }).first().click();
-  await poller(pg)(async () => (await filas(pg).count()) === 12);
+  await poller(pg)(async () => (await filas(pg).count()) === 8);
 }
 
 // ── Instructor (Cristian) ─────────────────────────────────────────────────────
