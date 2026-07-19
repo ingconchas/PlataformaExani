@@ -46,8 +46,9 @@ export type EstadoExamen = Infer<typeof estadoExamenValidator>;
 
 /**
  * ¿Este estado COMPROMETE el contenido del examen? Un examen comprometido **con al menos una
- * asignación** congela sus reactivos —y el bloque de lectura completo— en
- * `reactivos.calcularBloqueo`.
+ * asignación o al menos un intento** congela sus reactivos —y el bloque de lectura completo—
+ * en `reactivos.calcularBloqueo`. El intento cuenta aunque no venga de una asignación:
+ * `intentos.asignacionId` es opcional y existen respuestas reales sin ella.
  *
  * `archivado` congela igual que `publicado` porque un examen archivado «conserva todo su
  * historial de resultados» (criterio de aceptación de LUI-20), y esos resultados solo son
@@ -58,17 +59,24 @@ export type EstadoExamen = Infer<typeof estadoExamenValidator>;
  * cuarto estado al validador de arriba **deja de compilar** hasta que alguien decida su
  * semántica de candado. La otra media es que el schema use ese mismo validador — sin eso,
  * este `Record` no se enteraría del estado nuevo.
+ *
+ * ⚠️ `Readonly` + `Object.freeze` porque es una exportación compartida: sin congelar, otro
+ * módulo podría reasignar una entrada y hacer que las dos vistas del candado discrepen en
+ * caliente. El tipo detiene el error honesto en compilación; el `freeze` detiene también el
+ * acceso dinámico que el tipo no ve. Una defensa estructural que se puede mutar no lo es.
  */
-export const CONGELA: Record<EstadoExamen, boolean> = {
+export const CONGELA: Readonly<Record<EstadoExamen, boolean>> = Object.freeze({
   borrador: false,
   publicado: true,
   archivado: true,
-};
+});
 
-/** Derivado de `CONGELA`, nunca escrito a mano: así las dos vistas no pueden discrepar. */
-export const ESTADOS_QUE_CONGELAN = (
-  Object.keys(CONGELA) as EstadoExamen[]
-).filter((e) => CONGELA[e]);
+/** Derivado de `CONGELA`, nunca escrito a mano: así las dos vistas no pueden discrepar.
+ *  Congelado por lo mismo — un `push("borrador")` desde cualquier módulo desactivaría medio
+ *  candado sin tocar `CONGELA` ni romper ningún tipo. */
+export const ESTADOS_QUE_CONGELAN: readonly EstadoExamen[] = Object.freeze(
+  (Object.keys(CONGELA) as EstadoExamen[]).filter((e) => CONGELA[e]),
+);
 
 /**
  * El grafo COMPLETO del ciclo de edición, como dato.
@@ -85,11 +93,17 @@ export const ESTADOS_QUE_CONGELAN = (
  * nada», que son cosas distintas — y dejaría pasar como válido un `archivar` sobre un
  * archivado que sí debería contestar `{cambiado:false}`.
  */
-export const TRANSICIONES: Record<EstadoExamen, readonly EstadoExamen[]> = {
-  borrador: ["publicado"], // LUI-21; aquí solo se documenta
-  publicado: ["archivado"], // LUI-20 · archivar
-  archivado: ["publicado"], // LUI-20 · desarchivar
-};
+// Congelado en los DOS niveles —el objeto y cada arreglo— por lo mismo que `CONGELA`: un
+// `TRANSICIONES.publicado.push("borrador")` desde cualquier módulo abriría el camino que el
+// criterio de aceptación prohíbe, sin romper un solo tipo. Auditoría lo señaló para `CONGELA`
+// y `ESTADOS_QUE_CONGELAN`; esta tabla tiene la misma exposición y se endurece igual.
+export const TRANSICIONES: Readonly<
+  Record<EstadoExamen, readonly EstadoExamen[]>
+> = Object.freeze({
+  borrador: Object.freeze(["publicado"]), // LUI-21; aquí solo se documenta
+  publicado: Object.freeze(["archivado"]), // LUI-20 · archivar
+  archivado: Object.freeze(["publicado"]), // LUI-20 · desarchivar
+} as Record<EstadoExamen, readonly EstadoExamen[]>);
 
 export function transicionPermitida(
   desde: EstadoExamen,

@@ -50,9 +50,12 @@ check(
   "un archivado conserva su historial de resultados; su contenido no puede cambiar",
 );
 
-// ⭐ DISCRIMINANTE: la implementación equivocada evidente es dejar el literal
-// `["publicado"]` escrito a mano en `calcularBloqueo`, que es justo lo que había antes.
-// Este par lo caza sin depender de la base de datos.
+// ⭐ DISCRIMINANTE sobre el DATO, con un alcance que conviene no exagerar: esto verifica que
+// el arreglo derivado sea correcto, **no que `calcularBloqueo` lo use**. Una regresión que
+// volviera a escribir el literal `["publicado"]` a mano en el consumidor seguiría pasando por
+// aquí — ninguna prueba pura puede ver eso, porque el consumidor necesita `ctx`. Quien lo
+// caza es el par de fixtures de la Entrega B (archivado con compromiso → congela / archivado
+// libre → no congela).
 check(
   "⭐ ESTADOS_QUE_CONGELAN incluye archivado",
   ESTADOS_QUE_CONGELAN.includes("archivado"),
@@ -66,6 +69,36 @@ check(
   "ESTADOS_QUE_CONGELAN se DERIVA de CONGELA (no se escribe a mano)",
   ESTADOS_QUE_CONGELAN.length ===
     (Object.keys(CONGELA) as EstadoExamen[]).filter((e) => CONGELA[e]).length,
+);
+
+// ⭐ El congelado tiene que ser EFECTIVO, no solo tipado: `readonly` detiene el error honesto
+// en compilación, pero no el acceso dinámico (un `as any`, un módulo JS, un índice calculado).
+// Una defensa estructural que se puede mutar en caliente no es una defensa.
+function mutacionRechazada(fn: () => void): boolean {
+  try {
+    fn();
+    return false; // no lanzó → la mutación PASÓ
+  } catch {
+    return true; // TypeError de modo estricto (los módulos ES siempre lo son)
+  }
+}
+check(
+  "⭐ CONGELA está congelado: reasignar una entrada lanza",
+  mutacionRechazada(() => {
+    (CONGELA as Record<string, boolean>).archivado = false;
+  }) && CONGELA.archivado === true,
+);
+check(
+  "⭐ ESTADOS_QUE_CONGELAN está congelado: push('borrador') lanza",
+  mutacionRechazada(() => {
+    (ESTADOS_QUE_CONGELAN as EstadoExamen[]).push("borrador");
+  }) && !ESTADOS_QUE_CONGELAN.includes("borrador"),
+);
+check(
+  "⭐ TRANSICIONES está congelado en los dos niveles",
+  mutacionRechazada(() => {
+    (TRANSICIONES.publicado as EstadoExamen[]).push("borrador");
+  }) && !transicionPermitida("publicado", "borrador"),
 );
 
 // ─────────────────────────────────────────────────────────────────────────────

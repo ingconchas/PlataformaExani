@@ -52,10 +52,14 @@ function nombreCompleto(p: Doc<"perfiles">): string {
 /**
  * Los reactivos con edición BLOQUEADA: los que pertenecen a un examen **cuyo estado
  * COMPROMETE el contenido** (`examenEstado.CONGELA`) y que tiene **al menos una
- * asignación**. Regla del AC (congelamiento por compromiso del examen). NO se filtra
- * por `abreEn`: una asignación futura ya compromete el examen, así que basta su
- * EXISTENCIA por `by_examen` (distinto del `metricas.fueAplicada = abreEn <= ahora`,
- * que es «aplicado», no «comprometido»).
+ * asignación O al menos un intento**. Regla del AC (congelamiento por compromiso del
+ * examen), ampliada a los intentos DIRECTOS: `intentos.asignacionId` es opcional, así
+ * que existen respuestas reales sin asignación que las respalde.
+ *
+ * NO se filtra por `abreEn`: una asignación futura ya compromete el examen, así que
+ * basta su EXISTENCIA por `by_examen` (distinto del `metricas.fueAplicada = abreEn <=
+ * ahora`, que es «aplicado», no «comprometido»). Tampoco se filtra el intento por
+ * estado: un `en_curso` compromete tanto o más que un `enviado`.
  *
  * ⚠️ **`archivado` congela igual que `publicado`** (LUI-20). Un examen archivado «conserva
  * todo su historial de resultados», y esos resultados solo son interpretables si el contenido
@@ -72,13 +76,16 @@ function nombreCompleto(p: Doc<"perfiles">): string {
  * se congela. Sin esta expansión, editar el texto base con una pregunta ya asignada dejaría a
  * una alumna con un intento abierto leyendo un pasaje que ya no sustenta su pregunta.
  *
- * **Coste y peor caso.** Lecturas por llamada: (E_publicados + E_archivados) exámenes + otras
- * tantas sondas de asignación + D reactivos comprometidos DISTINTOS + L lecturas afectadas.
- * El aumento de sondas respecto de mirar solo `publicado` es INTRÍNSECO: para saber si un
- * archivado tiene asignaciones hay que preguntarlo. Aun así **nunca se lee más que un
- * `.collect()` de la tabla, y casi siempre menos**, porque los BORRADORES —el conjunto sucio
- * y sin cota: cada examen a medio armar que alguien abandonó vive ahí para siempre— no
- * contribuyen jamás al candado.
+ * **Coste y peor caso.** Lecturas por llamada: E = (E_publicados + E_archivados) exámenes +
+ * **2·E sondas** (una de asignación y una de intento por examen) + D reactivos comprometidos
+ * DISTINTOS + L lecturas afectadas. Las dos subidas de coste respecto de la versión anterior
+ * son INTRÍNSECAS a corregir sendos agujeros: para saber si un archivado tiene asignaciones
+ * hay que preguntarlo, y para saber si un examen sin asignaciones tiene intentos directos
+ * también. Cada sonda es un `.first()`: **un documento**, no un rango.
+ *
+ * Del lado de los exámenes **nunca se lee más que un `.collect()` de la tabla, y casi siempre
+ * menos**, porque los BORRADORES —el conjunto sucio y sin cota: cada examen a medio armar que
+ * alguien abandonó vive ahí para siempre— no contribuyen jamás al candado.
  *
  * **No es gratis**: `obtener` lo invoca en CADA preview del banco. Los límites por
  * transacción son 16 MiB leídos / 32 000 documentos / 4 096 rangos, y `.collect()` lee
@@ -104,17 +111,39 @@ export async function calcularBloqueo(ctx: Ctx): Promise<{
     ),
   );
   const comprometidos = porEstado.flat();
-  const asignados = await Promise.all(
-    comprometidos.map((examen) =>
-      ctx.db
-        .query("asignaciones")
-        .withIndex("by_examen", (q) => q.eq("examenId", examen._id))
-        .first(),
+  // DOS sondas por examen, no una. `intentos.asignacionId` es OPCIONAL (`schema.ts`), así que
+  // el modelo admite un intento DIRECTO: examen publicado o archivado, CERO asignaciones y
+  // una alumna con respuestas ya enviadas —o una sesión abierta ahora mismo—. Sondar solo
+  // `asignaciones` dejaba ese examen fuera del candado y sus reactivos editables encima de
+  // respuestas reales: la MISMA corrupción que el bug de `archivado`, por otro camino. No se
+  // pueden descartar como imposibles — el schema los admite expresamente, hoy no hay ningún
+  // escritor que lo impida, y `examenes.tieneResultados` (LUI-20 B) los va a reconocer.
+  //
+  // La sonda de intentos NO filtra por estado: un `en_curso` es una alumna leyendo el
+  // reactivo AHORA. Editarlo bajo ella es precisamente lo que el candado existe para evitar.
+  const [asignados, intentados] = await Promise.all([
+    Promise.all(
+      comprometidos.map((examen) =>
+        ctx.db
+          .query("asignaciones")
+          .withIndex("by_examen", (q) => q.eq("examenId", examen._id))
+          .first(),
+      ),
     ),
-  );
+    Promise.all(
+      comprometidos.map((examen) =>
+        ctx.db
+          .query("intentos")
+          .withIndex("by_examen", (q) => q.eq("examenId", examen._id))
+          .first(),
+      ),
+    ),
+  ]);
   const reactivos = new Set<Id<"reactivos">>();
   comprometidos.forEach((examen, i) => {
-    if (!asignados[i]) return; // comprometido SIN asignaciones → no bloquea
+    // Comprometido y con ALGÚN compromiso real: una asignación (aunque sea futura) o un
+    // intento (aunque no venga de asignación). Sin ninguno de los dos → no bloquea.
+    if (!asignados[i] && !intentados[i]) return;
     for (const rid of examen.reactivoIds) reactivos.add(rid);
   });
 
