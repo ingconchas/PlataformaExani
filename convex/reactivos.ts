@@ -60,57 +60,76 @@ function nombreCompleto(p: Doc<"perfiles">): string {
  * la unidad que entra a un examen («la lectura se agrega completa»), así que es la unidad que
  * se congela. Sin esta expansión, editar el texto base con una pregunta ya asignada dejaría a
  * una alumna con un intento abierto leyendo un pasaje que ya no sustenta su pregunta.
+ *
+ * **Coste y peor caso.** Lecturas por llamada: E exámenes publicados + E sondas de asignación
+ * + D reactivos comprometidos DISTINTOS + L lecturas afectadas. Con el tope de 32 000
+ * documentos leídos por transacción el techo quedaría del orden de 350 exámenes publicados de
+ * 90 reactivos — muy por encima de la escala de UNX, pero **no es gratis**: `obtener` lo
+ * invoca en CADA preview del banco. Los `get` y las sondas van en paralelo, lo que recorta la
+ * latencia pero NO el número de lecturas; si algún día pesa, la salida estructural es
+ * denormalizar la pertenencia (un campo mantenido al publicar/asignar) en vez de derivarla.
  */
-export async function reactivosBloqueados(
-  ctx: Ctx,
-): Promise<Set<Id<"reactivos">>> {
+export async function calcularBloqueo(ctx: Ctx): Promise<{
+  reactivos: Set<Id<"reactivos">>;
+  lecturas: Set<Id<"lecturas">>;
+}> {
   const publicados = await ctx.db
     .query("examenes")
     .withIndex("by_estado", (q) => q.eq("estado", "publicado"))
     .collect();
-  const bloqueados = new Set<Id<"reactivos">>();
-  for (const examen of publicados) {
-    const asignacion = await ctx.db
-      .query("asignaciones")
-      .withIndex("by_examen", (q) => q.eq("examenId", examen._id))
-      .first();
-    if (!asignacion) continue; // publicado SIN asignaciones → no bloquea
-    for (const rid of examen.reactivoIds) bloqueados.add(rid);
-  }
+  const asignados = await Promise.all(
+    publicados.map((examen) =>
+      ctx.db
+        .query("asignaciones")
+        .withIndex("by_examen", (q) => q.eq("examenId", examen._id))
+        .first(),
+    ),
+  );
+  const reactivos = new Set<Id<"reactivos">>();
+  publicados.forEach((examen, i) => {
+    if (!asignados[i]) return; // publicado SIN asignaciones → no bloquea
+    for (const rid of examen.reactivoIds) reactivos.add(rid);
+  });
 
-  // Expansión al bloque. Se resuelven las lecturas afectadas y se añaden TODAS sus
-  // preguntas, incluidas las que no están en ningún examen.
-  const lecturasAfectadas = new Set<Id<"lecturas">>();
-  for (const rid of bloqueados) {
-    const r = await ctx.db.get(rid);
-    if (!r) continue; // id fantasma en `examenes.reactivoIds` (el array no tiene FK)
-    const lecturaId = lecturaParaBloqueo(resolverLectura(r));
-    if (lecturaId) lecturasAfectadas.add(lecturaId);
-  }
-  for (const lecturaId of lecturasAfectadas) {
-    const bloque = await ctx.db
-      .query("reactivos")
-      .withIndex("by_bloque", (q) => q.eq("bloque.lecturaId", lecturaId))
-      .collect();
-    for (const hermana of bloque) bloqueados.add(hermana._id);
-  }
-  return bloqueados;
-}
-
-/** Las lecturas con candado: derivadas del MISMO conjunto expandido, para que la lectura y
- *  sus preguntas nunca puedan discrepar sobre si están congeladas. */
-export async function lecturasBloqueadas(
-  ctx: Ctx,
-): Promise<Set<Id<"lecturas">>> {
-  const bloqueados = await reactivosBloqueados(ctx);
+  // Expansión al bloque, en UNA sola pasada: se resuelven las lecturas afectadas y se
+  // añaden TODAS sus preguntas, incluidas las que no están en ningún examen.
+  const docs = await Promise.all([...reactivos].map((rid) => ctx.db.get(rid)));
   const lecturas = new Set<Id<"lecturas">>();
-  for (const rid of bloqueados) {
-    const r = await ctx.db.get(rid);
-    if (!r) continue;
+  for (const r of docs) {
+    if (!r) continue; // id fantasma en `examenes.reactivoIds` (el array no tiene FK)
     const lecturaId = lecturaParaBloqueo(resolverLectura(r));
     if (lecturaId) lecturas.add(lecturaId);
   }
-  return lecturas;
+  const bloques = await Promise.all(
+    [...lecturas].map((lecturaId) =>
+      ctx.db
+        .query("reactivos")
+        .withIndex("by_bloque", (q) => q.eq("bloque.lecturaId", lecturaId))
+        .collect(),
+    ),
+  );
+  for (const bloque of bloques)
+    for (const hermana of bloque) reactivos.add(hermana._id);
+
+  return { reactivos, lecturas };
+}
+
+/** Los reactivos congelados (ver `calcularBloqueo`). */
+export async function reactivosBloqueados(
+  ctx: Ctx,
+): Promise<Set<Id<"reactivos">>> {
+  return (await calcularBloqueo(ctx)).reactivos;
+}
+
+/** Las lecturas congeladas. Salen de la MISMA pasada que los reactivos, así que las dos
+ *  vistas del candado no pueden discrepar.
+ *
+ *  ⚠️ Quien necesite AMBOS conjuntos debe llamar `calcularBloqueo` UNA vez: encadenar estos
+ *  dos envoltorios recorrería la base dos veces (era el defecto que tenía este archivo). */
+export async function lecturasBloqueadas(
+  ctx: Ctx,
+): Promise<Set<Id<"lecturas">>> {
+  return (await calcularBloqueo(ctx)).lecturas;
 }
 
 /**

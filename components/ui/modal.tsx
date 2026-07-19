@@ -4,8 +4,12 @@ import { type ReactNode, useEffect, useId, useRef } from "react";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+// `[contenteditable="true"]` incluido para que el CICLO de Tab y el FOCO INICIAL reconozcan
+// lo mismo: si el editor rico fuera el último control del panel, un focus trap que no lo
+// viera tomaría como límite el último botón de su barra de herramientas y saltaría el área
+// editable al ciclar.
 const FOCUSABLE =
-  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [contenteditable="true"], [tabindex]:not([tabindex="-1"])';
 
 type ModalProps = {
   title?: string;
@@ -48,7 +52,8 @@ export function Modal({
     const panel = panelRef.current;
     // Foco inicial: primer campo del formulario si lo hay; si no, el primer enfocable.
     // `[contenteditable]` incluido para TipTap: no es input/select/textarea, así que sin él
-    // el foco caería en el primer botón de su barra de herramientas («Negrita»).
+    // el foco caería en el primer botón de su barra de herramientas («Negrita»). Mismo
+    // criterio que `FOCUSABLE`, a propósito: los dos selectores deben reconocer lo mismo.
     const primerCampo = panel?.querySelector<HTMLElement>(
       'input, select, textarea, [contenteditable="true"]',
     );
