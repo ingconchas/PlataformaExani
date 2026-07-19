@@ -364,6 +364,39 @@ const REACTIVOS: Array<{
     lectura: "El calentamiento global",
   },
 
+  // ── Bloque de 2 preguntas (LUI-17). La primera entra a los exámenes publicados; la
+  // segunda queda APARTADA, así que su candado solo puede venir de la expansión al bloque.
+  {
+    enunciado: "Segun el texto, ¿cual es el proposito principal de una objecion?",
+    opciones: [
+      { id: "a", texto: "Poner a prueba la solidez de una tesis" },
+      { id: "b", texto: "Derrotar al adversario" },
+      { id: "c", texto: "Alargar la discusion" },
+      { id: "d", texto: "Cambiar de tema" },
+    ],
+    opcionCorrecta: "a",
+    dificultad: "facil",
+    retroalimentacion:
+      "El texto dice que la objecion pone a prueba la solidez, no que busque derrotar.",
+    en: ["Comprensión lectora", "Textos argumentativos", "Tesis y argumentos"],
+    lectura: "El valor de la objecion en un debate",
+  },
+  {
+    enunciado: "Segun el texto, ¿que funcion cumple una objecion en un debate?",
+    opciones: [
+      { id: "a", texto: "Obliga a explicitar los supuestos del argumento" },
+      { id: "b", texto: "Elimina la necesidad de pruebas" },
+      { id: "c", texto: "Sustituye a la tesis" },
+      { id: "d", texto: "Impide la replica" },
+    ],
+    opcionCorrecta: "a",
+    dificultad: "medio",
+    retroalimentacion:
+      "Segun el texto, objetar con precision obliga a explicitar los supuestos.",
+    en: ["Comprensión lectora", "Textos argumentativos", "Tesis y argumentos"],
+    lectura: "El valor de la objecion en un debate",
+  },
+
   // En un MÓDULO → prueba que un módulo con áreas sí admite reactivos.
   {
     enunciado: "¿Cuál es la función principal de la membrana celular?",
@@ -408,6 +441,19 @@ const LECTURAS: {
       "Tierra, impulsado por la acumulación de gases de efecto invernadero de origen " +
       "humano. Sus efectos —deshielo, aumento del nivel del mar y clima extremo— ya son medibles.",
   },
+  // Bloque de DOS preguntas bajo la rama VIVA, y de otro autor que la primera lectura: es
+  // el fixture del candado de bloque (una de sus preguntas entra a los exámenes publicados y
+  // la otra no, así que la segunda solo puede congelarse por EXPANSIÓN).
+  {
+    titulo: "El valor de la objecion en un debate",
+    autorCorreo: "cristian.instructor@demo.unx.mx",
+    en: ["Comprensión lectora", "Textos argumentativos", "Tesis y argumentos"],
+    dificultad: "medio",
+    contenido:
+      "En un debate, la objecion no busca derrotar al adversario sino poner a prueba la " +
+      "solidez de una tesis. Quien objeta con precision obliga a explicitar los supuestos " +
+      "que sostienen el argumento y, con ello, mejora la discusion para ambas partes.",
+  },
 ];
 
 // Reactivos que hacen DISCRIMINANTE el candado «En uso en un examen activo» (LUI-14),
@@ -419,6 +465,11 @@ const REACTIVO_SOLO_FUTURO =
 // (LUI-15) Reactivo en rama RETIRADA («Productos notables») pero LIBRE (en ningún
 // examen) → editable: fixture para probar «mantener una clasificación retirada al editar».
 const REACTIVO_RETIRADO_LIBRE = "¿Cuál es el desarrollo de (x + 3)²?";
+// (LUI-17) HERMANA de un bloque cuya OTRA pregunta sí está en un examen publicado con
+// asignación. Ella no entra a ningún examen, así que su candado viene EXCLUSIVAMENTE de la
+// expansión al bloque: es el fixture que hace discriminante «se congela la lectura entera».
+const REACTIVO_HERMANA_LIBRE =
+  "Segun el texto, ¿que funcion cumple una objecion en un debate?";
 
 // ── Exámenes, asignaciones e intentos (LUI-9) ───────────────────────────────
 // Existen para que el panel de la administradora sea VERIFICABLE: sin ellos,
@@ -1001,8 +1052,9 @@ export const cargarDatosDePrueba = internalMutation({
     const idSoloBorrador = reactivoIdPorEnunciado.get(REACTIVO_SOLO_BORRADOR);
     const idSoloFuturo = reactivoIdPorEnunciado.get(REACTIVO_SOLO_FUTURO);
     const idRetiradoLibre = reactivoIdPorEnunciado.get(REACTIVO_RETIRADO_LIBRE);
+    const idHermanaLibre = reactivoIdPorEnunciado.get(REACTIVO_HERMANA_LIBRE);
     const apartados = new Set(
-      [idSinExamen, idSoloBorrador, idSoloFuturo, idRetiradoLibre].filter(
+      [idSinExamen, idSoloBorrador, idSoloFuturo, idRetiradoLibre, idHermanaLibre].filter(
         Boolean,
       ) as Id<"reactivos">[],
     );

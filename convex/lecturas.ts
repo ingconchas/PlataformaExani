@@ -19,6 +19,7 @@ import {
   validarBloquesCompletosPuro,
   validarTextoBase,
   validarTitulo,
+  type BloqueDeLectura,
   type PreguntaOrdenable,
   type ReactivoDeExamen,
 } from "./bloque";
@@ -464,11 +465,17 @@ export const agregarPregunta = mutation({
       dificultad: args.dificultad,
       retroalimentacion: limpio.retroalimentacion,
       contenidoFormato: "html",
+      // `bloque.length` es la posición TENTATIVA; la renumeración de abajo la corrige.
       bloque: { lecturaId: args.lecturaId, orden: bloque.length },
       autorId: l.autorId, // la autoría es la de la LECTURA
       activo: true,
     });
     await ajustarContadores(ctx, clasificacion, 1);
+    // ⚠️ Renumerar TAMBIÉN al agregar: si el `orden` persistido venía corrupto (p. ej.
+    // `[0,0,5]` por edición manual), `bloque.length` daría 2 y la banda seguiría sin ser
+    // densa ni la nueva pregunta quedaría al final visual. «Renumerar en cada escritura» es
+    // la disciplina que sustituye al constraint único que un `.index()` NO da.
+    await renumerar(ctx, args.lecturaId, await reactivosDeLectura(ctx, args.lecturaId));
     return { id };
   },
 });
@@ -556,7 +563,14 @@ export const cambiarEstadoPregunta = mutation({
 
 // ── Helpers que hereda el constructor de exámenes (LUI-21) ───────────────────
 
-/** Carga los mapas que los helpers puros necesitan. */
+/**
+ * Carga los mapas que los helpers puros necesitan.
+ *
+ * ⚠️ Resuelve el DOCUMENTO de cada lectura, no solo sus preguntas: el índice `by_bloque`
+ * encuentra las huérfanas de una lectura borrada, así que sin `ctx.db.get` la frontera vería
+ * un bloque no vacío y aceptaría una lectura fantasma. Y carga la disponibilidad conjuntiva
+ * de la clasificación, que es parte de la elegibilidad.
+ */
 async function mapasDeBloque(ctx: Ctx, ids: Id<"reactivos">[]) {
   const docs = await Promise.all(ids.map((id) => ctx.db.get(id)));
   const porId = new Map<string, ReactivoDeExamen>();
@@ -566,12 +580,33 @@ async function mapasDeBloque(ctx: Ctx, ids: Id<"reactivos">[]) {
     porId.set(r._id, { _id: r._id, bloque: r.bloque });
     if (r.bloque) lecturas.add(r.bloque.lecturaId);
   }
-  const bloques = await Promise.all(
-    [...lecturas].map((id) => reactivosDeLectura(ctx, id)),
+  const idsLectura = [...lecturas];
+  const [docsLectura, bloques] = await Promise.all([
+    Promise.all(idsLectura.map((id) => ctx.db.get(id))),
+    Promise.all(idsLectura.map((id) => reactivosDeLectura(ctx, id))),
+  ]);
+  const disponibles = await Promise.all(
+    docsLectura.map(async (l) => {
+      if (!l?.seccionId || !l.areaId || !l.subtemaId) return false;
+      const [s, a, sub] = await Promise.all([
+        ctx.db.get(l.seccionId),
+        ctx.db.get(l.areaId),
+        ctx.db.get(l.subtemaId),
+      ]);
+      return Boolean(s?.activo && a?.activo && sub?.activo);
+    }),
   );
-  const bloquePorLectura = new Map<string, PreguntaOrdenable[]>();
-  [...lecturas].forEach((id, i) => {
-    bloquePorLectura.set(id, bloques[i].map(comoOrdenable));
+
+  const bloquePorLectura = new Map<string, BloqueDeLectura>();
+  idsLectura.forEach((id, i) => {
+    const l = docsLectura[i];
+    bloquePorLectura.set(id, {
+      existe: l !== null,
+      preguntas: bloques[i].map(comoOrdenable),
+      activas: bloques[i].filter((r) => r.activo).length,
+      lecturaActiva: l?.activo ?? false,
+      clasificacionDisponible: disponibles[i],
+    });
   });
   return { porId, bloquePorLectura };
 }

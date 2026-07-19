@@ -20,6 +20,7 @@ import {
   validarBloquesCompletosPuro,
   validarTextoBase,
   validarTitulo,
+  type BloqueDeLectura,
   type PreguntaOrdenable,
   type ReactivoDeExamen,
 } from "../convex/bloque";
@@ -130,9 +131,17 @@ const porId = new Map<string, ReactivoDeExamen>([
   ["L2a", { _id: "L2a", bloque: { lecturaId: "L2", orden: 0 } }],
   ["L2b", { _id: "L2b", bloque: { lecturaId: "L2", orden: 1 } }],
 ]);
-const bloquePorLectura = new Map<string, PreguntaOrdenable[]>([
-  ["L1", [p("L1a", 0), p("L1b", 1)]],
-  ["L2", [p("L2a", 0), p("L2b", 1)]],
+/** Un bloque SANO: existe, todas activas, lectura activa y rama vigente. */
+const sano = (preguntas: PreguntaOrdenable[]): BloqueDeLectura => ({
+  existe: true,
+  preguntas,
+  activas: preguntas.length,
+  lecturaActiva: true,
+  clasificacionDisponible: true,
+});
+const bloquePorLectura = new Map<string, BloqueDeLectura>([
+  ["L1", sano([p("L1a", 0), p("L1b", 1)])],
+  ["L2", sano([p("L2a", 0), p("L2b", 1)])],
 ]);
 check(
   "una sola pregunta expande a su bloque completo",
@@ -173,16 +182,55 @@ check(
 );
 check("dos bloques INTERCALADOS se rechaza", val(["L1a", "L2a", "L1b", "L2b"]) !== null);
 // ⭐ Corrupción persistida: el orden en la base no es denso.
-const bloqueCorrupto = new Map<string, PreguntaOrdenable[]>([
-  ["L1", [p("L1a", 0), p("L1b", 5)]],
+const bloqueCorrupto = new Map<string, BloqueDeLectura>([
+  ["L1", sano([p("L1a", 0), p("L1b", 5)])],
 ]);
 check(
   "⭐ `orden` persistido NO denso se RECHAZA (no se «interpreta»)",
   validarBloquesCompletosPuro(["L1a", "L1b"], porId, bloqueCorrupto) !== null,
 );
+// ⭐ Lectura FANTASMA modelada como la construye el ENVOLTORIO: el índice `by_bloque` SÍ
+// encuentra las preguntas huérfanas, así que el mapa NO llega vacío — llega con el bloque
+// completo y `existe: false`. Con un mapa vacío esta prueba pasaba sin probar nada.
+const bloqueFantasma = new Map<string, BloqueDeLectura>([
+  ["L1", { ...sano([p("L1a", 0), p("L1b", 1)]), existe: false }],
+]);
 check(
-  "⭐ lectura FANTASMA se rechaza",
-  validarBloquesCompletosPuro(["L1a"], porId, new Map()) !== null,
+  "⭐ lectura FANTASMA se rechaza aunque el mapa traiga sus preguntas",
+  validarBloquesCompletosPuro(["L1a", "L1b"], porId, bloqueFantasma) !== null,
+  String(validarBloquesCompletosPuro(["L1a", "L1b"], porId, bloqueFantasma)),
+);
+
+console.log("6b · ⭐ La frontera exige ELEGIBILIDAD, no solo forma");
+// Sin esto, la frontera aceptaría exactamente lo que el listado marca «Incompleta».
+const conBloque = (b: BloqueDeLectura) =>
+  validarBloquesCompletosPuro(
+    b.preguntas.map((x) => x._id),
+    porId,
+    new Map([["L1", b]]),
+  );
+check(
+  "⭐ un bloque de UNA sola pregunta se rechaza",
+  conBloque({ ...sano([p("L1a", 0)]), preguntas: [p("L1a", 0)], activas: 1 }) !== null,
+);
+check(
+  "⭐ con una pregunta INACTIVA se rechaza",
+  conBloque({ ...sano([p("L1a", 0), p("L1b", 1)]), activas: 1 }) !== null,
+);
+check(
+  "⭐ con la LECTURA desactivada se rechaza",
+  conBloque({ ...sano([p("L1a", 0), p("L1b", 1)]), lecturaActiva: false }) !== null,
+);
+check(
+  "⭐ con la clasificación RETIRADA se rechaza",
+  conBloque({
+    ...sano([p("L1a", 0), p("L1b", 1)]),
+    clasificacionDisponible: false,
+  }) !== null,
+);
+check(
+  "un bloque sano de 2 sigue pasando",
+  conBloque(sano([p("L1a", 0), p("L1b", 1)])) === null,
 );
 
 console.log("7 · lecturaCompat (resolución transitoria de la Fase A)");

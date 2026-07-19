@@ -87,7 +87,7 @@ export function ReactivoPreviewModal({
           {r.lecturaTitulo &&
             (r.lecturaId ? (
               <Link
-                href={`${basePath}/lecturas/${r.lecturaId}`}
+                href={`${basePath}/lecturas/${r.lecturaId}/editar`}
                 className="inline-flex w-fit items-center gap-1.5 rounded-full bg-unx-blue-tint px-3 py-1 text-small font-semibold text-unx-blue transition-colors hover:bg-unx-blue hover:text-white"
               >
                 <BookText className="size-3.5" aria-hidden />

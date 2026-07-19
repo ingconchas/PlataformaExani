@@ -41,6 +41,10 @@ const ADMIN = "mayra.admin@demo.unx.mx";
 
 const TITULO = "E2E LUI-17 lectura de prueba";
 const SEMBRADA = "El calentamiento global";
+// Bloque de DOS preguntas del fixture: la primera entra a los exámenes publicados y la
+// segunda queda apartada, así que su candado viene SOLO de la expansión al bloque.
+const BLOQUE = "El valor de la objecion en un debate";
+const HERMANA_LIBRE = "¿que funcion cumple una objecion";
 
 let ok = 0;
 let fallos = 0;
@@ -325,13 +329,15 @@ try {
   // Y ahora la segunda envía la SEXTA desde su drawer ya abierto: solo el servidor puede
   // rechazarla, porque el cliente creía que quedaba sitio.
   await enviarDrawer(page2);
+  // ⚠️ El mensaje se busca DENTRO del diálogo: en `body` pasaría aunque el error se
+  // pintara detrás del overlay, donde el usuario no puede verlo.
   const rechazo = await poller(page2)(async () =>
-    ((await page2.textContent("body")) ?? "").includes("como máximo"),
+    ((await drawer(page2).textContent().catch(() => "")) ?? "").includes("como máximo"),
   );
   check("⭐ el servidor rechaza la 6ª pregunta", rechazo);
   check(
-    "y el drawer sigue abierto con el error a la vista",
-    (await drawer(page2).count()) === 1,
+    "⭐ y el rechazo se ve DENTRO del drawer, no detrás del overlay",
+    ((await drawer(page2).textContent().catch(() => "")) ?? "").includes("como máximo"),
   );
   await page2.close();
   await page.reload();
@@ -346,6 +352,12 @@ try {
   const filaBanco = page.locator("tbody tr").first();
   const chip = filaBanco.getByRole("link", { name: /Lectura:/ });
   check("⭐ el chip «Lectura» es un ENLACE", (await chip.count()) === 1);
+  const hrefChip = (await chip.getAttribute("href")) ?? "";
+  check(
+    "⭐ y apunta a una ruta que EXISTE (/lecturas/{id}/editar)",
+    /^\/instructor\/lecturas\/[^/]+\/editar$/.test(hrefChip),
+    hrefChip,
+  );
   const lapiz = filaBanco.getByRole("link", { name: /^Editar en la lectura/ });
   check("⭐ el lápiz dice «Editar en la lectura»", (await lapiz.count()) === 1);
   const href = (await lapiz.getAttribute("href")) ?? "";
@@ -359,8 +371,12 @@ try {
     (await filaBanco.getByRole("link", { name: /^Editar el reactivo/ }).count()) === 0,
   );
   await chip.click();
-  await page.waitForURL(/\/instructor\/lecturas\/[^/]+$/, { timeout: 15_000 });
-  check("⭐ el chip navega a su lectura", /\/lecturas\//.test(page.url()));
+  // ⚠️ No basta con que la URL contenga «/lecturas/»: hay que exigir CONTENIDO POSITIVO de
+  // la página destino. Sin esto, un enlace a una ruta inexistente pasaría la prueba.
+  const cargo = await esperar(async () =>
+    (await page.getByLabel("Título de la lectura").count()) === 1,
+  );
+  check("⭐ el chip navega y la lectura CARGA de verdad", cargo, page.url());
 
   console.log("\n10 · ⭐ Mover la lectura de subtema mueve el BLOQUE (contadores)");
   const ctxAdmin = await navegador.newContext();
@@ -417,7 +433,55 @@ try {
     ((await filaLectura(page, TITULO).textContent()) ?? "").includes("Incompleta"),
   );
 
-  console.log("\n12 · Lectura ajena: solo lectura");
+  console.log("\n12 · ⭐ CANDADO DE BLOQUE: una pregunta comprometida congela a sus hermanas");
+  // La lectura del fixture tiene 2 preguntas y SOLO la primera está en un examen publicado
+  // con asignación. Si el candado no se expandiera, la hermana se vería editable.
+  await page.goto(`${BASE}/instructor/lecturas`);
+  await esperar(async () => (await filaLectura(page, BLOQUE).count()) === 1);
+  check(
+    "la lectura del bloque se marca «En uso»",
+    ((await filaLectura(page, BLOQUE).textContent()) ?? "").includes("En uso"),
+  );
+  await filaLectura(page, BLOQUE)
+    .getByRole("link", { name: /^Editar la lectura/ })
+    .click();
+  await esperar(async () => (await preguntas(page).count()) === 2);
+  check(
+    "el formulario avisa de que el bloque está congelado",
+    ((await page.textContent("body")) ?? "").includes("bloque completo está congelado"),
+  );
+  check(
+    "⭐ no ofrece «Agregar pregunta»",
+    (await page.getByRole("button", { name: "Agregar pregunta" }).count()) === 0,
+  );
+  check(
+    "⭐ ni flechas de reordenamiento",
+    (await page.getByRole("button", { name: /^Subir la pregunta/ }).count()) === 0,
+  );
+  check(
+    "⭐ ni «Guardar cambios»",
+    (await page.getByRole("button", { name: "Guardar cambios" }).count()) === 0,
+  );
+  check(
+    "pero SÍ deja desactivar (única operación permitida bajo candado)",
+    (await page.getByRole("button", { name: "Desactivar" }).count()) > 0,
+  );
+  // Y en el banco, la HERMANA —que no está en ningún examen— debe mostrar candado.
+  await page.goto(`${BASE}/instructor/reactivos`);
+  await esperar(async () => (await page.locator("tbody tr").count()) > 0);
+  await page.getByPlaceholder("Buscar en el enunciado…").fill(HERMANA_LIBRE);
+  await esperar(async () => (await page.locator("tbody tr").count()) === 1);
+  const filaHermana = page.locator("tbody tr").first();
+  check(
+    "⭐ la HERMANA (en ningún examen) muestra CANDADO, no lápiz",
+    (await filaHermana.getByRole("link", { name: /^En uso en un examen activo/ }).count()) === 1,
+  );
+  check(
+    "⭐ y no ofrece «Editar en la lectura»",
+    (await filaHermana.getByRole("link", { name: /^Editar en la lectura/ }).count()) === 0,
+  );
+
+  console.log("\n13 · Lectura ajena: solo lectura");
   await filaLectura(page, SEMBRADA)
     .getByRole("link", { name: /^Editar la lectura/ })
     .count()

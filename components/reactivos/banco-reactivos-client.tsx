@@ -283,7 +283,7 @@ export function BancoReactivosClient({ basePath }: { basePath: string }) {
         {r.tieneLectura &&
           (r.lecturaId ? (
             <Link
-              href={`${basePath}/lecturas/${r.lecturaId}`}
+              href={`${basePath}/lecturas/${r.lecturaId}/editar`}
               className="mt-1 inline-flex w-fit items-center gap-1 rounded-full bg-unx-blue-tint px-2 py-0.5 text-caption font-semibold text-unx-blue transition-colors hover:bg-unx-blue hover:text-white"
             >
               <BookText className="size-3" aria-hidden />
@@ -321,21 +321,33 @@ export function BancoReactivosClient({ basePath }: { basePath: string }) {
             rechaza estos reactivos server-side, así que mandar aquí al formulario genérico
             solo llevaría a un callejón. Ojo: al cambiar la etiqueta, estas filas dejan de
             casar con el locator `/^Editar el reactivo/` de `e2e-lui14`, que es lo deseado. */}
+        {/* ⚠️ El CANDADO manda sobre el destino: si el reactivo está congelado hay que
+            mostrar el candado aunque pertenezca a un bloque. `enUso` ya viene expandido, así
+            que las HERMANAS de una pregunta comprometida también lo muestran — que es la
+            señal visual que promete la expansión del candado. */}
         {r.esEditable &&
-          (r.lecturaId ? (
+          (bloqueados.has(r.id) ? (
+            <IconBtn
+              label={
+                r.lecturaId
+                  ? `En uso en un examen activo · abrir la lectura «${r.lecturaTitulo ?? ""}» para desactivar`
+                  : `En uso en un examen activo · abrir «${truncar(r.enunciado, 40)}» para desactivar`
+              }
+              href={
+                r.lecturaId
+                  ? `${basePath}/lecturas/${r.lecturaId}/editar`
+                  : `${basePath}/reactivos/${r.id}/editar`
+              }
+            >
+              <Lock className="size-[17px]" aria-hidden />
+            </IconBtn>
+          ) : r.lecturaId ? (
             <IconBtn
               label={`Editar en la lectura «${r.lecturaTitulo ?? ""}»`}
               className="text-unx-blue"
               href={`${basePath}/lecturas/${r.lecturaId}/editar`}
             >
               <Pencil className="size-[17px]" aria-hidden />
-            </IconBtn>
-          ) : bloqueados.has(r.id) ? (
-            <IconBtn
-              label={`En uso en un examen activo · abrir «${truncar(r.enunciado, 40)}» para desactivar`}
-              href={`${basePath}/reactivos/${r.id}/editar`}
-            >
-              <Lock className="size-[17px]" aria-hidden />
             </IconBtn>
           ) : (
             <IconBtn

@@ -550,6 +550,7 @@ function Formulario({
           tituloLectura={titulo || "Lectura sin título"}
           inicial={preguntaDeDestino()}
           guardando={enviando}
+          errorServidor={error}
           onGuardar={guardarPregunta}
           onCerrar={() => setDestino({ tipo: "cerrado" })}
         />

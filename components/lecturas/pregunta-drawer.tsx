@@ -50,6 +50,7 @@ export function PreguntaDrawer({
   tituloLectura,
   inicial,
   guardando,
+  errorServidor,
   onGuardar,
   onCerrar,
 }: {
@@ -57,6 +58,9 @@ export function PreguntaDrawer({
   tituloLectura: string;
   inicial: PreguntaInicial | null;
   guardando: boolean;
+  /** Rechazo del servidor. Se pinta AQUÍ dentro y no en el formulario padre: su `<Alert>`
+   *  queda detrás del overlay, así que el usuario vería el panel sin explicación. */
+  errorServidor: string | null;
   onGuardar: (p: PreguntaEnviada) => void;
   onCerrar: () => void;
 }) {
@@ -180,7 +184,9 @@ export function PreguntaDrawer({
           onChange={setDificultad}
         />
 
-        {error && <Alert kind="error">{error}</Alert>}
+        {(error ?? errorServidor) && (
+          <Alert kind="error">{error ?? errorServidor}</Alert>
+        )}
       </div>
     </Modal>
   );

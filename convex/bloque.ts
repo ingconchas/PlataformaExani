@@ -145,6 +145,21 @@ export type ReactivoDeExamen = {
 };
 
 /**
+ * Lo que los helpers necesitan saber de una LECTURA referenciada, ya cargada.
+ *
+ * ⚠️ `existe` es un campo propio y no «el mapa tiene entrada»: el índice `by_bloque` encuentra
+ * las preguntas huérfanas de una lectura borrada, así que el envoltorio construye una entrada
+ * NO vacía para ellas. Sin este campo, una lectura fantasma pasaría la frontera.
+ */
+export type BloqueDeLectura = {
+  existe: boolean;
+  preguntas: PreguntaOrdenable[];
+  activas: number;
+  lecturaActiva: boolean;
+  clasificacionDisponible: boolean;
+};
+
+/**
  * Expande una lista de ids de examen para que **cada bloque referenciado entre COMPLETO y en
  * su orden**, conservando el orden relativo del examen: las preguntas sueltas no se mueven, y
  * cada bloque aparece en la posición donde apareció su primera pregunta.
@@ -155,7 +170,7 @@ export type ReactivoDeExamen = {
 export function expandirBloquesPuro(
   ids: string[],
   porId: Map<string, ReactivoDeExamen>,
-  bloquePorLectura: Map<string, PreguntaOrdenable[]>,
+  bloquePorLectura: Map<string, BloqueDeLectura>,
 ): string[] {
   const salida: string[] = [];
   const puestos = new Set<string>();
@@ -177,7 +192,7 @@ export function expandirBloquesPuro(
     }
     if (bloquesPuestos.has(r.bloque.lecturaId)) continue; // ya se volcó entero
     bloquesPuestos.add(r.bloque.lecturaId);
-    const hermanas = bloquePorLectura.get(r.bloque.lecturaId) ?? [];
+    const hermanas = bloquePorLectura.get(r.bloque.lecturaId)?.preguntas ?? [];
     for (const h of [...hermanas].sort(porOrdenDeBloque)) {
       if (puestos.has(h._id)) continue;
       salida.push(h._id);
@@ -197,7 +212,7 @@ export function expandirBloquesPuro(
 export function validarBloquesCompletosPuro(
   ids: string[],
   porId: Map<string, ReactivoDeExamen>,
-  bloquePorLectura: Map<string, PreguntaOrdenable[]>,
+  bloquePorLectura: Map<string, BloqueDeLectura>,
 ): string | null {
   const vistos = new Set<string>();
   for (const id of ids) {
@@ -214,9 +229,25 @@ export function validarBloquesCompletosPuro(
   }
 
   for (const lecturaId of lecturas) {
-    const hermanas = bloquePorLectura.get(lecturaId);
-    if (!hermanas || hermanas.length === 0)
+    const b = bloquePorLectura.get(lecturaId);
+    // ⚠️ `existe` explícito: el índice `by_bloque` SÍ encuentra las preguntas de una lectura
+    // borrada, así que «hay entrada en el mapa» no prueba que la lectura siga ahí.
+    if (!b || !b.existe || b.preguntas.length === 0)
       return "Una pregunta apunta a una lectura que ya no existe.";
+    const hermanas = b.preguntas;
+
+    // ⚠️ ELEGIBILIDAD. Sin esto, la frontera aceptaría exactamente lo que el listado marca
+    // «Incompleta»: un bloque de una sola pregunta, una pregunta inactiva, la lectura
+    // desactivada o su clasificación retirada. El filtro de la UI NO es una frontera.
+    if (
+      !lecturaPublicable({
+        preguntas: hermanas.length,
+        activas: b.activas,
+        lecturaActiva: b.lecturaActiva,
+        clasificacionDisponible: b.clasificacionDisponible,
+      })
+    )
+      return `Una lectura del examen no está lista para publicarse: necesita entre ${MIN_PREGUNTAS} y ${MAX_PREGUNTAS} preguntas activas, estar activa y colgar de una rama vigente del temario.`;
 
     // El `orden` persistido tiene que ser denso 0..n-1 y sin empates.
     const ordenes = [...hermanas.map((h) => h.orden)].sort((a, b) => a - b);
