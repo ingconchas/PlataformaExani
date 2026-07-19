@@ -11,6 +11,7 @@
     "test:sanitizar": "tsx scripts/test-sanitizar.ts",
     "test:material": "tsx scripts/test-material.ts",
     "test:bloque": "tsx scripts/test-bloque.ts",
+    "test:examenes": "tsx scripts/test-examenes.ts",
     "test:imagenes": "node scripts/test-imagenes.mjs",
     "e2e:lui9": "node scripts/e2e-lui9.mjs",
     "e2e:lui14": "node scripts/e2e-lui14.mjs",

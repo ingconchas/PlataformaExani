@@ -2,6 +2,7 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { authTables } from "@convex-dev/auth/server";
 import { materialValidator } from "./material";
+import { estadoExamenValidator, tipoExamenValidator } from "./examenEstado";
 
 /**
  * Modelo de datos inicial — Plataforma Exani II (UNX Simuladores).
@@ -289,16 +290,33 @@ export default defineSchema({
     .index("by_imagen", ["imagenId"]),
 
   // Exámenes armados con el constructor (conjunto ordenado de reactivos).
+  //
+  // ⚠️ FASE A de LUI-20 (superset forward-only, misma disciplina que LUI-17 y `DEPLOY.md`).
+  // `estado` ENSANCHA su unión y `tipo` entra OPCIONAL: el schema desplegado acepta todo lo
+  // que aceptaba antes, así que sigue siendo revertible MIENTRAS ningún documento lleve
+  // datos nuevos — y en la Fase A ninguna mutation los escribe. La Fase C lo endurece
+  // (`tipo` requerido, tras backfill).
   examenes: defineTable({
     titulo: v.string(),
     descripcion: v.optional(v.string()),
     reactivoIds: v.array(v.id("reactivos")),
     duracionMin: v.number(),
-    estado: v.union(v.literal("borrador"), v.literal("publicado")),
+    // La unión NO se declara aquí: es `examenEstado.estadoExamenValidator`. Duplicarla haría
+    // que añadir un cuarto estado en este archivo no rompiera el `Record<EstadoExamen,…>` de
+    // `CONGELA`, y el candado se olvidaría en silencio — el bug que LUI-20 vino a corregir.
+    estado: estadoExamenValidator,
+    // Simulacro general vs examen de módulo. AUSENTE = «general» (legado). Ver el docblock
+    // de `tipoExamenValidator` para por qué es almacenado, discriminado y por id.
+    tipo: v.optional(tipoExamenValidator),
     autorId: v.id("users"),
   })
     .index("by_autor", ["autorId"])
-    .index("by_estado", ["estado"]),
+    .index("by_estado", ["estado"])
+    // Sonda O(1) de `temario.eliminar`: «¿algún examen es de ESTA sección?». Sin ella, borrar
+    // una sección de módulo sin reactivos ni lecturas dejaría el chip apuntando a un
+    // fantasma. Campo ANIDADO y opcional, igual que `reactivos.by_bloque`; los documentos sin
+    // `tipo` o de clase `general` se indexan como `undefined` y jamás se consultan.
+    .index("by_tipo_seccion", ["tipo.seccionId"]),
 
   // Asignación de un examen a un grupo, con ventana de aplicación.
   asignaciones: defineTable({
@@ -330,7 +348,12 @@ export default defineSchema({
   })
     .index("by_alumno", ["alumnoId"])
     .index("by_examen", ["examenId"])
-    .index("by_asignacion", ["asignacionId"]),
+    .index("by_asignacion", ["asignacionId"])
+    // «¿Este examen tiene resultados?» (LUI-20) en UNA lectura por examen: una sonda
+    // `.first()` sobre (examenId, "enviado"). `by_examen` a secas no sirve — no distingue un
+    // intento `en_curso` de uno `enviado`, y «tiene resultados» significa enviado.
+    // `intentos` es la tabla GRANDE (alumnas × exámenes): jamás se hace `.collect()`.
+    .index("by_examen_estado", ["examenId", "estado"]),
 
   // Respuesta por reactivo dentro de un intento.
   respuestas: defineTable({

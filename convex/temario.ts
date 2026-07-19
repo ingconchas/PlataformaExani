@@ -788,6 +788,21 @@ export const eliminar = mutation({
             `«${doc.nombre}» tiene lecturas asociadas; desactívala en vez de eliminarla.`,
           );
         }
+        // ⚠️ Un EXAMEN DE MÓDULO (LUI-20) referencia esta sección por id en `tipo.seccionId`,
+        // y es invisible a las dos sondas de arriba: puede no tener ni un solo reactivo ni
+        // lectura de esta sección (un borrador vacío ya tiene tipo). Sin esta tercera sonda,
+        // borrar el módulo dejaría el chip del examen apuntando a un fantasma. Es la frontera
+        // que acompaña a la decisión de guardar el ID y no el NOMBRE — la que hace que
+        // renombrar la sección actualice el chip solo. O(1) por `by_tipo_seccion`.
+        const examenDeModulo = await ctx.db
+          .query("examenes")
+          .withIndex("by_tipo_seccion", (q) => q.eq("tipo.seccionId", id))
+          .first();
+        if (examenDeModulo) {
+          throw new ConvexError(
+            `«${doc.nombre}» tiene exámenes de módulo asociados; desactívala en vez de eliminarla.`,
+          );
+        }
         const areas = await ctx.db
           .query("areasTematicas")
           .withIndex("by_seccion_orden", (q) => q.eq("seccionId", id))
