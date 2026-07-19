@@ -4,6 +4,7 @@ import {
   Layers,
   Shield,
   BookOpen,
+  BookText,
   ClipboardList,
   FileQuestion,
   FileCheck,
@@ -23,10 +24,11 @@ export const adminNav: NavItem[] = [
   { label: "Usuarios y permisos", href: "/admin/usuarios", icon: Shield },
   { label: "Temario", href: "/admin/temario", icon: BookOpen },
   { label: "Banco de reactivos", href: "/admin/reactivos", icon: FileQuestion },
+  { label: "Lecturas", href: "/admin/lecturas", icon: BookText },
   { label: "Resumen de exámenes", href: "/admin/examenes", icon: ClipboardList },
 ];
-// ⚠️ «Banco de reactivos» va en el menú pero NO en `EXTRAS_SHORTCUT`: los accesos
-// directos del panel (LUI-9) se derivan por `flatMap` y `e2e-lui9` aserta que son
+// ⚠️ «Banco de reactivos» y «Lecturas» van en el menú pero NO en `EXTRAS_SHORTCUT`: los
+// accesos directos del panel (LUI-9) se derivan por `flatMap` y `e2e-lui9` aserta que son
 // EXACTAMENTE 5. Una entrada de shortcut aquí los volvería 6 y rompería esa prueba.
 
 export type ShortcutItem = NavItem & { description: string; tone: Tone };
@@ -67,6 +69,7 @@ export const adminShortcuts: ShortcutItem[] = adminNav.flatMap((item) => {
 export const instructorNav: NavItem[] = [
   { label: "Inicio", href: "/instructor", icon: Home },
   { label: "Banco de reactivos", href: "/instructor/reactivos", icon: FileQuestion },
+  { label: "Lecturas", href: "/instructor/lecturas", icon: BookText },
   { label: "Exámenes", href: "/instructor/examenes", icon: FileCheck },
 ];
 

@@ -27,7 +27,6 @@ import {
 } from "@/components/ui/difficulty-meter";
 import { Label } from "@/components/ui/input";
 import { RichTextEditor } from "@/components/ui/rich-text-editor";
-import { Select } from "@/components/ui/select";
 import { ImageUpload } from "@/components/ui/image-upload";
 import { Tabs } from "@/components/ui/tabs";
 import { aTextoPlano, sanear } from "@/convex/sanitizar";
@@ -41,6 +40,7 @@ import {
 import { cn } from "@/lib/utils";
 import { CLASE_RICO } from "./clase-rico";
 import { MaterialReactivo } from "./material-reactivo";
+import { SelectorClasificacion } from "@/components/temario/selector-clasificacion";
 import {
   EditorOpciones,
   LETRAS,
@@ -320,48 +320,6 @@ function Formulario({
   // Bloqueo del submit mientras sube una imagen: guardar sin el `storageId` persistiría el
   // reactivo SIN imagen y dejaría el blob huérfano.
   const ocupado = enviando || subiendoImagen;
-
-  // ── Cascada de clasificación (disponible + tolera la cadena actual retirada) ──
-  const secciones = temario.filter((f) => f.nivel === 1);
-  const areas = temario.filter(
-    (f): f is Extract<FilaTemario, { nivel: 2 }> => f.nivel === 2,
-  );
-  const subtemas = temario.filter(
-    (f): f is Extract<FilaTemario, { nivel: 3 }> => f.nivel === 3,
-  );
-  const opcionesDe = (
-    nodos: { id: string; nombre: string; disponible: boolean }[],
-    actualId: string,
-  ) =>
-    nodos
-      .filter((n) => n.disponible || n.id === actualId)
-      .map((n) => ({
-        value: n.id,
-        label: n.disponible ? n.nombre : `${n.nombre} (retirado)`,
-      }));
-
-  const opcSeccion = [
-    { value: "", label: "Elige una sección" },
-    ...opcionesDe(secciones, seccionId),
-  ];
-  const opcArea = seccionId
-    ? [
-        { value: "", label: "Elige un área" },
-        ...opcionesDe(
-          areas.filter((a) => a.seccionId === seccionId),
-          areaId,
-        ),
-      ]
-    : [{ value: "", label: "Elige una sección primero" }];
-  const opcSubtema = areaId
-    ? [
-        { value: "", label: "Elige un subtema" },
-        ...opcionesDe(
-          subtemas.filter((s) => s.areaId === areaId),
-          subtemaId,
-        ),
-      ]
-    : [{ value: "", label: "Elige un área primero" }];
 
   // ── Editor de opciones (POSICIONAL: la correcta se rastrea por índice) ────────
   const setOpcionTexto = (i: number, texto: string) => {
@@ -706,41 +664,19 @@ function Formulario({
         </div>
 
         {/* Clasificación */}
-        <div className="grid gap-3 sm:grid-cols-3">
-          <Select
-            label="Sección"
-            options={opcSeccion}
-            value={seccionId}
-            disabled={camposDeshabilitados}
-            onChange={(e) => {
-              setSeccionId(e.target.value);
-              setAreaId("");
-              setSubtemaId("");
-              tocar();
-            }}
-          />
-          <Select
-            label="Área temática"
-            options={opcArea}
-            value={areaId}
-            disabled={camposDeshabilitados || !seccionId}
-            onChange={(e) => {
-              setAreaId(e.target.value);
-              setSubtemaId("");
-              tocar();
-            }}
-          />
-          <Select
-            label="Subtema"
-            options={opcSubtema}
-            value={subtemaId}
-            disabled={camposDeshabilitados || !areaId}
-            onChange={(e) => {
-              setSubtemaId(e.target.value);
-              tocar();
-            }}
-          />
-        </div>
+        <SelectorClasificacion
+          temario={temario}
+          seccionId={seccionId}
+          areaId={areaId}
+          subtemaId={subtemaId}
+          disabled={camposDeshabilitados}
+          onChange={(v) => {
+            setSeccionId(v.seccionId);
+            setAreaId(v.areaId);
+            setSubtemaId(v.subtemaId);
+            tocar();
+          }}
+        />
 
         {/* Dificultad */}
         <SelectorDificultad

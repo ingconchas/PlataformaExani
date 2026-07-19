@@ -2,6 +2,7 @@
 
 import { useConvexAuth, useQuery } from "convex/react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { BookText, Check } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { Badge } from "@/components/ui/badge";
@@ -47,11 +48,20 @@ export function ReactivoPreviewModal({
           <Button variant="secondary" onClick={onClose}>
             Cerrar
           </Button>
+          {/* Puerta única: si la pregunta pertenece a un bloque, «Editar» lleva a su lectura
+              (LUI-17). `enUso` ya viene con el candado EXPANDIDO al bloque, así que una
+              hermana de una pregunta comprometida tampoco ofrece editar. */}
           {r && r.esEditable && !r.enUso && (
             <Button
-              onClick={() => router.push(`${basePath}/reactivos/${r.id}/editar`)}
+              onClick={() =>
+                router.push(
+                  r.lecturaId
+                    ? `${basePath}/lecturas/${r.lecturaId}/editar`
+                    : `${basePath}/reactivos/${r.id}/editar`,
+                )
+              }
             >
-              Editar
+              {r.lecturaId ? "Editar en la lectura" : "Editar"}
             </Button>
           )}
         </>
@@ -74,12 +84,21 @@ export function ReactivoPreviewModal({
             {r.autorNombre}
           </p>
 
-          {r.lecturaTitulo && (
-            <p className="inline-flex w-fit items-center gap-1.5 rounded-full bg-unx-blue-tint px-3 py-1 text-small font-semibold text-unx-blue">
-              <BookText className="size-3.5" aria-hidden />
-              Lectura: {r.lecturaTitulo}
-            </p>
-          )}
+          {r.lecturaTitulo &&
+            (r.lecturaId ? (
+              <Link
+                href={`${basePath}/lecturas/${r.lecturaId}`}
+                className="inline-flex w-fit items-center gap-1.5 rounded-full bg-unx-blue-tint px-3 py-1 text-small font-semibold text-unx-blue transition-colors hover:bg-unx-blue hover:text-white"
+              >
+                <BookText className="size-3.5" aria-hidden />
+                Lectura: {r.lecturaTitulo}
+              </Link>
+            ) : (
+              <p className="inline-flex w-fit items-center gap-1.5 rounded-full bg-unx-blue-tint px-3 py-1 text-small font-semibold text-unx-blue">
+                <BookText className="size-3.5" aria-hidden />
+                Lectura: {r.lecturaTitulo}
+              </p>
+            ))}
 
           {r.imagenUrl && (
             // eslint-disable-next-line @next/next/no-img-element -- URL de Convex storage; next/image exige configurar dominios

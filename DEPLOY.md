@@ -112,7 +112,11 @@ npx convex run seed:limpiarContenidoDemo '{"confirmar":"SOLO_DEV"}'   # reset de
 
 `bootstrap:crearAdminInicial` y `bootstrap:sembrarTemarioNucleo` **no** llevan guard: sí están diseñadas para prod.
 
-> ⚠️ **El schema de Convex se pushea DENTRO del build** (`convex deploy --cmd 'npm run build'`), o sea **antes** de que `next build` termine y de que Railway mueva el tráfico. Si el build falla después del push, **Convex prod se queda con el schema nuevo y el frontend viejo**, y revertir el merge **NO revierte el schema de Convex**. Todo cambio de schema debe ser compatible hacia atrás con el frontend que está desplegado durante esa ventana.
+> ⚠️ **Orden real de `convex deploy --cmd 'npm run build'`**, según la ayuda del CLI instalado: **1)** corre el `--cmd`, 2) typecheck, 3) regenera `_generated`, 4) empaqueta, **5) empuja funciones, índices y schema**; «si un paso falla, los siguientes no corren». O sea que **un `npm run build` fallido NO deja el schema nuevo publicado** — al contrario de lo que decía esta nota antes de LUI-17.
+>
+> La ventana que **sí** existe es la de **backend nuevo / frontend viejo**: entre el push del schema y el momento en que Railway mueve el tráfico, Convex ya sirve el código nuevo mientras los navegadores abiertos siguen con el bundle anterior. Todo cambio de schema debe ser compatible hacia atrás con ese frontend.
+>
+> ⚠️ **Revertir el merge NO revierte el schema de Convex.** En cuanto un cambio de schema recibe el primer dato, el schema anterior deja de aceptarlo y un redeploy del commit previo falla. Por eso un cambio de modelo grande va en **FASES**: primero un merge de **schema superset + las fronteras de seguridad** (forward-only), y después el comportamiento. Las guardas tienen que ir en la primera fase: si vivieran en la segunda, revertirla dejaría los datos nuevos a merced del backend viejo. Ejemplo trabajado: LUI-17 (Fase A, con `convex/lecturaCompat.ts`). **El commit de schema no se revierte nunca**; se revierten los de comportamiento.
 
 ## Correo transaccional (LUI-103, Entrega 2 — Resend)
 

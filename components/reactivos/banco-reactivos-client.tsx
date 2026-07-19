@@ -276,12 +276,25 @@ export function BancoReactivosClient({ basePath }: { basePath: string }) {
             </Badge>
           )}
         </div>
-        {r.tieneLectura && (
-          <span className="mt-1 inline-flex w-fit items-center gap-1 rounded-full bg-unx-blue-tint px-2 py-0.5 text-caption font-semibold text-unx-blue">
-            <BookText className="size-3" aria-hidden />
-            Lectura: {r.lecturaTitulo}
-          </span>
-        )}
+        {/* El chip es un ENLACE a su lectura (LUI-17): desde cualquier pregunta se llega al
+            pasaje. Cuando la referencia es INCONSISTENTE (`bloque` y el `lecturaId`
+            deprecado apuntan a lecturas distintas) el servidor ya suprime `lecturaId`, así
+            que no hay a dónde enlazar y se degrada a texto. */}
+        {r.tieneLectura &&
+          (r.lecturaId ? (
+            <Link
+              href={`${basePath}/lecturas/${r.lecturaId}`}
+              className="mt-1 inline-flex w-fit items-center gap-1 rounded-full bg-unx-blue-tint px-2 py-0.5 text-caption font-semibold text-unx-blue transition-colors hover:bg-unx-blue hover:text-white"
+            >
+              <BookText className="size-3" aria-hidden />
+              Lectura: {r.lecturaTitulo}
+            </Link>
+          ) : (
+            <span className="mt-1 inline-flex w-fit items-center gap-1 rounded-full bg-unx-blue-tint px-2 py-0.5 text-caption font-semibold text-unx-blue">
+              <BookText className="size-3" aria-hidden />
+              Lectura: {r.lecturaTitulo}
+            </span>
+          ))}
       </div>
     ),
     seccion: <span className="text-muted">{r.seccionNombre}</span>,
@@ -303,8 +316,21 @@ export function BancoReactivosClient({ basePath }: { basePath: string }) {
         >
           <Eye className="size-[17px]" aria-hidden />
         </IconBtn>
+        {/* PUERTA ÚNICA (LUI-17): una pregunta de bloque se edita DESDE su lectura, y su
+            `aria-label` lo dice. El destino distinto no es cosmético — `reactivos.actualizar`
+            rechaza estos reactivos server-side, así que mandar aquí al formulario genérico
+            solo llevaría a un callejón. Ojo: al cambiar la etiqueta, estas filas dejan de
+            casar con el locator `/^Editar el reactivo/` de `e2e-lui14`, que es lo deseado. */}
         {r.esEditable &&
-          (bloqueados.has(r.id) ? (
+          (r.lecturaId ? (
+            <IconBtn
+              label={`Editar en la lectura «${r.lecturaTitulo ?? ""}»`}
+              className="text-unx-blue"
+              href={`${basePath}/lecturas/${r.lecturaId}/editar`}
+            >
+              <Pencil className="size-[17px]" aria-hidden />
+            </IconBtn>
+          ) : bloqueados.has(r.id) ? (
             <IconBtn
               label={`En uso en un examen activo · abrir «${truncar(r.enunciado, 40)}» para desactivar`}
               href={`${basePath}/reactivos/${r.id}/editar`}

@@ -114,7 +114,9 @@ contenido usando el archivo de diseño en `design-reference/screens/`.
 | `/instructor` | 13-panel-instructor.html |
 | `/instructor/reactivos` | 14-banco-reactivos.html |
 | `/instructor/reactivos/nuevo` | 15-crear-reactivo.html |
+| `/instructor/lecturas` | listado de lecturas (LUI-17, sin mock propio) |
 | `/instructor/lecturas/nueva` | 16-crear-lectura.html |
+| `/instructor/lecturas/[id]/editar` | 16-crear-lectura.html |
 | `/instructor/examenes` | 17-examenes-instructor.html |
 | `/instructor/examenes/nuevo` | 18-constructor-examen.html |
 | `/instructor/examenes/[id]/asignar` | 19-asignar-examen.html |
