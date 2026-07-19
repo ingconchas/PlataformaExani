@@ -26,6 +26,7 @@ import {
   resolverLectura,
 } from "./lecturaCompat";
 import { consumirCuotas, CUOTAS, textoEspera } from "./cuotas";
+import { ESTADOS_QUE_CONGELAN } from "./examenEstado";
 
 type Ctx = QueryCtx | MutationCtx;
 
@@ -37,9 +38,10 @@ type Ctx = QueryCtx | MutationCtx;
  * enriquecidos y el cliente los recorta.
  *
  * Por qué el candado va en `enUso` y no dentro de `listar`: son dos presupuestos de
- * lectura INDEPENDIENTES (cada query ≤ 8 MiB). `listar` lee `reactivos`; `enUso` lee
- * los exámenes publicados. Además `enUso` no depende del usuario → misma respuesta
- * para todos, más cacheable.
+ * lectura INDEPENDIENTES (cada query tiene los suyos: 16 MiB leídos / 32 000
+ * documentos / 4 096 rangos). `listar` lee `reactivos`; `enUso` lee los exámenes
+ * COMPROMETIDOS (publicados y archivados, ver `calcularBloqueo`). Además `enUso` no
+ * depende del usuario → misma respuesta para todos, más cacheable.
  */
 
 /** Nombre visible de un perfil (mismo formato que `sesion.actual`). */
@@ -48,12 +50,21 @@ function nombreCompleto(p: Doc<"perfiles">): string {
 }
 
 /**
- * Los reactivos con edición BLOQUEADA: los que pertenecen a un examen **publicado
- * con al menos una asignación**. Regla del AC («publicado con asignaciones»,
- * congelamiento por compromiso del examen). NO se filtra por `abreEn`: una
- * asignación futura ya compromete el examen, así que basta su EXISTENCIA por
- * `by_examen` (distinto del `metricas.fueAplicada = abreEn <= ahora`, que es
- * «aplicado», no «comprometido»). Acotado por el número de exámenes publicados.
+ * Los reactivos con edición BLOQUEADA: los que pertenecen a un examen **cuyo estado
+ * COMPROMETE el contenido** (`examenEstado.CONGELA`) y que tiene **al menos una
+ * asignación**. Regla del AC (congelamiento por compromiso del examen). NO se filtra
+ * por `abreEn`: una asignación futura ya compromete el examen, así que basta su
+ * EXISTENCIA por `by_examen` (distinto del `metricas.fueAplicada = abreEn <= ahora`,
+ * que es «aplicado», no «comprometido»).
+ *
+ * ⚠️ **`archivado` congela igual que `publicado`** (LUI-20). Un examen archivado «conserva
+ * todo su historial de resultados», y esos resultados solo son interpretables si el contenido
+ * que los produjo no cambia. Si `archivado` hubiera entrado al schema sin tocar esta función,
+ * archivar un examen habría DESCONGELADO sus reactivos en silencio y la primera edición
+ * posterior corrompería intentos ya rendidos — una alumna con la revisión abierta vería un
+ * reactivo distinto del que contestó, sin un solo error en ningún lado. La lista sale de
+ * `ESTADOS_QUE_CONGELAN`, derivada de `CONGELA`, para que un estado futuro no exija tocar
+ * este archivo (y para que no compile hasta que alguien decida su semántica de candado).
  *
  * ⚠️ **El candado se PROPAGA AL BLOQUE COMPLETO** (LUI-17): si una sola pregunta de una
  * lectura está comprometida, se congelan TODAS sus hermanas y la lectura misma. El bloque es
@@ -61,24 +72,40 @@ function nombreCompleto(p: Doc<"perfiles">): string {
  * se congela. Sin esta expansión, editar el texto base con una pregunta ya asignada dejaría a
  * una alumna con un intento abierto leyendo un pasaje que ya no sustenta su pregunta.
  *
- * **Coste y peor caso.** Lecturas por llamada: E exámenes publicados + E sondas de asignación
- * + D reactivos comprometidos DISTINTOS + L lecturas afectadas. Con el tope de 32 000
- * documentos leídos por transacción el techo quedaría del orden de 350 exámenes publicados de
- * 90 reactivos — muy por encima de la escala de UNX, pero **no es gratis**: `obtener` lo
- * invoca en CADA preview del banco. Los `get` y las sondas van en paralelo, lo que recorta la
- * latencia pero NO el número de lecturas; si algún día pesa, la salida estructural es
+ * **Coste y peor caso.** Lecturas por llamada: (E_publicados + E_archivados) exámenes + otras
+ * tantas sondas de asignación + D reactivos comprometidos DISTINTOS + L lecturas afectadas.
+ * El aumento de sondas respecto de mirar solo `publicado` es INTRÍNSECO: para saber si un
+ * archivado tiene asignaciones hay que preguntarlo. Aun así **nunca se lee más que un
+ * `.collect()` de la tabla, y casi siempre menos**, porque los BORRADORES —el conjunto sucio
+ * y sin cota: cada examen a medio armar que alguien abandonó vive ahí para siempre— no
+ * contribuyen jamás al candado.
+ *
+ * **No es gratis**: `obtener` lo invoca en CADA preview del banco. Los límites por
+ * transacción son 16 MiB leídos / 32 000 documentos / 4 096 rangos, y `.collect()` lee
+ * documentos COMPLETOS, así que el techo real depende del tamaño del contenido y no se puede
+ * expresar como un número de exámenes. Los `get` y las sondas van en paralelo, lo que recorta
+ * la latencia pero NO el número de lecturas; si algún día pesa, la salida estructural es
  * denormalizar la pertenencia (un campo mantenido al publicar/asignar) en vez de derivarla.
  */
 export async function calcularBloqueo(ctx: Ctx): Promise<{
   reactivos: Set<Id<"reactivos">>;
   lecturas: Set<Id<"lecturas">>;
 }> {
-  const publicados = await ctx.db
-    .query("examenes")
-    .withIndex("by_estado", (q) => q.eq("estado", "publicado"))
-    .collect();
+  // Dos consultas y no un `.collect()` filtrado: `by_estado` es un índice de IGUALDAD (no
+  // admite `in`), y cada `.collect()` indexado lee EXACTAMENTE los documentos que hacen
+  // match. Van en un `Promise.all` — una sola transacción, dos viajes; Convex cobra y limita
+  // por documentos leídos, no por número de escaneos.
+  const porEstado = await Promise.all(
+    ESTADOS_QUE_CONGELAN.map((estado) =>
+      ctx.db
+        .query("examenes")
+        .withIndex("by_estado", (q) => q.eq("estado", estado))
+        .collect(),
+    ),
+  );
+  const comprometidos = porEstado.flat();
   const asignados = await Promise.all(
-    publicados.map((examen) =>
+    comprometidos.map((examen) =>
       ctx.db
         .query("asignaciones")
         .withIndex("by_examen", (q) => q.eq("examenId", examen._id))
@@ -86,8 +113,8 @@ export async function calcularBloqueo(ctx: Ctx): Promise<{
     ),
   );
   const reactivos = new Set<Id<"reactivos">>();
-  publicados.forEach((examen, i) => {
-    if (!asignados[i]) return; // publicado SIN asignaciones → no bloquea
+  comprometidos.forEach((examen, i) => {
+    if (!asignados[i]) return; // comprometido SIN asignaciones → no bloquea
     for (const rid of examen.reactivoIds) reactivos.add(rid);
   });
 

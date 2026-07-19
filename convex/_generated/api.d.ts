@@ -18,6 +18,7 @@ import type * as credenciales from "../credenciales.js";
 import type * as crons from "../crons.js";
 import type * as cuotas from "../cuotas.js";
 import type * as entorno from "../entorno.js";
+import type * as examenEstado from "../examenEstado.js";
 import type * as fechas from "../fechas.js";
 import type * as grupos from "../grupos.js";
 import type * as http from "../http.js";
@@ -58,6 +59,7 @@ declare const fullApi: ApiFromModules<{
   crons: typeof crons;
   cuotas: typeof cuotas;
   entorno: typeof entorno;
+  examenEstado: typeof examenEstado;
   fechas: typeof fechas;
   grupos: typeof grupos;
   http: typeof http;
