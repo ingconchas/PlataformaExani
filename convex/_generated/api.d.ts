@@ -23,6 +23,7 @@ import type * as http from "../http.js";
 import type * as imagenes from "../imagenes.js";
 import type * as instructores from "../instructores.js";
 import type * as invitaciones from "../invitaciones.js";
+import type * as lecturaCompat from "../lecturaCompat.js";
 import type * as material from "../material.js";
 import type * as metricas from "../metricas.js";
 import type * as panel from "../panel.js";
@@ -60,6 +61,7 @@ declare const fullApi: ApiFromModules<{
   imagenes: typeof imagenes;
   instructores: typeof instructores;
   invitaciones: typeof invitaciones;
+  lecturaCompat: typeof lecturaCompat;
   material: typeof material;
   metricas: typeof metricas;
   panel: typeof panel;

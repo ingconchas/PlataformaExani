@@ -721,6 +721,17 @@ export const eliminar = mutation({
             `«${doc.nombre}» tiene reactivos asociados; desactívalo en vez de eliminarlo.`,
           );
         }
+        // ⚠️ Una LECTURA sin preguntas (LUI-17) es invisible a la sonda de reactivos:
+        // borrar el subtema la dejaría apuntando a un fantasma. Sonda propia, O(1).
+        const lectura = await ctx.db
+          .query("lecturas")
+          .withIndex("by_subtema", (q) => q.eq("subtemaId", id))
+          .first();
+        if (lectura) {
+          throw new ConvexError(
+            `«${doc.nombre}» tiene lecturas asociadas; desactívalo en vez de eliminarlo.`,
+          );
+        }
         await ctx.db.delete(id);
         return { eliminado: true };
       }
@@ -735,6 +746,15 @@ export const eliminar = mutation({
         if (reactivo) {
           throw new ConvexError(
             `«${doc.nombre}» tiene reactivos asociados; desactívala en vez de eliminarla.`,
+          );
+        }
+        const lecturaArea = await ctx.db
+          .query("lecturas")
+          .withIndex("by_area", (q) => q.eq("areaId", id))
+          .first();
+        if (lecturaArea) {
+          throw new ConvexError(
+            `«${doc.nombre}» tiene lecturas asociadas; desactívala en vez de eliminarla.`,
           );
         }
         // Cascada: sus subtemas están garantizados sin reactivos por la sonda de área.
@@ -757,6 +777,15 @@ export const eliminar = mutation({
         if (reactivo) {
           throw new ConvexError(
             `«${doc.nombre}» tiene reactivos asociados; desactívala en vez de eliminarla.`,
+          );
+        }
+        const lecturaSeccion = await ctx.db
+          .query("lecturas")
+          .withIndex("by_seccion", (q) => q.eq("seccionId", id))
+          .first();
+        if (lecturaSeccion) {
+          throw new ConvexError(
+            `«${doc.nombre}» tiene lecturas asociadas; desactívala en vez de eliminarla.`,
           );
         }
         const areas = await ctx.db

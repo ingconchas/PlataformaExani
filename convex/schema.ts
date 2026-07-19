@@ -169,11 +169,41 @@ export default defineSchema({
   }).index("by_area_orden", ["areaId", "orden"]),
 
   // Lecturas: pasajes que agrupan varios reactivos.
+  // Lecturas: pasajes que agrupan un BLOQUE de reactivos contiguo y ordenado (LUI-17).
+  //
+  // ⚠️ FASE A (capa de compatibilidad forward-only). Los campos nuevos entran como
+  // OPCIONALES y `reactivos.lecturaId` sigue vivo, para que este schema sea un SUPERSET
+  // del anterior: así, si hubiera que revertir el comportamiento de LUI-17 después de que
+  // alguien creara lecturas, el schema desplegado sigue aceptando los datos escritos. Las
+  // mutations son la autoridad de obligatoriedad mientras tanto. La Fase C (entrega
+  // posterior, tras rodaje en prod) los pasa a requeridos y retira `lecturaId`/`by_lectura`.
   lecturas: defineTable({
-    titulo: v.string(),
-    contenido: v.string(),
+    titulo: v.string(), // TEXTO PLANO, nunca HTML
+    contenido: v.string(), // texto base, HTML saneado
+    // Mismo contrato que `reactivos.contenidoFormato`: AUSENTE = texto plano LEGADO.
+    contenidoFormato: v.optional(v.literal("html")),
+    // Clasificación DERIVADA de `subtemaId` con `temario.resolverClasificacion`; NUNCA se
+    // acepta la terna del cliente (misma razón que en `reactivos`, más abajo). Es la ÚNICA
+    // fuente de la clasificación de TODO el bloque: sus preguntas la copian, no la eligen.
+    seccionId: v.optional(v.id("secciones")),
+    areaId: v.optional(v.id("areasTematicas")),
+    subtemaId: v.optional(v.id("subtemas")),
+    // DEFAULT que prellena el drawer; cada pregunta conserva la suya y puede ajustarla.
+    dificultad: v.optional(
+      v.union(v.literal("facil"), v.literal("medio"), v.literal("dificil")),
+    ),
+    // Autoridad de permisos TAMBIÉN de sus preguntas: una pregunta de bloque hereda el
+    // autor de su lectura, para que `esEditable` no pueda discrepar entre las dos.
     autorId: v.id("users"),
-  }).index("by_autor", ["autorId"]),
+    activo: v.optional(v.boolean()),
+  })
+    .index("by_autor", ["autorId"])
+    // Los TRES niveles: el gate de borrado de `temario.eliminar` sondea por subtema, área
+    // Y sección. Con solo `by_subtema`, borrar un área o una sección dejaría colgando una
+    // lectura SIN preguntas (invisible a la sonda de `reactivos`).
+    .index("by_subtema", ["subtemaId"])
+    .index("by_area", ["areaId"])
+    .index("by_seccion", ["seccionId"]),
 
   // Banco de reactivos (preguntas de opción múltiple).
   reactivos: defineTable({
@@ -203,7 +233,22 @@ export default defineSchema({
       v.literal("medio"),
       v.literal("dificil"),
     ),
+    // ⚠️ DEPRECADO (LUI-17 Fase A): lo sustituye `bloque`, que lleva la pertenencia Y el
+    // orden juntos. Se conserva sin escritor durante esta fase para que el schema sea un
+    // superset revertible; la Fase C lo retira junto con `by_lectura`.
     lecturaId: v.optional(v.id("lecturas")),
+    // Pertenencia a un BLOQUE de lectura (LUI-17). El campo ES la pertenencia y el orden:
+    // no hay un `lecturaId` suelto ni un `orden` suelto. Dos campos admitirían «orden zombi
+    // sin lectura» y «pregunta en un bloque sin posición» — el mismo estado ilegal que se
+    // eliminó en LUI-16 al hacer que `material` FUERA la presentación. AUSENTE = reactivo
+    // LIBRE del banco.
+    //
+    // `orden` es 0..n-1 y se RENUMERA densamente en cada escritura: un `.index()` de Convex
+    // NO es constraint único, así que empates y huecos son representables y solo la
+    // disciplina de escritura (más el desempate estable al leer) los mantiene fuera.
+    bloque: v.optional(
+      v.object({ lecturaId: v.id("lecturas"), orden: v.number() }),
+    ),
     imagenId: v.optional(v.id("_storage")), // imagen opcional (Convex file storage)
     retroalimentacion: v.optional(v.string()),
     // Formato del enunciado/explicación (LUI-15 E2): "html" = HTML saneado; AUSENTE =
@@ -235,7 +280,9 @@ export default defineSchema({
     .index("by_seccion", ["seccionId"])
     .index("by_area", ["areaId"])
     .index("by_subtema", ["subtemaId"])
-    .index("by_lectura", ["lecturaId"])
+    .index("by_lectura", ["lecturaId"]) // DEPRECADO con `lecturaId`; se retira en la Fase C
+    // El bloque de una lectura, YA ORDENADO, en una sola consulta indexada.
+    .index("by_bloque", ["bloque.lecturaId", "bloque.orden"])
     .index("by_autor", ["autorId"])
     // Exclusividad 1 blob ↔ 1 reactivo + sonda del sweeper «¿este blob sigue
     // referenciado?» en O(1), sin escanear la tabla (LUI-15 E3).

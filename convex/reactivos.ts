@@ -19,6 +19,12 @@ import {
   sanearMaterial,
   validarMaterial,
 } from "./material";
+import {
+  esDeBloque,
+  lecturaParaBloqueo,
+  lecturaParaEnlace,
+  resolverLectura,
+} from "./lecturaCompat";
 import { consumirCuotas, CUOTAS, textoEspera } from "./cuotas";
 
 type Ctx = QueryCtx | MutationCtx;
@@ -48,8 +54,14 @@ function nombreCompleto(p: Doc<"perfiles">): string {
  * asignación futura ya compromete el examen, así que basta su EXISTENCIA por
  * `by_examen` (distinto del `metricas.fueAplicada = abreEn <= ahora`, que es
  * «aplicado», no «comprometido»). Acotado por el número de exámenes publicados.
+ *
+ * ⚠️ **El candado se PROPAGA AL BLOQUE COMPLETO** (LUI-17): si una sola pregunta de una
+ * lectura está comprometida, se congelan TODAS sus hermanas y la lectura misma. El bloque es
+ * la unidad que entra a un examen («la lectura se agrega completa»), así que es la unidad que
+ * se congela. Sin esta expansión, editar el texto base con una pregunta ya asignada dejaría a
+ * una alumna con un intento abierto leyendo un pasaje que ya no sustenta su pregunta.
  */
-async function reactivosBloqueados(
+export async function reactivosBloqueados(
   ctx: Ctx,
 ): Promise<Set<Id<"reactivos">>> {
   const publicados = await ctx.db
@@ -65,7 +77,40 @@ async function reactivosBloqueados(
     if (!asignacion) continue; // publicado SIN asignaciones → no bloquea
     for (const rid of examen.reactivoIds) bloqueados.add(rid);
   }
+
+  // Expansión al bloque. Se resuelven las lecturas afectadas y se añaden TODAS sus
+  // preguntas, incluidas las que no están en ningún examen.
+  const lecturasAfectadas = new Set<Id<"lecturas">>();
+  for (const rid of bloqueados) {
+    const r = await ctx.db.get(rid);
+    if (!r) continue; // id fantasma en `examenes.reactivoIds` (el array no tiene FK)
+    const lecturaId = lecturaParaBloqueo(resolverLectura(r));
+    if (lecturaId) lecturasAfectadas.add(lecturaId);
+  }
+  for (const lecturaId of lecturasAfectadas) {
+    const bloque = await ctx.db
+      .query("reactivos")
+      .withIndex("by_bloque", (q) => q.eq("bloque.lecturaId", lecturaId))
+      .collect();
+    for (const hermana of bloque) bloqueados.add(hermana._id);
+  }
   return bloqueados;
+}
+
+/** Las lecturas con candado: derivadas del MISMO conjunto expandido, para que la lectura y
+ *  sus preguntas nunca puedan discrepar sobre si están congeladas. */
+export async function lecturasBloqueadas(
+  ctx: Ctx,
+): Promise<Set<Id<"lecturas">>> {
+  const bloqueados = await reactivosBloqueados(ctx);
+  const lecturas = new Set<Id<"lecturas">>();
+  for (const rid of bloqueados) {
+    const r = await ctx.db.get(rid);
+    if (!r) continue;
+    const lecturaId = lecturaParaBloqueo(resolverLectura(r));
+    if (lecturaId) lecturas.add(lecturaId);
+  }
+  return lecturas;
 }
 
 /**
@@ -113,9 +158,14 @@ export const listar = query({
       nombrePorAutor.set(id, p ? nombreCompleto(p) : "Autor desconocido");
     });
 
-    // Títulos de lectura (solo las referenciadas). El seed casi nunca las usa.
+    // Títulos de lectura (solo las referenciadas). La referencia se resuelve con
+    // `lecturaCompat`, que durante la Fase A entiende tanto `bloque` como el `lecturaId`
+    // deprecado y SUPRIME la referencia cuando los dos discrepan.
+    const refPorReactivo = new Map<Id<"reactivos">, Id<"lecturas"> | null>(
+      reactivos.map((r) => [r._id, lecturaParaEnlace(resolverLectura(r))]),
+    );
     const lecturaIds = [
-      ...new Set(reactivos.flatMap((r) => (r.lecturaId ? [r.lecturaId] : []))),
+      ...new Set([...refPorReactivo.values()].filter((id) => id !== null)),
     ];
     const lecturas = await Promise.all(lecturaIds.map((id) => ctx.db.get(id)));
     const tituloPorLectura = new Map<Id<"lecturas">, string>();
@@ -141,10 +191,18 @@ export const listar = query({
       subtemaNombre: nombreSubtema.get(r.subtemaId) ?? "—",
       autorId: r.autorId,
       autorNombre: nombrePorAutor.get(r.autorId) ?? "Autor desconocido",
-      tieneLectura: r.lecturaId != null,
-      lecturaTitulo: r.lecturaId
-        ? (tituloPorLectura.get(r.lecturaId) ?? null)
-        : null,
+      // `tieneLectura` y `lecturaTitulo` se CONSERVAN con su forma de siempre: el frontend
+      // anterior los usa para el chip y durante la ventana de despliegue convive con este
+      // backend. `lecturaId` se AÑADE (para que el chip pueda volverse enlace en la Fase B)
+      // y `lecturaInconsistente` marca el documento con los dos campos en desacuerdo, cuya
+      // referencia se suprime en vez de adivinarse.
+      tieneLectura: refPorReactivo.get(r._id) != null,
+      lecturaId: refPorReactivo.get(r._id) ?? null,
+      lecturaTitulo: (() => {
+        const ref = refPorReactivo.get(r._id);
+        return ref ? (tituloPorLectura.get(ref) ?? null) : null;
+      })(),
+      lecturaInconsistente: resolverLectura(r).tipo === "inconsistente",
       activo: r.activo,
       esEditable: esAdmin || r.autorId === sesion.userId,
       // Solo el DISCRIMINANTE de presentación (≤13 bytes) para la insignia del banco. Los
@@ -184,6 +242,7 @@ export const obtener = query({
     const r = await ctx.db.get(id);
     if (!r) return null;
 
+    const refLectura = lecturaParaEnlace(resolverLectura(r));
     const [seccion, area, subtema, autorPerfil, lectura] = await Promise.all([
       ctx.db.get(r.seccionId),
       ctx.db.get(r.areaId),
@@ -192,9 +251,12 @@ export const obtener = query({
         .query("perfiles")
         .withIndex("by_user", (q) => q.eq("userId", r.autorId))
         .first(),
-      r.lecturaId ? ctx.db.get(r.lecturaId) : Promise.resolve(null),
+      refLectura ? ctx.db.get(refLectura) : Promise.resolve(null),
     ]);
     const imagenUrl = r.imagenId ? await ctx.storage.getUrl(r.imagenId) : null;
+    // `reactivosBloqueados` YA viene expandido al bloque, así que el candado del modal
+    // coincide con el del banco y con el que impone el servidor: una hermana de una
+    // pregunta comprometida no puede ofrecer «Editar».
     const enUso = (await reactivosBloqueados(ctx)).has(id);
 
     return {
@@ -228,7 +290,11 @@ export const obtener = query({
       areaNombre: area?.nombre ?? "—",
       subtemaNombre: subtema?.nombre ?? "—",
       autorNombre: autorPerfil ? nombreCompleto(autorPerfil) : "Autor desconocido",
+      // `lecturaId` lo necesita el modal para enlazar a la lectura (Fase B); `lecturaTitulo`
+      // se conserva para el frontend anterior durante la ventana de despliegue.
+      lecturaId: refLectura,
       lecturaTitulo: lectura?.titulo ?? null,
+      lecturaInconsistente: resolverLectura(r).tipo === "inconsistente",
       imagenUrl,
       activo: r.activo,
       esEditable: sesion.perfil.rol === "admin" || r.autorId === sesion.userId,
@@ -429,6 +495,17 @@ export const actualizar = mutation({
       throw new ConvexError("Solo puedes editar tus propios reactivos.");
     // Candado: no se edita el CONTENIDO de un reactivo en un examen vivo (lo
     // corrompería). Desactivarlo sí se permite — eso es `cambiarEstado`.
+    // Puerta ÚNICA (LUI-17): una pregunta de bloque NO se edita por aquí. La frontera es
+    // esta mutation y no la redirección de la UI — si viviera solo en el enrutado, un
+    // cliente manipulado clasificaría la pregunta fuera de su lectura o la sacaría del
+    // bloque. Va ANTES del candado para dar el mensaje que orienta a dónde ir.
+    const refBloqueo = lecturaParaBloqueo(resolverLectura(r));
+    if (refBloqueo) {
+      const l = await ctx.db.get(refBloqueo);
+      throw new ConvexError(
+        `Esta pregunta pertenece a la lectura «${l?.titulo ?? "—"}»; edítala desde la lectura.`,
+      );
+    }
     if ((await reactivosBloqueados(ctx)).has(args.id))
       throw new ConvexError(
         "Este reactivo está en uso en un examen; no se puede editar, solo desactivar.",
@@ -488,13 +565,23 @@ export const actualizar = mutation({
 
 /** Baja/alta lógica del reactivo. SIN candado (un reactivo en uso «solo se puede
  *  desactivar», AC) y SIN cambio de contadores (`recalcular` cuenta activos e
- *  inactivos → `activo` es ortogonal al conteo). */
+ *  inactivos → `activo` es ortogonal al conteo).
+ *
+ *  ⚠️ Las preguntas de BLOQUE van por `lecturas.cambiarEstadoPregunta` (LUI-17): aquí la
+ *  autoridad es `r.autorId`, y para una pregunta de bloque la autoridad debe ser el autor de
+ *  la LECTURA. Sin esta guarda, el autor de una pregunta podría retirarla del bloque de otro
+ *  — un caso que el fixture del seed producía de verdad, con la lectura y su pregunta en
+ *  manos distintas. */
 export const cambiarEstado = mutation({
   args: { id: v.id("reactivos"), activo: v.boolean() },
   handler: async (ctx, args) => {
     const { userId, perfil } = await requireStaff(ctx);
     const r = await ctx.db.get(args.id);
     if (!r) throw new ConvexError("El reactivo no existe.");
+    if (esDeBloque(resolverLectura(r)))
+      throw new ConvexError(
+        "Esta pregunta pertenece a una lectura; cambia su estado desde la lectura.",
+      );
     if (perfil.rol !== "admin" && r.autorId !== userId)
       throw new ConvexError(
         "Solo puedes cambiar el estado de tus propios reactivos.",
