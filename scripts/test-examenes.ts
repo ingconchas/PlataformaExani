@@ -94,10 +94,20 @@ check(
     (ESTADOS_QUE_CONGELAN as EstadoExamen[]).push("borrador");
   }) && !ESTADOS_QUE_CONGELAN.includes("borrador"),
 );
+// Los DOS niveles se prueban por separado a propósito: con una sola aserción sobre el arreglo
+// interno, retirar el `Object.freeze` EXTERIOR y conservar los interiores seguiría pasando.
 check(
-  "⭐ TRANSICIONES está congelado en los dos niveles",
+  "⭐ TRANSICIONES: nivel interno congelado (push al arreglo lanza)",
   mutacionRechazada(() => {
     (TRANSICIONES.publicado as EstadoExamen[]).push("borrador");
+  }) && !transicionPermitida("publicado", "borrador"),
+);
+check(
+  "⭐ TRANSICIONES: nivel RAÍZ congelado (reemplazar la propiedad lanza)",
+  mutacionRechazada(() => {
+    (TRANSICIONES as Record<string, readonly EstadoExamen[]>).publicado = [
+      "borrador",
+    ];
   }) && !transicionPermitida("publicado", "borrador"),
 );
 

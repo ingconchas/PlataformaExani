@@ -84,8 +84,23 @@ export const ESTADOS_QUE_CONGELAN: readonly EstadoExamen[] = Object.freeze(
  * `publicado → borrador` está AUSENTE a propósito: el AC de LUI-20 dice que «un examen
  * publicado con asignaciones no puede volver a borrador», y aquí se es deliberadamente MÁS
  * estricto que el AC — no hay ningún camino de vuelta a borrador, ni siquiera vía
- * `archivado`. LUI-21 puede ENSANCHARLO tras sondar `asignaciones.by_examen`: ensanchar
- * después es seguro, estrechar después no.
+ * `archivado`. Ensanchar después es seguro, estrechar después no.
+ *
+ * ⚠️ **CONTRATO PARA LUI-21, y la condición NO es «sin asignaciones».** Si LUI-21 abre el
+ * camino `publicado → borrador`, la condición completa es:
+ *
+ *     solo puede volver a borrador si NO tiene asignaciones NI intentos
+ *
+ * Sondar solo `asignaciones.by_examen` **reproduce exactamente** el agujero que la revisión
+ * de código de esta entrega cerró en `reactivos.calcularBloqueo`: `intentos.asignacionId` es
+ * OPCIONAL, así que un examen puede tener respuestas reales —enviadas o en curso— sin una
+ * sola asignación. Devolverlo a borrador lo saca del conjunto congelado (`CONGELA.borrador
+ * === false`) y habilita editar el contenido encima de esas respuestas. La sonda de intentos
+ * usa `intentos.by_examen` y **no filtra por estado**, por la misma razón que allá: un
+ * `en_curso` es una alumna leyendo el reactivo ahora mismo.
+ *
+ * Es la MISMA pregunta que se hace `calcularBloqueo` («¿este examen tiene algún
+ * compromiso?»), así que conviene que LUI-21 la comparta y no la re-derive.
  *
  * ⚠️ **No hay autotransiciones** (`archivado → archivado`). Repetir una operación NO es una
  * transición: es un no-op, y lo resuelve la salida idempotente de la mutation ANTES de
