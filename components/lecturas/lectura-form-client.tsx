@@ -386,7 +386,12 @@ function Formulario({
             {MAX_PREGUNTAS} para poder usarla en un examen.
           </div>
         ) : (
-          <ol className="mt-3 grid list-none gap-2">
+          /* Nombre accesible propio: distingue esta lista del breadcrumb (que también
+             es `ol > li`) para lectores de pantalla y para los locators del E2E. */
+          <ol
+            aria-label="Preguntas de la lectura"
+            className="mt-3 grid list-none gap-2"
+          >
             {filas.map((f, i) => (
               <li
                 key={f.id}
