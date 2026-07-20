@@ -189,14 +189,6 @@ async function ordenDe(card) {
     .locator("[data-item]")
     .evaluateAll((els) => els.map((e) => e.getAttribute("data-item")));
 }
-/** Solo los enunciados de las filas sueltas (para localizar posiciones legibles). */
-async function enunciadosDe(card) {
-  return (
-    await card
-      .locator("[data-item^='r:'] span.flex-1")
-      .allTextContents()
-  ).map((t) => t.trim());
-}
 
 const ctxInst = await navegador.newContext({ viewport: { width: 1440, height: 900 } });
 const page = await ctxInst.newPage();
@@ -779,9 +771,23 @@ try {
   await dialogo.getByText("+ Crear reactivo nuevo — se agregará directo a este examen").click();
   await page.waitForURL(/\/instructor\/reactivos\/nuevo\?examen=.+/, { timeout: 12_000 });
   await page.getByText(/Se agregará al examen «E21 Huérfano»/).waitFor({ timeout: 8000 });
+  // Form COMPLETO y válido (Biología → Célula → Membrana celular, del selector ya
+  // RESTRINGIDO): así el único dique entre este submit y un reactivo huérfano es el
+  // guard de `guardar()` — que es exactamente lo que esta sección prueba.
   await page
     .getByRole("textbox", { name: "Enunciado del reactivo" })
     .fill("E21 Huérfano imposible: ¿esto llega al banco?");
+  await page.getByPlaceholder("Opción A").fill("Sí");
+  await page.getByPlaceholder("Opción B").fill("No");
+  await page.getByPlaceholder("Opción C").fill("Quizá");
+  await page.getByLabel("Marcar la opción B como correcta").check();
+  await page
+    .getByRole("textbox", { name: "Explicación de la respuesta correcta" })
+    .fill("No debe llegar.");
+  await seleccionar(page, "Sección", "Biología");
+  await seleccionar(page, "Área temática", "Célula");
+  await seleccionar(page, "Subtema", "Membrana celular");
+  await page.getByRole("button", { name: "Básico" }).click();
   // B invalida el destino: quita Biología de la estructura (y deja otra sección).
   const pgB2 = await ctxInst.newPage();
   await pgB2.goto(`${BASE}/instructor/examenes`);
@@ -816,16 +822,23 @@ try {
     "…y «Guardar reactivo» queda deshabilitado (sin formulario guardable)",
     await page.getByRole("button", { name: "Guardar reactivo" }).isDisabled(),
   );
-  // Intento FORZADO: sobre un botón deshabilitado el click nativo se traga; una
-  // implementación que solo pintara el aviso (sin bloquear) guardaría aquí y el
-  // huérfano aparecería abajo — es lo que vuelve discriminante la aserción final.
-  await page
-    .getByRole("button", { name: "Guardar reactivo" })
-    .click({ force: true, timeout: 3000 })
-    .catch(() => {});
-  await page.waitForTimeout(800);
+  // Submit REAL saltándose el botón deshabilitado (`requestSubmit` dispara el handler
+  // como lo haría Enter): con el FORM COMPLETO, el único dique es el guard de
+  // `guardar()` — si una regresión lo quitara conservando el botón deshabilitado, aquí
+  // se crearía el huérfano y la ⭐ de abajo caería.
+  await page.locator("form").evaluate((f) => f.requestSubmit());
+  // Poll y no waitFor: si una regresión quitara el guard, el mensaje jamás aparece y la
+  // suite debe SEGUIR hasta la aserción del huérfano (que es la que lo persigue al banco).
+  const rebota = await esperar(async () =>
+    (await page
+      .getByText("El examen destino ya no acepta reactivos; vuelve al constructor.", {
+        exact: true,
+      })
+      .count()) === 1,
+  );
+  check("⭐ el submit real rebota en el guard con su mensaje (no solo el botón)", rebota);
   await pgB2.close();
-  // Cero huérfanos: el enunciado tecleado JAMÁS llegó al banco.
+  // Cero huérfanos: el submit completo y válido JAMÁS llegó al banco.
   await page.goto(`${BASE}/instructor/reactivos`);
   await page.getByPlaceholder("Buscar en el enunciado…").fill("Huérfano imposible");
   await page.waitForTimeout(600);

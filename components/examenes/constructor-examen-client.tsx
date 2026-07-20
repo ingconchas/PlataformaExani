@@ -568,12 +568,13 @@ function ConstructorForm({
       f.disponible &&
       !secciones.some((s) => s.seccionId === f.id),
   );
-  // DOS banderas, no una (medio de la ronda 1): `soloVista` apaga TODOS los controles
-  // (ajeno / ya no es borrador / enviando) y los fantasmas NUNCA la levantan;
-  // `guardarBloqueado` además impide Guardar/Publicar mientras haya fantasmas — quitar
-  // fantasmas es lo ÚNICO que sigue permitido en un borrador propio con fantasmas.
+  // DOS banderas, no una (medios de las rondas 1 y 2): `soloVista` = ajeno / ya no es
+  // borrador / enviando — los fantasmas NUNCA la levantan; `controlesBloqueados` apaga
+  // TODOS los controles de edición (título, duración, tarjetas, secciones, Guardar,
+  // Publicar) también mientras haya fantasmas: en un borrador propio con fantasmas,
+  // quitarlos es LO ÚNICO permitido — y su botón responde solo a `soloVista`.
   const soloVista = enviando || soloLectura || bloqueadoPorEstado;
-  const guardarBloqueado = soloVista || fantasmas.length > 0;
+  const controlesBloqueados = soloVista || fantasmas.length > 0;
 
   return (
     <>
@@ -595,7 +596,7 @@ function ConstructorForm({
             setTitulo(e.target.value);
             tocar();
           }}
-          disabled={soloVista}
+          disabled={controlesBloqueados}
         />
         <label className="flex items-center gap-2 text-small text-muted">
           Tiempo límite
@@ -610,6 +611,7 @@ function ConstructorForm({
               setHoras(e.target.value);
               tocar();
             }}
+            disabled={controlesBloqueados}
           />
           h
           <input
@@ -623,6 +625,7 @@ function ConstructorForm({
               setMinutos(e.target.value);
               tocar();
             }}
+            disabled={controlesBloqueados}
           />
           min
         </label>
@@ -633,11 +636,11 @@ function ConstructorForm({
         <Button
           variant="secondary"
           onClick={() => void guardar()}
-          disabled={guardarBloqueado}
+          disabled={controlesBloqueados}
         >
           {enviando ? "Guardando…" : "Guardar borrador"}
         </Button>
-        <Button onClick={() => void alPublicar()} disabled={guardarBloqueado}>
+        <Button onClick={() => void alPublicar()} disabled={controlesBloqueados}>
           Publicar
         </Button>
       </div>
@@ -685,7 +688,7 @@ function ConstructorForm({
                 nombre={nombreSeccion.get(s.seccionId) ?? "—"}
                 porId={porId}
                 colapsada={colapsadas.has(s.seccionId)}
-                deshabilitado={soloVista}
+                deshabilitado={controlesBloqueados}
                 posicionInicial={
                   serializar(
                     secciones.slice(0, secciones.indexOf(s)),
@@ -754,7 +757,7 @@ function ConstructorForm({
             </div>
           )}
 
-          {seccionesDisponiblesParaAgregar.length > 0 && !soloVista && (
+          {seccionesDisponiblesParaAgregar.length > 0 && !controlesBloqueados && (
               <div className="mt-4">
                 <AgregarSeccion
                   opciones={seccionesDisponiblesParaAgregar}
