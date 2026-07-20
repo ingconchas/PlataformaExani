@@ -44,9 +44,13 @@ function formatoDuracion(min: number): string {
   return `${h} h ${String(m).padStart(2, "0")} min`;
 }
 
+// BORRADORES primero: es el orden del Diseño 17 (sus dos primeras filas son
+// borradores) y el criterio de trabajo — lo que está a medio construir se
+// atiende antes que lo ya operativo. Con publicados primero, la página 1 de
+// «Todos» ocultaba TODOS los borradores (hallazgo de auditoría de LUI-20 B).
 const ORDEN_ESTADO: Record<Fila["estado"], number> = {
-  publicado: 0,
-  borrador: 1,
+  borrador: 0,
+  publicado: 1,
   archivado: 2,
 };
 

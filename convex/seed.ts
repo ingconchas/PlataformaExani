@@ -561,8 +561,10 @@ const REACTIVO_SOLO_FUTURO =
 // examen) → editable: fixture para probar «mantener una clasificación retirada al editar».
 const REACTIVO_RETIRADO_LIBRE = "¿Cuál es el desarrollo de (x + 3)²?";
 // (LUI-17) HERMANA de un bloque cuya OTRA pregunta sí está en un examen publicado con
-// asignación. Ella no entra a ningún examen, así que su candado viene EXCLUSIVAMENTE de la
-// expansión al bloque: es el fixture que hace discriminante «se congela la lectura entera».
+// asignación. No pertenece a ningún examen QUE CONGELE (desde LUI-20 B vive también en el
+// borrador «Comprensión de lectura», y un borrador no congela), así que su candado viene
+// EXCLUSIVAMENTE de la expansión al bloque: el fixture que hace discriminante «se congela
+// la lectura entera».
 const REACTIVO_HERMANA_LIBRE =
   "Segun el texto, ¿que funcion cumple una objecion en un debate?";
 // (LUI-20 B) Los 4 exclusivos de la tabla de verdad del candado y del archivado.

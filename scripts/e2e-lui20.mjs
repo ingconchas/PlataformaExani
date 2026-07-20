@@ -49,6 +49,8 @@
  *  5. La caducidad de `archivableAhora` al cruzar `cierraEn` con la suscripción abierta.
  *  6. El copy del estado vacío de una PESTAÑA sin filtros («No hay borradores»): el fixture
  *     no tiene pestañas vacías sin filtros que ejercitarlo.
+ *  7. El clamp `safePage` (page > pageCount SIN ningún setPage — pageCount encogiéndose
+ *     REACTIVAMENTE porque otro usuario archivó): inalcanzable desde una sola sesión.
  *
  * Requisitos: npx convex dev · npm run dev · (playwright chromium instalado).
  * Uso: node scripts/e2e-lui20.mjs   ·   E2E_HEADED=1 node scripts/e2e-lui20.mjs
@@ -186,8 +188,12 @@ try {
   check("el fixture completo está (14)", nTodos === 14, `recibido ${nTodos}`);
 
   await page.getByRole("tab", { name: /^Archivados/ }).click();
-  await espera(async () => (await filaDe(page, "Simulacro General 0").count()) === 1);
-  check("⭐ «Archivados» muestra SG0", true);
+  // El resultado del poll ES la aserción (un `check(..., true)` tras ignorarlo
+  // sería un verde vacío — hallazgo de auditoría).
+  const sg0Visible = await espera(
+    async () => (await filaDe(page, "Simulacro General 0").count()) === 1,
+  );
+  check("⭐ «Archivados» muestra SG0", sg0Visible);
   check("⭐ «Archivados» muestra SG5", (await filaDe(page, "Simulacro General 5").count()) === 1);
   check(
     "⭐ SG3 (publicado) NO se fuga a «Archivados»",
@@ -220,13 +226,21 @@ try {
     (el) => getComputedStyle(el).backgroundColor,
   );
   check("⭐ el chip de módulo se PINTA distinto (computed style)", bgModulo !== bgGeneral);
-  // Módulo sobre BORRADOR y sección PLANA (sin áreas): borradores tab.
+  // Módulo sobre BORRADOR y sección PLANA (sin áreas): borradores tab. Se
+  // asevera texto Y COLOR — solo el texto dejaría verde un chip que acopla el
+  // morado a `estado === "publicado"` (hallazgo de auditoría).
   await page.getByRole("tab", { name: /^Borradores/ }).click();
   await espera(async () => (await filaDe(page, "Módulo Matemáticas financieras").count()) === 1);
   check(
-    "⭐ chip morado sobre BORRADOR y sección PLANA",
+    "⭐ chip de módulo sobre BORRADOR y sección PLANA (texto)",
     ((await chipDe("Módulo Matemáticas financieras").innerText()) ?? "").trim() ===
       "Módulo: Matemáticas financieras",
+  );
+  check(
+    "⭐ …y se PINTA morado también en borrador (computed style)",
+    (await chipDe("Módulo Matemáticas financieras").evaluate(
+      (el) => getComputedStyle(el).backgroundColor,
+    )) === bgModulo,
   );
   await page.getByRole("tab", { name: /^Todos/ }).click();
   await espera(async () => (await filas(page).count()) === 8);
@@ -381,8 +395,10 @@ try {
     (await confirmarBtn().isDisabled()) === false);
   await confirmarBtn().click();
   await espera(async () => (await dialogo.count()) === 0);
-  await espera(async () => (await filaDe(page, "Simulacro General 4").count()) === 0);
-  check("SG4 salió de «Publicados»", true);
+  const sg4Salio = await espera(
+    async () => (await filaDe(page, "Simulacro General 4").count()) === 0,
+  );
+  check("SG4 salió de «Publicados»", sg4Salio);
   check(
     "⭐ los pills se actualizan SIN recargar",
     (await espera(
@@ -436,15 +452,24 @@ try {
 
   // SG1: conteo EXACTO con locator acotado + un solo pasaje… SG1 solo tiene UNA
   // pregunta de bloque; el caso de DOS hermanas va abajo con el borrador.
-  await filaDe(page, "Simulacro General 1").getByRole("link", { name: /^Ver el examen/ }).click();
+  // La cifra de la columna «Reactivos» se CAPTURA de la fila ANTES de navegar:
+  // compararla contra un literal (como hacía antes) no probaba la coherencia
+  // tabla↔preview que el nombre afirma (hallazgo de auditoría).
+  const filaSG1 = filaDe(page, "Simulacro General 1");
+  const columnaReactivos = Number(
+    ((await filaSG1.locator("td").nth(3).innerText()) ?? "").trim(),
+  );
+  await filaSG1.getByRole("link", { name: /^Ver el examen/ }).click();
   await page.waitForURL(/\/instructor\/examenes\/[^/]+\/vista/, { timeout: 15_000 });
   await espera(async () => (await preguntas(page).count()) > 0);
   check("⭐ la URL es …/vista y el título del examen está en pantalla",
     ((await page.textContent("h1")) ?? "").includes("Simulacro General 1"));
   check(
-    "⭐ nº de preguntas (locator ACOTADO) === columna «Reactivos» (9)",
-    (await preguntas(page).count()) === 9,
-    `recibido ${await preguntas(page).count()}`,
+    "⭐ nº de preguntas (locator ACOTADO) === columna «Reactivos» capturada de la fila",
+    Number.isFinite(columnaReactivos) &&
+      columnaReactivos > 0 &&
+      (await preguntas(page).count()) === columnaReactivos,
+    `columna=${columnaReactivos}, preview=${await preguntas(page).count()}`,
   );
   const region = page.locator('ol[aria-label="Preguntas del examen"]');
   check("⭐ SOLO LECTURA: sin inputs ni contenteditable ni «Guardar»",
@@ -584,24 +609,31 @@ try {
 
   // ════ §9 · Métrica por grupo (efecto colateral documentado del fixture) ════
   console.log("\n9 · Métrica «Exámenes aplicados» por grupo (LUI-12)");
-  await pageAdmin.goto(`${BASE}/admin/grupos`);
-  await esperaAdmin(async () => (await filas(pageAdmin).count()) > 0);
-  await filaDe(pageAdmin, "Matutino A").getByRole("link").first().click();
-  await pageAdmin.waitForURL(/\/admin\/grupos\/[^/]+$/, { timeout: 15_000 });
-  await esperaAdmin(async () =>
-    ((await pageAdmin.textContent("body")) ?? "").includes("Exámenes aplicados"));
-  const cuerpoMatutino = (await pageAdmin.textContent("body")) ?? "";
-  check("Matutino A: 5 exámenes aplicados (3 previos + SG0 + SG4)",
-    /Exámenes aplicados[\s\S]{0,80}?5/.test(cuerpoMatutino) || cuerpoMatutino.includes("5"),
+  /** La CIFRA de la tarjeta «Exámenes aplicados» de la ficha del grupo. Se
+   *  localiza la tarjeta por su etiqueta y se lee SOLO su texto — buscar el
+   *  número en todo el body era un verde vacío (Matutino tiene 5 alumnas: un «5»
+   *  suelto siempre aparece; hallazgo de auditoría). El div más INTERNO que
+   *  contiene la etiqueta es la columna cifra+etiqueta del MetricCard. */
+  async function metricaExamenesAplicados(pg, grupo) {
+    await pg.goto(`${BASE}/admin/grupos`);
+    await poller(pg)(async () => (await filas(pg).count()) > 0);
+    await filaDe(pg, grupo).getByRole("link").first().click();
+    await pg.waitForURL(/\/admin\/grupos\/[^/]+$/, { timeout: 15_000 });
+    const tarjeta = pg
+      .locator("div", { has: pg.getByText("Exámenes aplicados", { exact: true }) })
+      .last();
+    await poller(pg)(async () => (await tarjeta.count()) === 1);
+    const m = ((await tarjeta.innerText()) ?? "").match(/\d+/);
+    return m ? Number(m[0]) : NaN;
+  }
+  check(
+    "Matutino A: la TARJETA «Exámenes aplicados» dice 5 (3 previos + SG0 + SG4)",
+    (await metricaExamenesAplicados(pageAdmin, "Matutino A")) === 5,
   );
-  await pageAdmin.goto(`${BASE}/admin/grupos`);
-  await esperaAdmin(async () => (await filas(pageAdmin).count()) > 0);
-  await filaDe(pageAdmin, "Vespertino B").getByRole("link").first().click();
-  await pageAdmin.waitForURL(/\/admin\/grupos\/[^/]+$/, { timeout: 15_000 });
-  await esperaAdmin(async () =>
-    ((await pageAdmin.textContent("body")) ?? "").includes("Exámenes aplicados"));
-  check("Vespertino B: 4 exámenes aplicados (3 previos + SG4)",
-    ((await pageAdmin.textContent("body")) ?? "").includes("4"));
+  check(
+    "Vespertino B: la TARJETA «Exámenes aplicados» dice 4 (3 previos + SG4)",
+    (await metricaExamenesAplicados(pageAdmin, "Vespertino B")) === 4,
+  );
 
   // ════ §10 · Estado vacío, paginación defensiva, aria-live, responsive ════
   console.log("\n10 · Estado vacío, paginación y responsive");
@@ -621,7 +653,12 @@ try {
   await espera(async () => (await filas(page).count()) === 6);
   await page.getByPlaceholder("Buscar por título…").fill("Práctica libre");
   await espera(async () => (await filas(page).count()) === 1);
-  check("⭐ safePage: buscar desde la página 2 muestra el resultado, no una página vacía",
+  // Rótulo honesto (hallazgo de auditoría): esto ejercita el `setPage(1)` del
+  // BUSCADOR — el clamp `safePage` (page > pageCount sin ningún setPage, p. ej.
+  // cuando otro usuario archiva y pageCount se encoge REACTIVAMENTE bajo los
+  // pies) no es alcanzable desde una sola sesión y queda verificado por revisión
+  // de `biblioteca-examenes-client.tsx`.
+  check("⭐ setPage(1) del buscador: buscar desde la página 2 muestra el resultado, no una página vacía",
     (await filaDe(page, "Práctica libre").count()) === 1);
   check("aria-live anuncia el conteo",
     ((await page.locator("[aria-live='polite']").innerText()) ?? "").includes("encontrados"));

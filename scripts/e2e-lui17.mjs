@@ -466,7 +466,8 @@ try {
     "pero SÍ deja desactivar (única operación permitida bajo candado)",
     (await page.getByRole("button", { name: "Desactivar" }).count()) > 0,
   );
-  // Y en el banco, la HERMANA —que no está en ningún examen— debe mostrar candado.
+  // Y en el banco, la HERMANA —que no está en ningún examen QUE CONGELE (desde
+  // LUI-20 B vive en un borrador, y un borrador no congela)— debe mostrar candado.
   await page.goto(`${BASE}/instructor/reactivos`);
   await esperar(async () => (await page.locator("tbody tr").count()) > 0);
   await page.getByPlaceholder("Buscar en el enunciado…").fill(HERMANA_LIBRE);

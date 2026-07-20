@@ -23,13 +23,20 @@ import { type Doc } from "./_generated/dataModel";
  * tabla completa en cada carga del panel.
  *
  * Cuando LUI-30 traiga los resultados del instructor, «aplicada» pasará a ser
- * «tiene intentos enviados» y **este archivo es el único punto a cambiar**.
- * (Antes decía «LUI-20», pero la biblioteca de exámenes NO trae resultados. LUI-20
- * sí define `tieneResultados` — sonda propia sobre `by_examen_estado` con OTRA
- * pregunta: «¿existe al menos un enviado?» para elegir la acción de la fila, no
- * «¿la asignación fue aplicada?» para las métricas del panel. Además LUI-20
- * mantiene el invariante `fueAplicada(a,t) ⟺ estadoDeVentana(a,t) !== "programada"`
- * — lo asegura `scripts/test-examenes.ts`.)
+ * «tiene intentos enviados». ⚠️ **Este archivo NO basta para esa migración** (una
+ * versión anterior de este comentario afirmaba «único punto a cambiar»; era
+ * falso): la regla vive implementada en DOS consumidores que hay que migrar
+ * ATÓMICAMENTE o el bug de la etiqueta duplicada con números distintos regresa —
+ *   · `panel.resumen` (convex/panel.ts) la implementa como RANGO del índice
+ *     `by_abre` (un rango no se compone desde un predicado), y migrarla a
+ *     «tiene enviados» cambia además su presupuesto de lectura (habrá que sondar
+ *     intentos por asignación, no filtrar por fecha);
+ *   · `grupos.obtener` (convex/grupos.ts) aplica `fueAplicada` en memoria.
+ * (LUI-20 no participa: su `tieneResultados` es una sonda propia sobre
+ * `by_examen_estado` con OTRA pregunta — «¿existe al menos un enviado?» para
+ * elegir la acción de la fila, no «¿la asignación fue aplicada?». Y LUI-20
+ * mantiene el invariante `fueAplicada(a,t) ⟺ estadoDeVentana(a,t) !==
+ * "programada"` — lo asegura `scripts/test-examenes.ts`.)
  */
 export function fueAplicada(a: Doc<"asignaciones">, ahora: number): boolean {
   return a.abreEn <= ahora;
