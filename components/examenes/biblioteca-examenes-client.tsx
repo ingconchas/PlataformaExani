@@ -21,6 +21,7 @@ import { Select } from "@/components/ui/select";
 import { Tabs } from "@/components/ui/tabs";
 import { TipoExamenChip } from "./tipo-examen-chip";
 import { ConfirmarArchivadoModal } from "./confirmar-archivado-modal";
+import { ConfirmarDespublicadoModal } from "./confirmar-despublicado-modal";
 
 type Fila = FunctionReturnType<typeof api.examenes.listar>[number];
 
@@ -77,7 +78,8 @@ const VACIO_POR_TAB: Record<TabId, string> = {
 type ModalState =
   | { tipo: "cerrado" }
   | { tipo: "archivar"; examen: Fila }
-  | { tipo: "desarchivar"; examen: Fila };
+  | { tipo: "desarchivar"; examen: Fila }
+  | { tipo: "despublicar"; examen: Fila };
 
 /**
  * Biblioteca institucional de exámenes (LUI-20 · Diseño 17). Doble montaje:
@@ -292,7 +294,13 @@ export function BibliotecaExamenesClient({ basePath }: { basePath: string }) {
         concluyen; el archivado conserva sus resultados.
       </p>
 
-      {modal.tipo !== "cerrado" && (
+      {modal.tipo === "despublicar" && (
+        <ConfirmarDespublicadoModal
+          examen={modal.examen}
+          onClose={() => setModal({ tipo: "cerrado" })}
+        />
+      )}
+      {(modal.tipo === "archivar" || modal.tipo === "desarchivar") && (
         <ConfirmarArchivadoModal
           examen={modal.examen}
           modo={modal.tipo}
@@ -397,6 +405,19 @@ function CeldaAcciones({
     link(`${basePath}/${examen.id}/vista`, "Ver", `Ver el examen «${examen.titulo}»`),
   );
 
+  if (examen.puedeSolicitarDespublicar) {
+    enlaces.push(
+      <button
+        key="despublicar"
+        type="button"
+        aria-label={`Devolver «${examen.titulo}» a borrador`}
+        onClick={() => onModal({ tipo: "despublicar", examen })}
+        className="font-semibold text-muted hover:text-ink hover:underline"
+      >
+        Volver a borrador
+      </button>,
+    );
+  }
   if (examen.puedeSolicitarArchivado) {
     enlaces.push(
       <button

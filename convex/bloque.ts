@@ -138,6 +138,14 @@ export function lecturaPublicable(a: {
   );
 }
 
+/** Mensajes COMPARTIDOS con la frontera de guardado del examen (`examenGuardado`): allá la
+ *  expansión actúa de validador y denuncia exactamente estos dos estados. Constantes para
+ *  que el copy no derive entre las dos fronteras. */
+export const MSG_BLOQUE_PARCIAL =
+  "El examen incluye solo una parte de una lectura; agrégala completa.";
+export const MSG_BLOQUE_DESORDENADO =
+  "Las preguntas de una lectura deben ir juntas y en su orden.";
+
 /** Lo que los helpers de bloque necesitan saber de un reactivo, ya cargado. */
 export type ReactivoDeExamen = {
   _id: string;
@@ -256,15 +264,14 @@ export function validarBloquesCompletosPuro(
       return "El orden de una lectura está corrupto; reordénala antes de publicar.";
 
     const posiciones = hermanas.map((h) => ids.indexOf(h._id));
-    if (posiciones.some((p) => p === -1))
-      return "El examen incluye solo una parte de una lectura; agrégala completa.";
+    if (posiciones.some((p) => p === -1)) return MSG_BLOQUE_PARCIAL;
 
     // Contiguas y en el orden del bloque.
     const esperado = [...hermanas].sort(porOrdenDeBloque).map((h) => h._id);
     const inicio = Math.min(...posiciones);
     const tramo = ids.slice(inicio, inicio + esperado.length);
     if (tramo.length !== esperado.length || tramo.some((id, k) => id !== esperado[k]))
-      return "Las preguntas de una lectura deben ir juntas y en su orden.";
+      return MSG_BLOQUE_DESORDENADO;
   }
   return null;
 }

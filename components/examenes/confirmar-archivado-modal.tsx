@@ -110,7 +110,8 @@ export function ConfirmarArchivadoModal({
         ) : (
           <p>
             El examen vuelve a <strong>publicado</strong> y podrá asignarse de
-            nuevo. Nunca regresa a borrador: su contenido sigue congelado.
+            nuevo. Desarchivar nunca lo deja en borrador; si no tiene
+            asignaciones ni intentos, después podrás usar «Volver a borrador».
           </p>
         )}
         {motivo && <Alert kind="warning">{motivo}</Alert>}

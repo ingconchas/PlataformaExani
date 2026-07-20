@@ -1,11 +1,32 @@
-import { ScreenPlaceholder } from "@/components/dev/screen-placeholder";
+import { PageHeader } from "@/components/layout/page-header";
+import { Alert } from "@/components/ui/alert";
+import { ConstructorExamenClient } from "@/components/examenes/constructor-examen-client";
 
-export default function Page() {
+export default async function Page({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = await params;
+
+  if (!process.env.NEXT_PUBLIC_CONVEX_URL) {
+    return (
+      <>
+        <PageHeader title="Editar examen" description="Constructor de examen" />
+        <Alert kind="warning">
+          Esta pantalla necesita la base de datos. Corre <code>npx convex dev</code>{" "}
+          y define <code>NEXT_PUBLIC_CONVEX_URL</code> en <code>.env.local</code>{" "}
+          para verla.
+        </Alert>
+      </>
+    );
+  }
   return (
-    <ScreenPlaceholder
-      titulo="Editar examen"
-      diseno="18-constructor-examen.html"
-      descripcion="Constructor de examen (LUI-21)."
+    <ConstructorExamenClient
+      basePath="/admin/examenes/biblioteca"
+      reactivosPath="/admin"
+      temarioPath="/admin/temario"
+      examenId={id}
     />
   );
 }

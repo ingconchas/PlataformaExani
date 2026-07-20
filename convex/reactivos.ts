@@ -27,6 +27,14 @@ import {
 } from "./lecturaCompat";
 import { consumirCuotas, CUOTAS, textoEspera } from "./cuotas";
 import { ESTADOS_QUE_CONGELAN } from "./examenEstado";
+import { compromisosDe } from "./compromisos";
+import { lecturaPublicable } from "./bloque";
+import {
+  MAX_REACTIVOS,
+  publicabilidadDeBloques,
+  validarEstructura,
+} from "./constructorExamen";
+import { validarGuardado } from "./examenGuardado";
 
 type Ctx = QueryCtx | MutationCtx;
 
@@ -111,39 +119,19 @@ export async function calcularBloqueo(ctx: Ctx): Promise<{
     ),
   );
   const comprometidos = porEstado.flat();
-  // DOS sondas por examen, no una. `intentos.asignacionId` es OPCIONAL (`schema.ts`), así que
-  // el modelo admite un intento DIRECTO: examen publicado o archivado, CERO asignaciones y
-  // una alumna con respuestas ya enviadas —o una sesión abierta ahora mismo—. Sondar solo
-  // `asignaciones` dejaba ese examen fuera del candado y sus reactivos editables encima de
-  // respuestas reales: la MISMA corrupción que el bug de `archivado`, por otro camino. No se
-  // pueden descartar como imposibles — el schema los admite expresamente, hoy no hay ningún
-  // escritor que lo impida, y `examenes.tieneResultados` (LUI-20 B) los va a reconocer.
-  //
-  // La sonda de intentos NO filtra por estado: un `en_curso` es una alumna leyendo el
-  // reactivo AHORA. Editarlo bajo ella es precisamente lo que el candado existe para evitar.
-  const [asignados, intentados] = await Promise.all([
-    Promise.all(
-      comprometidos.map((examen) =>
-        ctx.db
-          .query("asignaciones")
-          .withIndex("by_examen", (q) => q.eq("examenId", examen._id))
-          .first(),
-      ),
-    ),
-    Promise.all(
-      comprometidos.map((examen) =>
-        ctx.db
-          .query("intentos")
-          .withIndex("by_examen", (q) => q.eq("examenId", examen._id))
-          .first(),
-      ),
-    ),
-  ]);
+  // DOS sondas por examen, no una — desde LUI-21 B viven en `compromisos.compromisosDe`,
+  // la fuente ÚNICA de la pregunta «¿este examen tiene algún compromiso?» (la comparte
+  // `examenes.despublicar`). El porqué de las dos sondas y del intento SIN filtrar por
+  // estado está documentado allá: `intentos.asignacionId` es OPCIONAL (intentos DIRECTOS)
+  // y un `en_curso` es una alumna leyendo el reactivo AHORA.
+  const compromisos = await Promise.all(
+    comprometidos.map((examen) => compromisosDe(ctx, examen._id)),
+  );
   const reactivos = new Set<Id<"reactivos">>();
   comprometidos.forEach((examen, i) => {
     // Comprometido y con ALGÚN compromiso real: una asignación (aunque sea futura) o un
     // intento (aunque no venga de asignación). Sin ninguno de los dos → no bloquea.
-    if (!asignados[i] && !intentados[i]) return;
+    if (!compromisos[i].asignacion && !compromisos[i].intento) return;
     for (const rid of examen.reactivoIds) reactivos.add(rid);
   });
 
@@ -249,6 +237,67 @@ export const listar = query({
       if (l) tituloPorLectura.set(id, l.titulo);
     });
 
+    // ── Publicabilidad AGREGADA de los bloques (LUI-21 B), para la oferta del modal
+    // «Agregar reactivos». Se calcula EN MEMORIA con lo ya coleccionado + los docs de
+    // lectura por el id CRUDO `r.bloque.lecturaId` — NUNCA por `lecturaParaEnlace`, que
+    // SUPRIME justo la referencia de la hermana inconsistente y la sacaría de su grupo,
+    // desactivando la agregación. Cero imports de `lecturas.ts` (ciclo prohibido — ver
+    // `lecturaCompat.ts`) y cero re-lecturas de `reactivos`.
+    const bloqueIds = [
+      ...new Set(
+        reactivos.flatMap((r) => (r.bloque ? [r.bloque.lecturaId] : [])),
+      ),
+    ];
+    const bloqueDocs = await Promise.all(bloqueIds.map((id) => ctx.db.get(id)));
+    const conteoBloque = new Map<string, { preguntas: number; activas: number }>();
+    for (const r of reactivos) {
+      if (!r.bloque) continue;
+      const c = conteoBloque.get(r.bloque.lecturaId) ?? {
+        preguntas: 0,
+        activas: 0,
+      };
+      c.preguntas++;
+      if (r.activo) c.activas++;
+      conteoBloque.set(r.bloque.lecturaId, c);
+    }
+    const activoSeccion = new Map(secciones.map((s) => [s._id, s.activo]));
+    const activoArea = new Map(areas.map((a) => [a._id, a.activo]));
+    const activoSubtema = new Map(subtemas.map((s) => [s._id, s.activo]));
+    const infoLectura = new Map<string, { existe: boolean; publicable: boolean }>();
+    bloqueIds.forEach((id, i) => {
+      const l = bloqueDocs[i];
+      const c = conteoBloque.get(id) ?? { preguntas: 0, activas: 0 };
+      const clasificacionDisponible = Boolean(
+        l?.seccionId &&
+          l.areaId &&
+          l.subtemaId &&
+          (activoSeccion.get(l.seccionId) ?? false) &&
+          (activoArea.get(l.areaId) ?? false) &&
+          (activoSubtema.get(l.subtemaId) ?? false),
+      );
+      infoLectura.set(id, {
+        existe: l !== null,
+        publicable:
+          l !== null &&
+          lecturaPublicable({
+            preguntas: c.preguntas,
+            activas: c.activas,
+            // `activo` sigue opcional en el schema hasta la Fase C de LUI-17.
+            lecturaActiva: l.activo ?? false,
+            clasificacionDisponible,
+          }),
+      });
+    });
+    // `consistente` = la resolución es EXACTAMENTE «bloque» hacia esa misma lectura
+    // (`inconsistente` = bloque + `lecturaId` legado discrepante).
+    const veredictoBloques = publicabilidadDeBloques(
+      reactivos.map((r) => ({
+        bloqueLecturaId: r.bloque?.lecturaId ?? null,
+        consistente: resolverLectura(r).tipo === "bloque",
+      })),
+      infoLectura,
+    );
+
     const esAdmin = sesion.perfil.rol === "admin";
     return reactivos.map((r) => ({
       id: r._id,
@@ -278,6 +327,20 @@ export const listar = query({
         return ref ? (tituloPorLectura.get(ref) ?? null) : null;
       })(),
       lecturaInconsistente: resolverLectura(r).tipo === "inconsistente",
+      // ── Para el modal «Agregar reactivos» del constructor (LUI-21). `enBloque` va por el
+      // campo CRUDO (el `lecturaId` de arriba pasa por `lecturaParaEnlace`, que incluye el
+      // LEGADO deprecado — eso NO es un bloque — y suprime el inconsistente — eso SÍ lo
+      // es). `bloquePublicable` es el veredicto AGREGADO: false para TODAS las hermanas si
+      // cualquiera está dañada (función pura `publicabilidadDeBloques`, probada en
+      // test-constructor).
+      enBloque: r.bloque !== undefined,
+      bloquePublicable: r.bloque
+        ? (veredictoBloques.get(r.bloque.lecturaId) ?? false)
+        : false,
+      // El ORDEN dentro del bloque: el constructor serializa las hermanas en este orden
+      // (la frontera de guardado rechaza un bloque desordenado — el cliente no podría
+      // cumplirla sin conocerlo).
+      bloqueOrden: r.bloque?.orden ?? null,
       activo: r.activo,
       esEditable: esAdmin || r.autorId === sesion.userId,
       // Solo el DISCRIMINANTE de presentación (≤13 bytes) para la insignia del banco. Los
@@ -514,9 +577,20 @@ export const crear = mutation({
     // insert no hay nada previo que preservar, así que aquí el opcional plano sí basta
     // (en `actualizar` NO — ver `intencionMaterialValidator`).
     material: v.optional(materialValidator),
+    // ── Crear-directo desde el constructor (LUI-21, PRD 07-07): «se agregará directo a
+    // este examen». Opcional plano: es un INSERT, no hay dato previo que un cliente viejo
+    // pueda borrar. Va en ESTA mutation y no en una aparte por ATOMICIDAD: una mutation de
+    // Convex es una transacción — con dos llamadas, un fallo intermedio dejaría un
+    // reactivo creado y nunca agregado.
+    examenDestino: v.optional(
+      v.object({
+        examenId: v.id("examenes"),
+        seccionId: v.id("secciones"),
+      }),
+    ),
   },
   handler: async (ctx, args) => {
-    const { userId } = await requireStaff(ctx);
+    const sesion = await requireStaff(ctx);
     const limpio = validarContenido(args);
     // Se valida ANTES de escribir nada (mismo criterio que la imagen): renglones saneados,
     // cotas por lista/renglón y cota agregada en BYTES.
@@ -527,6 +601,46 @@ export const crear = mutation({
     // Camino ESTRICTO (default `exigirDisponible:true`): no se clasifica contenido
     // NUEVO en una rama retirada. La clasificación se DERIVA de `subtemaId`.
     const clasificacion = await resolverClasificacion(ctx, args.subtemaId);
+
+    // Destino: TODO lo barato ANTES del insert y de cualquier lectura proporcional. Un
+    // examen legado admitido por el schema puede traer hasta 8192 ids — sin estas
+    // fronteras, calcular la posición los clasificaría en miles de gets antes de
+    // descubrir el exceso.
+    let examen: Doc<"examenes"> | null = null;
+    if (args.examenDestino) {
+      examen = await ctx.db.get(args.examenDestino.examenId);
+      if (!examen) throw new ConvexError("El examen destino no existe.");
+      if (sesion.perfil.rol !== "admin" && examen.autorId !== sesion.userId)
+        throw new ConvexError(
+          "Solo puedes agregar reactivos a tus propios exámenes.",
+        );
+      if (examen.estado !== "borrador")
+        throw new ConvexError(
+          "Solo se agregan reactivos a un borrador; este examen ya no lo es.",
+        );
+      if (examen.secciones === undefined)
+        throw new ConvexError(
+          "Este examen aún no tiene estructura de secciones; ábrelo en el constructor y guárdalo primero.",
+        );
+      validarEstructura(examen.secciones);
+      if (examen.reactivoIds.length >= MAX_REACTIVOS)
+        throw new ConvexError(
+          `El examen ya alcanzó el tope de ${MAX_REACTIVOS} reactivos.`,
+        );
+      if (
+        !examen.secciones.some(
+          (s) => s.seccionId === args.examenDestino!.seccionId,
+        )
+      )
+        throw new ConvexError(
+          "La sección destino no está en la estructura del examen.",
+        );
+      if (clasificacion.seccionId !== args.examenDestino.seccionId)
+        throw new ConvexError(
+          "El reactivo quedó clasificado fuera de la sección destino del examen.",
+        );
+    }
+
     const id = await ctx.db.insert("reactivos", {
       enunciado: limpio.enunciado,
       opciones: limpio.opciones,
@@ -537,10 +651,59 @@ export const crear = mutation({
       contenidoFormato: "html", // enunciado/explicación ya saneados (E2)
       imagenId: args.imagenId,
       material, // ausente = pregunta directa
-      autorId: userId, // el autor sale de la sesión, nunca del cliente
+      autorId: sesion.userId, // el autor sale de la sesión, nunca del cliente
       activo: true,
     });
     await ajustarContadores(ctx, clasificacion, 1);
+
+    if (examen && args.examenDestino) {
+      // Posición: ANTES del primer reactivo de cualquier sección POSTERIOR a la destino;
+      // si no existe, al final (regla total: cubre la sección vacía y varias vacías
+      // consecutivas). Los docs se cargan ya acotados por la frontera barata de arriba.
+      const docs = await Promise.all(
+        examen.reactivoIds.map((rid) => ctx.db.get(rid)),
+      );
+      const ordenSecciones = examen.secciones!.map((s) => s.seccionId);
+      const posteriores = new Set(
+        ordenSecciones.slice(
+          ordenSecciones.indexOf(args.examenDestino.seccionId) + 1,
+        ),
+      );
+      let posicion = examen.reactivoIds.length;
+      for (let i = 0; i < docs.length; i++) {
+        const d = docs[i];
+        if (d && posteriores.has(d.seccionId)) {
+          posicion = i;
+          break;
+        }
+      }
+      const candidato = [
+        ...examen.reactivoIds.slice(0, posicion),
+        id,
+        ...examen.reactivoIds.slice(posicion),
+      ];
+      // El TERCER escritor pasa por LA MISMA frontera completa que `examenes.actualizar`
+      // (estructura, tope con el +1, unicidad, agrupación, expansión-validador) — así sana
+      // o rechaza un borrador degradado por drift, o un bloque almacenado que quedó
+      // incompleto porque su lectura ganó hermanas, en vez de perpetuarlo. Validar DESPUÉS
+      // del insert es seguro: la excepción revierte la transacción COMPLETA (el reactivo
+      // nuevo tampoco se crea).
+      try {
+        const { ids, tipo } = await validarGuardado(ctx, {
+          secciones: examen.secciones!,
+          reactivoIds: candidato,
+        });
+        // El `tipo` devuelto TAMBIÉN se escribe: mismo contrato que crear/actualizar.
+        await ctx.db.patch(examen._id, { reactivoIds: ids, tipo });
+      } catch (err) {
+        if (err instanceof ConvexError)
+          throw new ConvexError(
+            `${String(err.data)} Abre el examen en el constructor para reacomodarlo antes de agregarle reactivos.`,
+          );
+        throw err;
+      }
+    }
+
     return { id };
   },
 });

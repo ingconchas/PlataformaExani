@@ -306,8 +306,13 @@ try {
   await filaPropio.getByRole("link", { name: /^Continuar editando/ }).click();
   await page.waitForURL(/\/instructor\/examenes\/[^/]+\/editar/, { timeout: 15_000 });
   check(
+    // Oráculo movido por LUI-21 B (declarado): el placeholder decía «Constructor de
+    // examen»; la pantalla REAL se reconoce por su acción propia «Guardar borrador»
+    // (con espera: el cliente hidrata tras cargar sus queries).
     "⭐ «Continuar editando» NO da 404 en la zona instructor",
-    ((await page.textContent("body")) ?? "").includes("Constructor de examen"),
+    await espera(async () =>
+      ((await page.textContent("body")) ?? "").includes("Guardar borrador"),
+    ),
   );
   await page.goto(`${BASE}/instructor/examenes`);
   await espera(async () => (await filas(page).count()) === 8);
@@ -581,8 +586,13 @@ try {
   await pageAdmin.getByRole("button", { name: /Crear examen/ }).click();
   await pageAdmin.waitForURL(/\/admin\/examenes\/biblioteca\/nuevo/, { timeout: 15_000 });
   check(
+    // Oráculo movido por LUI-21 B (declarado): el placeholder decía «Crear examen»; la
+    // pantalla real de /nuevo abre con la plantilla «¿Qué examen vas a armar?» (con
+    // espera: el cliente hidrata tras cargar sus queries).
     "⭐ «Crear examen» del montaje admin NO da 404",
-    ((await pageAdmin.textContent("body")) ?? "").includes("Crear examen"),
+    await poller(pageAdmin)(async () =>
+      ((await pageAdmin.textContent("body")) ?? "").includes("¿Qué examen vas a armar?"),
+    ),
   );
 
   // Un solo aria-current, y es la Biblioteca (no «Resumen de exámenes»).

@@ -83,9 +83,19 @@ function mensajeDeError(e: unknown): string {
 export function ReactivoFormClient({
   basePath,
   reactivoId,
+  examenesPath,
+  destino,
 }: {
   basePath: string;
   reactivoId?: string;
+  /** Base de la PANTALLA de exámenes de esta zona (`/instructor/examenes` o
+   *  `/admin/examenes/biblioteca`) — el REGRESO del crear-directo se computa de esta
+   *  constante de zona, JAMÁS de un query param libre (open-redirect). */
+  examenesPath?: string;
+  /** Crear-directo desde el constructor (LUI-21): el reactivo se agregará a la sección
+   *  destino de ese examen. Los params de URL solo traen IDS; el título y el permiso se
+   *  leen de `paraConstructor` (nunca de la URL). */
+  destino?: { examenId: string; seccionId: string };
 }) {
   const { isAuthenticated } = useConvexAuth();
   const temario = useQuery(
@@ -96,10 +106,48 @@ export function ReactivoFormClient({
     api.reactivos.obtener,
     reactivoId && isAuthenticated ? { reactivoId } : "skip",
   );
+  const examenDestino = useQuery(
+    api.examenes.paraConstructor,
+    destino && isAuthenticated ? { examenId: destino.examenId } : "skip",
+  );
   const esEdicion = !!reactivoId;
 
+  // El destino solo aplica si el examen existe, está dentro de cotas, es un BORRADOR que
+  // esta sesión puede editar Y la sección destino sigue DECLARADA en su estructura. Si no,
+  // el flujo es BLOQUEANTE (no un aviso): la acción elegida fue «se agregará directo a
+  // este examen» — guardar al banco a secas produciría exactamente el reactivo huérfano
+  // que la atomicidad del crear-directo existe para impedir. Es REACTIVO: si el examen se
+  // publica con este formulario abierto, `destinoValido` cae a null en vivo y guardar se
+  // bloquea (el servidor rechazaría igual; esto es para que la autora lo VEA).
+  const destinoValido =
+    destino !== undefined &&
+    examenDestino != null &&
+    examenDestino.problema === null &&
+    examenDestino.puedeEditar &&
+    (examenDestino.secciones?.some((x) => x.seccionId === destino.seccionId) ??
+      false)
+      ? { ...destino, titulo: examenDestino.titulo }
+      : null;
+  const destinoBloqueado = destino !== undefined && destinoValido === null;
+  const regreso =
+    destinoValido && examenesPath
+      ? `${examenesPath}/${destinoValido.examenId}/editar`
+      : `${basePath}/reactivos`;
+  // El selector de clasificación queda RESTRINGIDO a la sección destino: el servidor
+  // rechaza un reactivo clasificado fuera de ella.
+  const temarioVisible =
+    destinoValido && temario
+      ? temario.filter((f) =>
+          f.nivel === 1
+            ? (f.id as string) === destinoValido.seccionId
+            : (f.seccionId as string) === destinoValido.seccionId,
+        )
+      : temario;
+
   const cargando =
-    temario === undefined || (esEdicion && existente === undefined);
+    temario === undefined ||
+    (esEdicion && existente === undefined) ||
+    (destino !== undefined && examenDestino === undefined);
 
   return (
     <>
@@ -113,6 +161,22 @@ export function ReactivoFormClient({
         <PageHeader title={esEdicion ? "Editar reactivo" : "Crear reactivo"} />
       </div>
 
+      {!cargando && destinoValido && (
+        <div className="mb-4">
+          <Alert kind="info">
+            Se agregará al examen «{destinoValido.titulo}» al guardarlo.
+          </Alert>
+        </div>
+      )}
+      {!cargando && destinoBloqueado && (
+        <div className="mb-4">
+          <Alert kind="error">
+            El examen destino ya no acepta reactivos (no existe, dejó de ser
+            borrador, no puedes editarlo o su estructura ya no tiene la sección).
+            No se puede guardar desde aquí: vuelve al constructor o al banco.
+          </Alert>
+        </div>
+      )}
       {cargando ? (
         <div className="rounded-card border border-border bg-surface p-10 text-center text-muted shadow-card">
           Cargando…
@@ -128,9 +192,11 @@ export function ReactivoFormClient({
       ) : (
         <Formulario
           key={reactivoId ?? "nuevo"}
-          basePath={basePath}
-          temario={temario}
+          temario={temarioVisible ?? temario}
           inicial={existente ?? null}
+          destino={destinoValido}
+          destinoBloqueado={destinoBloqueado}
+          regreso={regreso}
         />
       )}
     </>
@@ -138,13 +204,18 @@ export function ReactivoFormClient({
 }
 
 function Formulario({
-  basePath,
   temario,
   inicial,
+  destino,
+  destinoBloqueado,
+  regreso,
 }: {
-  basePath: string;
   temario: FilaTemario[];
   inicial: Reactivo | null;
+  destino: { examenId: string; seccionId: string; titulo: string } | null;
+  /** El flujo venía CON destino y este dejó de ser válido: guardar queda BLOQUEADO. */
+  destinoBloqueado: boolean;
+  regreso: string;
 }) {
   const router = useRouter();
   const esEdicion = inicial !== null;
@@ -452,6 +523,12 @@ function Formulario({
   async function guardar(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
+    // Bloqueante, no aviso (mayor de la ronda 1): con el destino inválido, guardar al
+    // banco produciría el reactivo huérfano que el crear-directo atómico impide.
+    if (destinoBloqueado)
+      return setError(
+        "El examen destino ya no acepta reactivos; vuelve al constructor.",
+      );
     if (subiendoImagen)
       return setError("Espera a que termine de subir la imagen.");
     // Espejo compartido con el drawer de lecturas; el ORDEN se conserva y las dos
@@ -520,9 +597,23 @@ function Formulario({
             : ({ op: "quitar" } as const),
         });
       } else {
-        await crear({ ...base, imagenId: imagenId ?? undefined, material });
+        await crear({
+          ...base,
+          imagenId: imagenId ?? undefined,
+          material,
+          // Crear-directo (LUI-21): la inserción al examen es ATÓMICA con el alta —
+          // el servidor re-valida autoría/borrador/sección y la frontera completa.
+          ...(destino
+            ? {
+                examenDestino: {
+                  examenId: destino.examenId as Id<"examenes">,
+                  seccionId: destino.seccionId as Id<"secciones">,
+                },
+              }
+            : {}),
+        });
       }
-      router.push(`${basePath}/reactivos`);
+      router.push(regreso);
     } catch (err) {
       setError(mensajeDeError(err));
       setEnviando(false);
@@ -535,7 +626,7 @@ function Formulario({
     setEnviando(true);
     try {
       await cambiarEstado({ id: inicial.id, activo: !inicial.activo });
-      router.push(`${basePath}/reactivos`);
+      router.push(regreso);
     } catch (err) {
       setError(mensajeDeError(err));
       setEnviando(false);
@@ -544,7 +635,8 @@ function Formulario({
 
   function cancelar() {
     if (sucio && !window.confirm("¿Descartar los cambios sin guardar?")) return;
-    router.push(`${basePath}/reactivos`);
+    // Con destino (crear-directo), cancelar también REGRESA al constructor.
+    router.push(regreso);
   }
 
   return (
@@ -704,7 +796,7 @@ function Formulario({
                 Cancelar
               </Button>
               {!bloqueado && (
-                <Button type="submit" disabled={ocupado}>
+                <Button type="submit" disabled={ocupado || destinoBloqueado}>
                   {subiendoImagen
                     ? "Subiendo…"
                     : enviando
