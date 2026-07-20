@@ -22,8 +22,14 @@ import { type Doc } from "./_generated/dataModel";
  * acoplamiento entre ambas es este comentario. Es el precio de no escanear la
  * tabla completa en cada carga del panel.
  *
- * Cuando LUI-20 traiga resultados reales, «aplicada» pasará a ser «tiene intentos
- * enviados» y **este archivo es el único punto a cambiar**.
+ * Cuando LUI-30 traiga los resultados del instructor, «aplicada» pasará a ser
+ * «tiene intentos enviados» y **este archivo es el único punto a cambiar**.
+ * (Antes decía «LUI-20», pero la biblioteca de exámenes NO trae resultados. LUI-20
+ * sí define `tieneResultados` — sonda propia sobre `by_examen_estado` con OTRA
+ * pregunta: «¿existe al menos un enviado?» para elegir la acción de la fila, no
+ * «¿la asignación fue aplicada?» para las métricas del panel. Además LUI-20
+ * mantiene el invariante `fueAplicada(a,t) ⟺ estadoDeVentana(a,t) !== "programada"`
+ * — lo asegura `scripts/test-examenes.ts`.)
  */
 export function fueAplicada(a: Doc<"asignaciones">, ahora: number): boolean {
   return a.abreEn <= ahora;

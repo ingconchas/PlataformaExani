@@ -15,6 +15,7 @@ export default function Page() {
       </>
     );
   }
-  // `basePath` = la base de ESTA pantalla (no la zona): ver el docblock del cliente.
-  return <BibliotecaExamenesClient basePath="/instructor/examenes" />;
+  // `basePath` = la base de ESTA pantalla, NO la zona (/admin/examenes es el
+  // Resumen de LUI-32): ver el docblock del cliente.
+  return <BibliotecaExamenesClient basePath="/admin/examenes/biblioteca" />;
 }

@@ -236,7 +236,8 @@ export const obtener = query({
     // el panel de la administradora (LUI-9) — ver `convex/metricas.ts`. Antes esto
     // contaba `cierraEn <= ahora`, lo que hacía que esta ficha y `/admin`
     // mostraran la MISMA etiqueta con dos números distintos. Sigue siendo un proxy
-    // hasta que existan resultados reales (LUI-20).
+    // hasta que existan resultados reales (LUI-30 — antes decía LUI-20, pero la
+    // biblioteca de exámenes no trae resultados).
     const asignaciones = await ctx.db
       .query("asignaciones")
       .withIndex("by_grupo", (q) => q.eq("grupoId", id))
