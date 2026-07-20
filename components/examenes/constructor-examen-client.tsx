@@ -516,12 +516,17 @@ function ConstructorForm({
     setModal({ tipo: "cerrado" });
     // SIN navegar todavía: si publicar falla, el error debe pintarse en ESTE montaje
     // (el replace diferido remontaría el form y se lo tragaría).
+    const eraNuevo = !urlEnEditar.current;
     const id = await guardar(false);
     if (!id) return;
     setEnviando(true);
     try {
       await publicar({ examenId: id as Id<"examenes"> });
-      router.push(basePath);
+      // Si el examen nació en esta pantalla, la entrada del historial sigue siendo
+      // `/nuevo`: se REEMPLAZA — «Atrás» desde la biblioteca no debe revivir la
+      // plantilla (la misma trampa que el replace de crear-directo).
+      if (eraNuevo) router.replace(basePath);
+      else router.push(basePath);
     } catch (e) {
       setError(mensajeDeError(e));
       setEnviando(false);
@@ -563,8 +568,12 @@ function ConstructorForm({
       f.disponible &&
       !secciones.some((s) => s.seccionId === f.id),
   );
-  const deshabilitado =
-    enviando || soloLectura || bloqueadoPorEstado || fantasmas.length > 0;
+  // DOS banderas, no una (medio de la ronda 1): `soloVista` apaga TODOS los controles
+  // (ajeno / ya no es borrador / enviando) y los fantasmas NUNCA la levantan;
+  // `guardarBloqueado` además impide Guardar/Publicar mientras haya fantasmas — quitar
+  // fantasmas es lo ÚNICO que sigue permitido en un borrador propio con fantasmas.
+  const soloVista = enviando || soloLectura || bloqueadoPorEstado;
+  const guardarBloqueado = soloVista || fantasmas.length > 0;
 
   return (
     <>
@@ -586,7 +595,7 @@ function ConstructorForm({
             setTitulo(e.target.value);
             tocar();
           }}
-          disabled={deshabilitado && fantasmas.length === 0}
+          disabled={soloVista}
         />
         <label className="flex items-center gap-2 text-small text-muted">
           Tiempo límite
@@ -624,11 +633,11 @@ function ConstructorForm({
         <Button
           variant="secondary"
           onClick={() => void guardar()}
-          disabled={deshabilitado}
+          disabled={guardarBloqueado}
         >
           {enviando ? "Guardando…" : "Guardar borrador"}
         </Button>
-        <Button onClick={() => void alPublicar()} disabled={deshabilitado}>
+        <Button onClick={() => void alPublicar()} disabled={guardarBloqueado}>
           Publicar
         </Button>
       </div>
@@ -676,7 +685,7 @@ function ConstructorForm({
                 nombre={nombreSeccion.get(s.seccionId) ?? "—"}
                 porId={porId}
                 colapsada={colapsadas.has(s.seccionId)}
-                deshabilitado={deshabilitado && fantasmas.length === 0}
+                deshabilitado={soloVista}
                 posicionInicial={
                   serializar(
                     secciones.slice(0, secciones.indexOf(s)),
@@ -734,6 +743,7 @@ function ConstructorForm({
               </p>
               <Button
                 variant="secondary"
+                disabled={soloVista}
                 onClick={() => {
                   setFantasmas([]);
                   tocar();
@@ -744,9 +754,7 @@ function ConstructorForm({
             </div>
           )}
 
-          {seccionesDisponiblesParaAgregar.length > 0 &&
-            !soloLectura &&
-            !bloqueadoPorEstado && (
+          {seccionesDisponiblesParaAgregar.length > 0 && !soloVista && (
               <div className="mt-4">
                 <AgregarSeccion
                   opciones={seccionesDisponiblesParaAgregar}
@@ -1240,7 +1248,10 @@ function FilaReactivo({
   onQuitar: () => void;
 }) {
   return (
-    <div className="flex items-center gap-3 border-t border-border px-4 py-2.5">
+    <div
+      data-item={`r:${fila?.id ?? "?"}`}
+      className="flex items-center gap-3 border-t border-border px-4 py-2.5"
+    >
       <span className="w-6 text-right text-small tabular-nums text-muted">
         {numero}
       </span>
@@ -1295,7 +1306,10 @@ function BloqueLectura({
   const titulo = porId.get(reactivoIds[0])?.lecturaTitulo ?? "—";
   const hasta = desde + reactivoIds.length - 1;
   return (
-    <div className="border-t border-border bg-unx-blue-tint px-4 py-2.5">
+    <div
+      data-item={`l:${lecturaId}`}
+      className="border-t border-border bg-unx-blue-tint px-4 py-2.5"
+    >
       <div className="flex items-center gap-3">
         <span className="min-w-0 flex-1 truncate font-semibold text-unx-blue">
           ▤ Lectura: {titulo} — {reactivoIds.length} pregunta
@@ -1316,7 +1330,6 @@ function BloqueLectura({
         {reactivoIds.length} pregunta{reactivoIds.length === 1 ? "" : "s"} de
         comprensión, contiguas y en orden
       </p>
-      <span className="sr-only" data-lectura={lecturaId} />
     </div>
   );
 }

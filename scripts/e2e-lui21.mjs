@@ -13,6 +13,7 @@
  * Lo que esta suite NO puede probar (verificado por REVISIÓN de código):
  *  · autoría de crear/actualizar/publicar/despublicar sobre exámenes AJENOS — la UI
  *    oculta las acciones y `npx convex run` no pasa `requireStaff` (falso verde);
+ *    (el caso «destino invalidado en vivo» del crear-directo SÍ se prueba: §16b);
  *  · el orden interno de guards de cada mutation (no-op idempotente ANTES del origen);
  *  · que `despublicar`/`compromisosDe` sondeen `intentos.by_examen` SIN filtrar estado;
  *  · que la validación cruda corra ANTES de la expansión y que la expansión RECHACE en
@@ -180,11 +181,19 @@ async function conteoDeTab(pg, tab) {
   const m = texto.match(/(\d+)\s*$/);
   return m ? Number(m[1]) : NaN;
 }
-/** Los enunciados visibles de las filas sueltas de una tarjeta, en orden. */
+/** La SECUENCIA COMPLETA de items de una tarjeta (sueltos Y bloque), en orden DOM, por
+ *  el gancho `data-item` (`r:{id}` / `l:{lecturaId}`): así el orden del BLOQUE también es
+ *  observable — una serialización que lo devolviera siempre al inicio caería aquí. */
 async function ordenDe(card) {
+  return card
+    .locator("[data-item]")
+    .evaluateAll((els) => els.map((e) => e.getAttribute("data-item")));
+}
+/** Solo los enunciados de las filas sueltas (para localizar posiciones legibles). */
+async function enunciadosDe(card) {
   return (
     await card
-      .locator("div.flex.items-center.gap-3.border-t span.flex-1")
+      .locator("[data-item^='r:'] span.flex-1")
       .allTextContents()
   ).map((t) => t.trim());
 }
@@ -326,12 +335,29 @@ try {
   );
 
   // ───────────────────────────────────────────────────────────────────────────
-  console.log("\n6 · Orden conservado tras mover, guardar y RECARGAR");
+  console.log("\n6 · Orden conservado tras mover DE VERDAD, guardar y RECARGAR");
   // ───────────────────────────────────────────────────────────────────────────
-  // La sección CL tiene: [bloque, s1, s2, s3]. Bajar el bloque (unidad) y subir s3.
-  await cardCL.getByRole("button", { name: /^Bajar la lectura/ }).click();
+  // La sección CL tiene [s1, s2, bloque, s3]: §4 metió 2 sueltos y la lectura, y §5
+  // añadió el Avanzado DESPUÉS del bloque. Movimientos REALES sobre AMBOS tipos de item:
+  // subir la lectura (unidad, queda en índice 1) y bajar el suelto «4» (los dos últimos
+  // sueltos se permutan). Ninguno es un no-op y el bloque termina en MEDIO.
+  const antes = await ordenDe(cardCL);
+  check(
+    "estado de partida: 4 items con el bloque en el índice 2",
+    antes.length === 4 && antes[2].startsWith("l:"),
+    JSON.stringify(antes),
+  );
+  await cardCL.getByRole("button", { name: /^Subir la lectura/ }).click();
+  // Ahora [s1, bloque(2-3), s2(=4), s3(=5)]: bajar el suelto 4 → [s1, bloque, s3, s2].
+  await cardCL.getByRole("button", { name: "Bajar el reactivo 4" }).click();
   const ordenEsperado = await ordenDe(cardCL);
-  const bloquePos = (await cardCL.textContent())?.indexOf("▤ Lectura");
+  check(
+    "⭐ tras mover: el bloque quedó en MEDIO (ni al inicio ni al final)",
+    ordenEsperado.length === 4 &&
+      !ordenEsperado[0].startsWith("l:") &&
+      !ordenEsperado[3].startsWith("l:"),
+    JSON.stringify(ordenEsperado),
+  );
   await page.getByRole("button", { name: "Guardar borrador" }).click();
   await page.waitForURL(/\/instructor\/examenes\/[a-z0-9]+\/editar$/, { timeout: 10_000 });
   const urlEditar = page.url();
@@ -340,19 +366,11 @@ try {
   await page.getByText(/▤ Lectura: .+ — 2 preguntas/).waitFor({ timeout: 10_000 });
   const ordenTrasRecarga = await ordenDe(tarjeta(page, "Comprensión lectora"));
   check(
-    "⭐ el orden EXACTO sobrevive guardar + recargar (bloque movido como unidad)",
+    "⭐ la SECUENCIA COMPLETA (sueltos Y posición del bloque) sobrevive guardar + recargar",
     JSON.stringify(ordenTrasRecarga) === JSON.stringify(ordenEsperado),
     `esperado=${JSON.stringify(ordenEsperado)} recibido=${JSON.stringify(ordenTrasRecarga)}`,
   );
-  const bloquePosRecarga = (
-    await tarjeta(page, "Comprensión lectora").textContent()
-  )?.indexOf("▤ Lectura");
-  check(
-    "la posición del bloque también sobrevive",
-    bloquePos !== undefined &&
-      bloquePosRecarga !== undefined &&
-      (bloquePos === -1) === (bloquePosRecarga === -1),
-  );
+
 
   // ───────────────────────────────────────────────────────────────────────────
   console.log("\n7 · Quitar el bloque pide confirmación y quita AMBAS hermanas");
@@ -535,6 +553,31 @@ try {
     "confirmado → publicado y de vuelta en la biblioteca",
     (await chipDe(page, "E21 Núcleo")).includes("publicado"),
   );
+
+  // ───────────────────────────────────────────────────────────────────────────
+  console.log("\n11b · Publicar desde /nuevo REEMPLAZA la plantilla en el historial");
+  // ───────────────────────────────────────────────────────────────────────────
+  await page.goto(`${BASE}/instructor/examenes`);
+  await page.goto(`${BASE}/instructor/examenes/nuevo`);
+  await page.getByLabel("Sección de módulo").selectOption({ label: "Biología" });
+  await page.getByRole("button", { name: "Empezar" }).click();
+  await page.getByLabel("Nombre del examen").fill("E21 Atrás");
+  await tarjeta(page, "Biología").getByRole("button", { name: "Agregar reactivos" }).click();
+  await dialogo.waitFor();
+  await esperar(async () => (await dialogo.locator("tbody input[type=checkbox]").count()) >= 1);
+  await dialogo.locator("tbody input[type=checkbox]").first().check();
+  await dialogo.getByRole("button", { name: "Agregar al examen" }).click();
+  await page.getByRole("button", { name: "Publicar" }).click();
+  await page.waitForURL(/\/instructor\/examenes$/, { timeout: 12_000 });
+  await page.goBack();
+  await page.waitForTimeout(600);
+  check(
+    "⭐ «Atrás» tras publicar NO revive /nuevo (la entrada se REEMPLAZÓ)",
+    !/\/nuevo$/.test(page.url()) &&
+      (await page.getByText("¿Qué examen vas a armar?").count()) === 0,
+    page.url(),
+  );
+  await page.goto(`${BASE}/instructor/examenes`);
 
   // ───────────────────────────────────────────────────────────────────────────
   console.log("\n12 · Despublicar (patrón archivar): habilitado, impedidos y precedencia");
@@ -721,6 +764,75 @@ try {
     await page.getByRole("button", { name: "Guardar borrador" }).isDisabled(),
   );
   await pgB.close();
+
+  // ───────────────────────────────────────────────────────────────────────────
+  console.log("\n16b · Crear-directo BLOQUEADO si el destino se invalida (cero huérfanos)");
+  // ───────────────────────────────────────────────────────────────────────────
+  // Pestaña A: form de reactivo CON destino. Pestaña B: quita la sección destino de la
+  // estructura y guarda. A debe bloquearse EN VIVO y ningún reactivo debe llegar al banco.
+  await page.goto(`${BASE}/instructor/examenes/nuevo`);
+  await page.getByLabel("Sección de módulo").selectOption({ label: "Biología" });
+  await page.getByRole("button", { name: "Empezar" }).click();
+  await page.getByLabel("Nombre del examen").fill("E21 Huérfano");
+  await tarjeta(page, "Biología").getByRole("button", { name: "Agregar reactivos" }).click();
+  await dialogo.waitFor();
+  await dialogo.getByText("+ Crear reactivo nuevo — se agregará directo a este examen").click();
+  await page.waitForURL(/\/instructor\/reactivos\/nuevo\?examen=.+/, { timeout: 12_000 });
+  await page.getByText(/Se agregará al examen «E21 Huérfano»/).waitFor({ timeout: 8000 });
+  await page
+    .getByRole("textbox", { name: "Enunciado del reactivo" })
+    .fill("E21 Huérfano imposible: ¿esto llega al banco?");
+  // B invalida el destino: quita Biología de la estructura (y deja otra sección).
+  const pgB2 = await ctxInst.newPage();
+  await pgB2.goto(`${BASE}/instructor/examenes`);
+  await pgB2.getByPlaceholder("Buscar por título…").fill("E21 Huérfano");
+  await poller(pgB2)(async () =>
+    (await pgB2.locator("tbody tr").filter({ hasText: "E21 Huérfano" }).count()) >= 1,
+  );
+  await pgB2
+    .locator("tbody tr")
+    .filter({ hasText: "E21 Huérfano" })
+    .getByRole("link", { name: /Continuar editando/ })
+    .click();
+  await pgB2.waitForURL(/\/editar$/);
+  await pgB2.locator("section[aria-label='Sección Biología']").waitFor({ timeout: 10_000 });
+  await pgB2.getByLabel("Agregar sección").selectOption({ label: "Pensamiento matemático" });
+  await pgB2.getByRole("button", { name: "Agregar", exact: true }).click();
+  await pgB2
+    .locator("section[aria-label='Sección Biología']")
+    .getByRole("button", { name: "Quitar la sección Biología" })
+    .click();
+  await pgB2.getByRole("button", { name: "Guardar borrador" }).click();
+  await poller(pgB2)(async () =>
+    !(await pgB2.getByRole("button", { name: "Guardando…" }).count()),
+  );
+  // A se bloquea EN VIVO (query reactiva): banner de error + submit deshabilitado.
+  await page
+    .getByText(/El examen destino ya no acepta reactivos/)
+    .first()
+    .waitFor({ timeout: 10_000 });
+  check("⭐ el form CON destino se bloquea EN VIVO al invalidarse el destino", true);
+  check(
+    "…y «Guardar reactivo» queda deshabilitado (sin formulario guardable)",
+    await page.getByRole("button", { name: "Guardar reactivo" }).isDisabled(),
+  );
+  // Intento FORZADO: sobre un botón deshabilitado el click nativo se traga; una
+  // implementación que solo pintara el aviso (sin bloquear) guardaría aquí y el
+  // huérfano aparecería abajo — es lo que vuelve discriminante la aserción final.
+  await page
+    .getByRole("button", { name: "Guardar reactivo" })
+    .click({ force: true, timeout: 3000 })
+    .catch(() => {});
+  await page.waitForTimeout(800);
+  await pgB2.close();
+  // Cero huérfanos: el enunciado tecleado JAMÁS llegó al banco.
+  await page.goto(`${BASE}/instructor/reactivos`);
+  await page.getByPlaceholder("Buscar en el enunciado…").fill("Huérfano imposible");
+  await page.waitForTimeout(600);
+  check(
+    "⭐ CERO huérfanos: el reactivo no existe en el banco",
+    (await page.locator("tbody tr").filter({ hasText: "Huérfano imposible" }).count()) === 0,
+  );
 
   // ───────────────────────────────────────────────────────────────────────────
   console.log("\n17 · Aviso al salir con cambios (click interno y cierre)");

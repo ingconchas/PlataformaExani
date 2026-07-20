@@ -112,15 +112,23 @@ export function ReactivoFormClient({
   );
   const esEdicion = !!reactivoId;
 
-  // El destino solo aplica si el examen existe, está dentro de cotas, es un BORRADOR y
-  // esta sesión puede editarlo; si no, se avisa y el form crea al banco como siempre.
+  // El destino solo aplica si el examen existe, está dentro de cotas, es un BORRADOR que
+  // esta sesión puede editar Y la sección destino sigue DECLARADA en su estructura. Si no,
+  // el flujo es BLOQUEANTE (no un aviso): la acción elegida fue «se agregará directo a
+  // este examen» — guardar al banco a secas produciría exactamente el reactivo huérfano
+  // que la atomicidad del crear-directo existe para impedir. Es REACTIVO: si el examen se
+  // publica con este formulario abierto, `destinoValido` cae a null en vivo y guardar se
+  // bloquea (el servidor rechazaría igual; esto es para que la autora lo VEA).
   const destinoValido =
     destino !== undefined &&
     examenDestino != null &&
     examenDestino.problema === null &&
-    examenDestino.puedeEditar
+    examenDestino.puedeEditar &&
+    (examenDestino.secciones?.some((x) => x.seccionId === destino.seccionId) ??
+      false)
       ? { ...destino, titulo: examenDestino.titulo }
       : null;
+  const destinoBloqueado = destino !== undefined && destinoValido === null;
   const regreso =
     destinoValido && examenesPath
       ? `${examenesPath}/${destinoValido.examenId}/editar`
@@ -160,11 +168,12 @@ export function ReactivoFormClient({
           </Alert>
         </div>
       )}
-      {!cargando && destino !== undefined && destinoValido === null && (
+      {!cargando && destinoBloqueado && (
         <div className="mb-4">
-          <Alert kind="warning">
+          <Alert kind="error">
             El examen destino ya no acepta reactivos (no existe, dejó de ser
-            borrador o no puedes editarlo). El reactivo se creará en el banco.
+            borrador, no puedes editarlo o su estructura ya no tiene la sección).
+            No se puede guardar desde aquí: vuelve al constructor o al banco.
           </Alert>
         </div>
       )}
@@ -183,10 +192,10 @@ export function ReactivoFormClient({
       ) : (
         <Formulario
           key={reactivoId ?? "nuevo"}
-          basePath={basePath}
           temario={temarioVisible ?? temario}
           inicial={existente ?? null}
           destino={destinoValido}
+          destinoBloqueado={destinoBloqueado}
           regreso={regreso}
         />
       )}
@@ -195,16 +204,17 @@ export function ReactivoFormClient({
 }
 
 function Formulario({
-  basePath,
   temario,
   inicial,
   destino,
+  destinoBloqueado,
   regreso,
 }: {
-  basePath: string;
   temario: FilaTemario[];
   inicial: Reactivo | null;
   destino: { examenId: string; seccionId: string; titulo: string } | null;
+  /** El flujo venía CON destino y este dejó de ser válido: guardar queda BLOQUEADO. */
+  destinoBloqueado: boolean;
   regreso: string;
 }) {
   const router = useRouter();
@@ -513,6 +523,12 @@ function Formulario({
   async function guardar(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
+    // Bloqueante, no aviso (mayor de la ronda 1): con el destino inválido, guardar al
+    // banco produciría el reactivo huérfano que el crear-directo atómico impide.
+    if (destinoBloqueado)
+      return setError(
+        "El examen destino ya no acepta reactivos; vuelve al constructor.",
+      );
     if (subiendoImagen)
       return setError("Espera a que termine de subir la imagen.");
     // Espejo compartido con el drawer de lecturas; el ORDEN se conserva y las dos
@@ -780,7 +796,7 @@ function Formulario({
                 Cancelar
               </Button>
               {!bloqueado && (
-                <Button type="submit" disabled={ocupado}>
+                <Button type="submit" disabled={ocupado || destinoBloqueado}>
                   {subiendoImagen
                     ? "Subiendo…"
                     : enviando
