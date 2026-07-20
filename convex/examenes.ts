@@ -391,15 +391,18 @@ export const archivar = mutation({
 });
 
 /**
- * `archivado → publicado` — SIEMPRE a publicado, nunca a borrador: así no existe
- * ningún camino (ni transitivo) de vuelta a borrador, y el AC «un publicado con
- * asignaciones no puede volver a borrador» se cumple estructuralmente.
+ * `archivado → publicado` — desarchivar POR SÍ MISMO siempre termina en
+ * publicado, nunca en borrador. El camino transitivo a borrador (archivado →
+ * publicado → borrador) es legal desde LUI-21, pero cada paso atraviesa su
+ * propia mutation: el segundo es `despublicar` (Entrega B de LUI-21), con sus
+ * DOS guardas (sin asignaciones NI intentos). El AC «un publicado con asignaciones no puede volver a
+ * borrador» lo sostienen esas guardas, no la ausencia del camino.
  *
  * ⚠️ El origen se valida EXPLÍCITO (`estado === "archivado"`), no con
  * `transicionPermitida(desde, "publicado")`: esa tabla también contiene
- * `borrador → publicado` (documentada para LUI-21), así que validar solo la
- * transición habría dejado que «desarchivar» PUBLICARA borradores por la puerta
- * trasera, saltándose las fronteras de publicación de LUI-21
+ * `borrador → publicado` (publicar), así que validar solo la transición habría
+ * dejado que «desarchivar» PUBLICARA borradores por la puerta trasera,
+ * saltándose las fronteras de publicación de LUI-21
  * (`validarBloquesCompletos`, elegibilidad del temario…).
  *
  * Sin guardas extra: vuelve a un estado que sigue congelado por

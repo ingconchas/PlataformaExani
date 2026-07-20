@@ -96,19 +96,22 @@ check(
 );
 // Los DOS niveles se prueban por separado a propósito: con una sola aserción sobre el arreglo
 // interno, retirar el `Object.freeze` EXTERIOR y conservar los interiores seguiría pasando.
+// Testigo del freeze desde LUI-21: `publicado → borrador` ya es legal (despublicar), así
+// que el camino que un `push` en caliente abriría sin guardas es `archivado → borrador` —
+// el atajo que saltaría desarchivar+despublicar.
 check(
   "⭐ TRANSICIONES: nivel interno congelado (push al arreglo lanza)",
   mutacionRechazada(() => {
-    (TRANSICIONES.publicado as EstadoExamen[]).push("borrador");
-  }) && !transicionPermitida("publicado", "borrador"),
+    (TRANSICIONES.archivado as EstadoExamen[]).push("borrador");
+  }) && !transicionPermitida("archivado", "borrador"),
 );
 check(
   "⭐ TRANSICIONES: nivel RAÍZ congelado (reemplazar la propiedad lanza)",
   mutacionRechazada(() => {
-    (TRANSICIONES as Record<string, readonly EstadoExamen[]>).publicado = [
+    (TRANSICIONES as Record<string, readonly EstadoExamen[]>).archivado = [
       "borrador",
     ];
-  }) && !transicionPermitida("publicado", "borrador"),
+  }) && !transicionPermitida("archivado", "borrador"),
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -118,13 +121,14 @@ console.log("\n2 · TRANSICIONES — el grafo del ciclo de edición");
 check("publicado → archivado (archivar)", transicionPermitida("publicado", "archivado"));
 check("archivado → publicado (desarchivar)", transicionPermitida("archivado", "publicado"));
 check(
-  "⭐ publicado → borrador PROHIBIDA (criterio de aceptación de LUI-20)",
-  !transicionPermitida("publicado", "borrador"),
+  "⭐ publicado → borrador PERMITIDA (LUI-21 · despublicar)",
+  transicionPermitida("publicado", "borrador"),
+  "el camino existe en la tabla; la condición (sin asignaciones NI intentos) vive en las guardas de la mutation",
 );
 check(
-  "⭐ archivado → borrador PROHIBIDA (el AC se honra también en transitivo)",
+  "⭐ archivado → borrador DIRECTA prohibida",
   !transicionPermitida("archivado", "borrador"),
-  "si existiera, archivar+desarchivar sería un rodeo para despublicar",
+  "primero debe desarchivarse (siempre a publicado) y después pasar por las guardas de despublicar",
 );
 check(
   "⭐ borrador NO se archiva directamente",
@@ -235,7 +239,7 @@ check(
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
-console.log("\n5 · resolverIntencionTipo — fragmento de patch (contrato para LUI-21)");
+console.log("\n5 · resolverIntencionTipo — fragmento de patch (patrón para un actualizador parcial futuro)");
 // ─────────────────────────────────────────────────────────────────────────────
 
 const ausente = resolverIntencionTipo(undefined);
