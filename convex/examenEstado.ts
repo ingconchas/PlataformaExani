@@ -32,9 +32,11 @@ import { v, type Infer } from "convex/values";
  * aquí y el candado se olvidaría en silencio otra vez — exactamente el bug que LUI-20 vino a
  * corregir. Con una sola fuente, un estado nuevo entra por aquí o no entra.
  *
- * borrador → publicado → archivado. `archivado` = retirado de uso; CONSERVA todo su
- * historial de resultados. El ciclo de la VENTANA de cada asignación (programada / abierta /
- * cerrada) es INDEPENDIENTE, se deriva de las fechas y no vive en el examen.
+ * borrador → publicado → archivado, con UN retorno condicionado: publicado → borrador
+ * (despublicar, LUI-21) existe SOLO para un publicado sin asignaciones ni intentos — ver el
+ * contrato en `TRANSICIONES`. `archivado` = retirado de uso; CONSERVA todo su historial de
+ * resultados. El ciclo de la VENTANA de cada asignación (programada / abierta / cerrada) es
+ * INDEPENDIENTE, se deriva de las fechas y no vive en el examen.
  */
 export const estadoExamenValidator = v.union(
   v.literal("borrador"),
@@ -81,26 +83,25 @@ export const ESTADOS_QUE_CONGELAN: readonly EstadoExamen[] = Object.freeze(
 /**
  * El grafo COMPLETO del ciclo de edición, como dato.
  *
- * `publicado → borrador` está AUSENTE a propósito: el AC de LUI-20 dice que «un examen
- * publicado con asignaciones no puede volver a borrador», y aquí se es deliberadamente MÁS
- * estricto que el AC — no hay ningún camino de vuelta a borrador, ni siquiera vía
- * `archivado`. Ensanchar después es seguro, estrechar después no.
- *
- * ⚠️ **CONTRATO PARA LUI-21, y la condición NO es «sin asignaciones».** Si LUI-21 abre el
- * camino `publicado → borrador`, la condición completa es:
+ * `publicado → borrador` (despublicar, LUI-21) está PRESENTE, pero **la tabla solo dice que
+ * el camino existe — la CONDICIÓN vive en las guardas de `examenes.despublicar`**:
  *
  *     solo puede volver a borrador si NO tiene asignaciones NI intentos
  *
- * Sondar solo `asignaciones.by_examen` **reproduce exactamente** el agujero que la revisión
- * de código de esta entrega cerró en `reactivos.calcularBloqueo`: `intentos.asignacionId` es
- * OPCIONAL, así que un examen puede tener respuestas reales —enviadas o en curso— sin una
- * sola asignación. Devolverlo a borrador lo saca del conjunto congelado (`CONGELA.borrador
- * === false`) y habilita editar el contenido encima de esas respuestas. La sonda de intentos
- * usa `intentos.by_examen` y **no filtra por estado**, por la misma razón que allá: un
- * `en_curso` es una alumna leyendo el reactivo ahora mismo.
+ * La condición NO es «sin asignaciones». Sondar solo `asignaciones.by_examen` **reproduce
+ * exactamente** el agujero que la revisión de LUI-20 cerró en `reactivos.calcularBloqueo`:
+ * `intentos.asignacionId` es OPCIONAL, así que un examen puede tener respuestas reales
+ * —enviadas o en curso— sin una sola asignación. Devolverlo a borrador lo saca del conjunto
+ * congelado (`CONGELA.borrador === false`) y habilita editar el contenido encima de esas
+ * respuestas. La sonda de intentos usa `intentos.by_examen` y **no filtra por estado**: un
+ * `en_curso` es una alumna leyendo el reactivo ahora mismo. Es la MISMA pregunta que se hace
+ * `calcularBloqueo` («¿este examen tiene algún compromiso?») — `compromisosDe` la responde
+ * en un solo lugar; no se re-deriva.
  *
- * Es la MISMA pregunta que se hace `calcularBloqueo` («¿este examen tiene algún
- * compromiso?»), así que conviene que LUI-21 la comparta y no la re-derive.
+ * El AC de LUI-20 («un publicado con asignaciones no puede volver a borrador») se sigue
+ * cumpliendo: con una asignación, la guarda rechaza. `archivado → borrador` DIRECTA sigue
+ * prohibida — `desarchivar` siempre termina en `publicado`; el camino transitivo
+ * archivado → publicado → borrador es legal SOLO atravesando las dos guardas de despublicar.
  *
  * ⚠️ **No hay autotransiciones** (`archivado → archivado`). Repetir una operación NO es una
  * transición: es un no-op, y lo resuelve la salida idempotente de la mutation ANTES de
@@ -108,16 +109,17 @@ export const ESTADOS_QUE_CONGELAN: readonly EstadoExamen[] = Object.freeze(
  * nada», que son cosas distintas — y dejaría pasar como válido un `archivar` sobre un
  * archivado que sí debería contestar `{cambiado:false}`.
  */
-// Congelado en los DOS niveles —el objeto y cada arreglo— por lo mismo que `CONGELA`: un
-// `TRANSICIONES.publicado.push("borrador")` desde cualquier módulo abriría el camino que el
-// criterio de aceptación prohíbe, sin romper un solo tipo. Auditoría lo señaló para `CONGELA`
-// y `ESTADOS_QUE_CONGELAN`; esta tabla tiene la misma exposición y se endurece igual.
+// Congelado en los DOS niveles —el objeto y cada arreglo— por lo mismo que `CONGELA`: sin el
+// freeze, cualquier módulo podría añadir en caliente un camino que NO pasa por las guardas
+// de su mutation (p. ej. `TRANSICIONES.archivado.push("borrador")`, el atajo que saltaría
+// despublicar), sin romper un solo tipo. Auditoría lo señaló para `CONGELA` y
+// `ESTADOS_QUE_CONGELAN`; esta tabla tiene la misma exposición y se endurece igual.
 export const TRANSICIONES: Readonly<
   Record<EstadoExamen, readonly EstadoExamen[]>
 > = Object.freeze({
-  borrador: Object.freeze(["publicado"]), // LUI-21; aquí solo se documenta
-  publicado: Object.freeze(["archivado"]), // LUI-20 · archivar
-  archivado: Object.freeze(["publicado"]), // LUI-20 · desarchivar
+  borrador: Object.freeze(["publicado"]), // LUI-21 · publicar
+  publicado: Object.freeze(["archivado", "borrador"]), // LUI-20 · archivar / LUI-21 · despublicar
+  archivado: Object.freeze(["publicado"]), // LUI-20 · desarchivar — NUNCA directo a borrador
 } as Record<EstadoExamen, readonly EstadoExamen[]>);
 
 export function transicionPermitida(
@@ -134,10 +136,13 @@ export function transicionPermitida(
 /**
  * Tipo del examen: simulacro general o examen de un módulo concreto.
  *
- * **ALMACENADO, no derivado** de la clasificación de sus reactivos: es una DECISIÓN del autor
- * (LUI-21), no una consecuencia de lo que acabó metiendo. Un borrador vacío ya tiene tipo, y
- * un examen que mezclara reactivos de núcleo y de módulo no tendría respuesta derivable sin
- * inventar una regla de desempate arbitraria.
+ * **ALMACENADO, no derivado de sus reactivos** — pero tampoco lo manda el cliente: el
+ * servidor lo CALCULA de la **estructura declarada** (`constructorExamen.tipoDeEstructura`)
+ * en cada guardado y lo escribe explícito. Sigue siendo decisión del autor, expresada en la
+ * estructura que armó: un borrador vacío de plantilla módulo ya tiene estructura, luego ya
+ * tiene tipo; la mezcla de secciones es «general» por regla total, sin desempates. Derivarlo
+ * de la clasificación de los reactivos, en cambio, no tendría respuesta para el vacío ni
+ * para la mezcla — por eso se almacena.
  *
  * **Unión DISCRIMINADA en un campo**, no `esModulo: boolean` + `seccionId` suelto: dos campos
  * sueltos admiten los estados ilegales «módulo sin sección» y «sección zombi en un general».
@@ -178,14 +183,18 @@ export function etiquetaTipo(
 }
 
 /**
- * Intención de una futura `actualizar` sobre el tipo. **ARGUMENTO AUSENTE = MANTENER.**
+ * Intención de actualización parcial sobre el tipo. **ARGUMENTO AUSENTE = MANTENER.**
  *
- * ⚠️ LUI-20 no ship ningún escritor: esto queda escrito para que **LUI-21 no reinvente la
- * forma insegura**. Un `v.optional(tipoExamenValidator)` a secas en una mutation de
- * ACTUALIZACIÓN es incompatible hacia atrás — `ctx.db.patch` BORRA el campo al recibir
- * `undefined`, y `undefined` desaparece al serializar los argumentos, así que un frontend
- * viejo durante la ventana de despliegue (`DEPLOY.md`), una pestaña abierta desde antes o un
- * rollback convertirían un examen de módulo en general **en silencio**.
+ * ⚠️ **Sin consumidor a la fecha, a propósito.** LUI-21 esquivó el peligro por OTRA vía:
+ * su `actualizar` lleva TODOS los args requeridos y el `tipo` no viaja del cliente (se
+ * recalcula server-side de la estructura), así que el pitfall de abajo no le aplica. Este
+ * helper queda como el patrón OBLIGADO para cualquier actualizador PARCIAL futuro que sí
+ * acepte el tipo del cliente (p. ej. LUI-44 · duplicación): un
+ * `v.optional(tipoExamenValidator)` a secas en una mutation de ACTUALIZACIÓN es
+ * incompatible hacia atrás — `ctx.db.patch` BORRA el campo al recibir `undefined`, y
+ * `undefined` desaparece al serializar los argumentos, así que un frontend viejo durante la
+ * ventana de despliegue (`DEPLOY.md`), una pestaña abierta desde antes o un rollback
+ * convertirían un examen de módulo en general **en silencio**.
  *
  * El helper devuelve el **FRAGMENTO DE PATCH** y no un `{escribir, valor}`: con esa otra
  * forma nada impide que el handler escriba `tipo: resolucion.valor` y reintroduzca el

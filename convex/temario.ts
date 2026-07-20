@@ -803,6 +803,22 @@ export const eliminar = mutation({
             `«${doc.nombre}» tiene exámenes de módulo asociados; desactívala en vez de eliminarla.`,
           );
         }
+        // ⚠️ La ESTRUCTURA de un examen (LUI-21, `examenes.secciones`) también referencia
+        // secciones por id, y es invisible a la sonda de arriba: una sección de módulo
+        // declarada JUNTO a otras produce `tipo: general` (tipo autocalculado) y no aparece
+        // en `by_tipo_seccion`; una declarada VACÍA en un borrador tampoco tiene reactivos
+        // ni lecturas que la delaten. Un arreglo no es indexable en Convex, así que esta
+        // cuarta sonda es un `.collect()` + filtro en JS — aceptable: `examenes` es la tabla
+        // chica (mismo presupuesto que asume `calcularBloqueo`).
+        const examenes = await ctx.db.query("examenes").collect();
+        const conEstaSeccion = examenes.filter((e) =>
+          (e.secciones ?? []).some((s) => s.seccionId === id),
+        ).length;
+        if (conEstaSeccion > 0) {
+          throw new ConvexError(
+            `«${doc.nombre}» aparece en la estructura de ${conEstaSeccion} examen(es); desactívala en vez de eliminarla.`,
+          );
+        }
         const areas = await ctx.db
           .query("areasTematicas")
           .withIndex("by_seccion_orden", (q) => q.eq("seccionId", id))

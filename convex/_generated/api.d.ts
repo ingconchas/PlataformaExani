@@ -13,6 +13,7 @@ import type * as auth from "../auth.js";
 import type * as authz from "../authz.js";
 import type * as bloque from "../bloque.js";
 import type * as bootstrap from "../bootstrap.js";
+import type * as constructorExamen from "../constructorExamen.js";
 import type * as correo from "../correo.js";
 import type * as credenciales from "../credenciales.js";
 import type * as crons from "../crons.js";
@@ -55,6 +56,7 @@ declare const fullApi: ApiFromModules<{
   authz: typeof authz;
   bloque: typeof bloque;
   bootstrap: typeof bootstrap;
+  constructorExamen: typeof constructorExamen;
   correo: typeof correo;
   credenciales: typeof credenciales;
   crons: typeof crons;

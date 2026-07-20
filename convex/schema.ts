@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { authTables } from "@convex-dev/auth/server";
 import { materialValidator } from "./material";
 import { estadoExamenValidator, tipoExamenValidator } from "./examenEstado";
+import { seccionDeExamenValidator } from "./constructorExamen";
 
 /**
  * Modelo de datos inicial — Plataforma Exani II (UNX Simuladores).
@@ -296,10 +297,18 @@ export default defineSchema({
   // que aceptaba antes, así que sigue siendo revertible MIENTRAS ningún documento lleve
   // datos nuevos — y en la Fase A ninguna mutation los escribe. La Fase C lo endurece
   // (`tipo` requerido, tras backfill).
+  //
+  // ⚠️ FASE A de LUI-21, misma disciplina: `secciones` entra OPCIONAL y ningún escritor
+  // existe todavía; los de la Entrega B (crear/actualizar/crear-directo) la escriben
+  // siempre. AUSENTE = examen legado sin estructura declarada. El invariante completo
+  // (rachas contiguas por sección, en el orden declarado) vive en `constructorExamen.ts`.
   examenes: defineTable({
     titulo: v.string(),
     descripcion: v.optional(v.string()),
     reactivoIds: v.array(v.id("reactivos")),
+    // Estructura DECLARADA del examen: orden de secciones + meta opcional por sección.
+    // La PERTENENCIA de cada reactivo se deriva de su clasificación, no se almacena aquí.
+    secciones: v.optional(v.array(seccionDeExamenValidator)),
     duracionMin: v.number(),
     // La unión NO se declara aquí: es `examenEstado.estadoExamenValidator`. Duplicarla haría
     // que añadir un cuarto estado en este archivo no rompiera el `Record<EstadoExamen,…>` de
