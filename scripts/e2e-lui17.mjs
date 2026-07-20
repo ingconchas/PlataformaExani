@@ -474,7 +474,7 @@ try {
   await esperar(async () => (await page.locator("tbody tr").count()) === 1);
   const filaHermana = page.locator("tbody tr").first();
   check(
-    "⭐ la HERMANA (en ningún examen) muestra CANDADO, no lápiz",
+    "⭐ la HERMANA (en ningún examen que congele) muestra CANDADO, no lápiz",
     (await filaHermana.getByRole("link", { name: /^En uso en un examen/ }).count()) === 1,
   );
   check(
