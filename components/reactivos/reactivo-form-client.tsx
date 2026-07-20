@@ -83,9 +83,19 @@ function mensajeDeError(e: unknown): string {
 export function ReactivoFormClient({
   basePath,
   reactivoId,
+  examenesPath,
+  destino,
 }: {
   basePath: string;
   reactivoId?: string;
+  /** Base de la PANTALLA de exámenes de esta zona (`/instructor/examenes` o
+   *  `/admin/examenes/biblioteca`) — el REGRESO del crear-directo se computa de esta
+   *  constante de zona, JAMÁS de un query param libre (open-redirect). */
+  examenesPath?: string;
+  /** Crear-directo desde el constructor (LUI-21): el reactivo se agregará a la sección
+   *  destino de ese examen. Los params de URL solo traen IDS; el título y el permiso se
+   *  leen de `paraConstructor` (nunca de la URL). */
+  destino?: { examenId: string; seccionId: string };
 }) {
   const { isAuthenticated } = useConvexAuth();
   const temario = useQuery(
@@ -96,10 +106,40 @@ export function ReactivoFormClient({
     api.reactivos.obtener,
     reactivoId && isAuthenticated ? { reactivoId } : "skip",
   );
+  const examenDestino = useQuery(
+    api.examenes.paraConstructor,
+    destino && isAuthenticated ? { examenId: destino.examenId } : "skip",
+  );
   const esEdicion = !!reactivoId;
 
+  // El destino solo aplica si el examen existe, está dentro de cotas, es un BORRADOR y
+  // esta sesión puede editarlo; si no, se avisa y el form crea al banco como siempre.
+  const destinoValido =
+    destino !== undefined &&
+    examenDestino != null &&
+    examenDestino.problema === null &&
+    examenDestino.puedeEditar
+      ? { ...destino, titulo: examenDestino.titulo }
+      : null;
+  const regreso =
+    destinoValido && examenesPath
+      ? `${examenesPath}/${destinoValido.examenId}/editar`
+      : `${basePath}/reactivos`;
+  // El selector de clasificación queda RESTRINGIDO a la sección destino: el servidor
+  // rechaza un reactivo clasificado fuera de ella.
+  const temarioVisible =
+    destinoValido && temario
+      ? temario.filter((f) =>
+          f.nivel === 1
+            ? (f.id as string) === destinoValido.seccionId
+            : (f.seccionId as string) === destinoValido.seccionId,
+        )
+      : temario;
+
   const cargando =
-    temario === undefined || (esEdicion && existente === undefined);
+    temario === undefined ||
+    (esEdicion && existente === undefined) ||
+    (destino !== undefined && examenDestino === undefined);
 
   return (
     <>
@@ -113,6 +153,21 @@ export function ReactivoFormClient({
         <PageHeader title={esEdicion ? "Editar reactivo" : "Crear reactivo"} />
       </div>
 
+      {!cargando && destinoValido && (
+        <div className="mb-4">
+          <Alert kind="info">
+            Se agregará al examen «{destinoValido.titulo}» al guardarlo.
+          </Alert>
+        </div>
+      )}
+      {!cargando && destino !== undefined && destinoValido === null && (
+        <div className="mb-4">
+          <Alert kind="warning">
+            El examen destino ya no acepta reactivos (no existe, dejó de ser
+            borrador o no puedes editarlo). El reactivo se creará en el banco.
+          </Alert>
+        </div>
+      )}
       {cargando ? (
         <div className="rounded-card border border-border bg-surface p-10 text-center text-muted shadow-card">
           Cargando…
@@ -129,8 +184,10 @@ export function ReactivoFormClient({
         <Formulario
           key={reactivoId ?? "nuevo"}
           basePath={basePath}
-          temario={temario}
+          temario={temarioVisible ?? temario}
           inicial={existente ?? null}
+          destino={destinoValido}
+          regreso={regreso}
         />
       )}
     </>
@@ -141,10 +198,14 @@ function Formulario({
   basePath,
   temario,
   inicial,
+  destino,
+  regreso,
 }: {
   basePath: string;
   temario: FilaTemario[];
   inicial: Reactivo | null;
+  destino: { examenId: string; seccionId: string; titulo: string } | null;
+  regreso: string;
 }) {
   const router = useRouter();
   const esEdicion = inicial !== null;
@@ -520,9 +581,23 @@ function Formulario({
             : ({ op: "quitar" } as const),
         });
       } else {
-        await crear({ ...base, imagenId: imagenId ?? undefined, material });
+        await crear({
+          ...base,
+          imagenId: imagenId ?? undefined,
+          material,
+          // Crear-directo (LUI-21): la inserción al examen es ATÓMICA con el alta —
+          // el servidor re-valida autoría/borrador/sección y la frontera completa.
+          ...(destino
+            ? {
+                examenDestino: {
+                  examenId: destino.examenId as Id<"examenes">,
+                  seccionId: destino.seccionId as Id<"secciones">,
+                },
+              }
+            : {}),
+        });
       }
-      router.push(`${basePath}/reactivos`);
+      router.push(regreso);
     } catch (err) {
       setError(mensajeDeError(err));
       setEnviando(false);
@@ -535,7 +610,7 @@ function Formulario({
     setEnviando(true);
     try {
       await cambiarEstado({ id: inicial.id, activo: !inicial.activo });
-      router.push(`${basePath}/reactivos`);
+      router.push(regreso);
     } catch (err) {
       setError(mensajeDeError(err));
       setEnviando(false);
@@ -544,7 +619,8 @@ function Formulario({
 
   function cancelar() {
     if (sucio && !window.confirm("¿Descartar los cambios sin guardar?")) return;
-    router.push(`${basePath}/reactivos`);
+    // Con destino (crear-directo), cancelar también REGRESA al constructor.
+    router.push(regreso);
   }
 
   return (

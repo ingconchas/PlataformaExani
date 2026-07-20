@@ -2,7 +2,16 @@ import { PageHeader } from "@/components/layout/page-header";
 import { Alert } from "@/components/ui/alert";
 import { ReactivoFormClient } from "@/components/reactivos/reactivo-form-client";
 
-export default function Page() {
+export default async function Page({
+  searchParams,
+}: {
+  searchParams: Promise<{ examen?: string; seccion?: string }>;
+}) {
+  // Crear-directo (LUI-21): los params solo traen IDS; el título y el permiso los lee el
+  // cliente de `paraConstructor`. El REGRESO sale de `examenesPath` (constante de zona),
+  // jamás de la URL.
+  const { examen, seccion } = await searchParams;
+
   if (!process.env.NEXT_PUBLIC_CONVEX_URL) {
     return (
       <>
@@ -14,5 +23,11 @@ export default function Page() {
       </>
     );
   }
-  return <ReactivoFormClient basePath="/admin" />;
+  return (
+    <ReactivoFormClient
+      basePath="/admin"
+      examenesPath="/admin/examenes/biblioteca"
+      destino={examen && seccion ? { examenId: examen, seccionId: seccion } : undefined}
+    />
+  );
 }

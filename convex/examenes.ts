@@ -2,7 +2,7 @@ import { query, mutation, type MutationCtx } from "./_generated/server";
 import { type Doc, type Id } from "./_generated/dataModel";
 import { v, ConvexError } from "convex/values";
 import { requireStaff } from "./authz";
-import { sanear, textoPlanoAHtml } from "./sanitizar";
+import { aTextoPlano, sanear, textoPlanoAHtml } from "./sanitizar";
 import { sanearMaterial } from "./material";
 import { lecturaParaEnlace, resolverLectura } from "./lecturaCompat";
 import {
@@ -12,6 +12,15 @@ import {
   transicionPermitida,
   ventanaConcluida,
 } from "./examenEstado";
+import {
+  MAX_DURACION_MIN,
+  MAX_REACTIVOS,
+  MAX_SECCIONES,
+  MAX_TITULO,
+  seccionDeExamenValidator,
+} from "./constructorExamen";
+import { validarGuardado, validarPublicable } from "./examenGuardado";
+import { compromisosDe } from "./compromisos";
 
 /**
  * Biblioteca institucional de exámenes (LUI-20 B). Todo el staff ve la biblioteca
@@ -24,7 +33,8 @@ import {
  *
  * **Tres preguntas de intentos, tres sondas — la asimetría es deliberada:**
  *  · el CANDADO (`calcularBloqueo`) pregunta «¿existe CUALQUIER intento?»
- *    (`by_examen`, sin filtrar estado);
+ *    (`by_examen`, sin filtrar estado) — es la misma pregunta de `despublicar`,
+ *    y por eso AMBOS la responden con `compromisos.compromisosDe`;
  *  · `tieneResultados` pregunta «¿existe al menos un ENVIADO?» (un `en_curso`
  *    no es un resultado);
  *  · el guard de archivar pregunta «¿existe algún EN CURSO?» (una alumna a media
@@ -148,6 +158,12 @@ export const listar = query({
 
       const esEditable = puedeGestionar && e.estado === "borrador";
       const puedeSolicitarArchivado = puedeGestionar && e.estado === "publicado";
+      // NO se reutiliza `puedeSolicitarArchivado` aunque hoy la fórmula coincida:
+      // acoplarlos sería un acoplamiento semántico oculto (si mañana archivar cambia su
+      // condición, despublicar la heredaría en silencio).
+      const puedeSolicitarDespublicar =
+        puedeGestionar && e.estado === "publicado";
+      const tieneIntento = sondas[i].tieneEnviado || sondas[i].tieneEnCurso;
       // ⚠️ Pista de UI, NUNCA autoridad: una query no se re-evalúa por el paso
       // del tiempo — una suscripción abierta cuando `cierraEn` cruza conserva
       // este booleano obsoleto hasta que algo escriba o el usuario navegue. La
@@ -193,6 +209,25 @@ export const listar = query({
               ? ({ tipo: "intentoEnCurso" } as const)
               : null,
         puedeDesarchivar: puedeGestionar && e.estado === "archivado",
+        // ── Despublicar (LUI-21) — patrón EXACTO de archivar: autorización y guardas
+        // SEPARADAS, para que el cliente pueda pintar el diálogo impedido. La evidencia se
+        // REUTILIZA de lo ya cargado (cero sondas nuevas): `asigs` sale del `.collect()`
+        // global y `enviado ∨ en_curso ≡ cualquier intento` porque el schema de `intentos`
+        // solo admite esos dos literales. La AUTORIDAD es `despublicar`, que recalcula con
+        // `compromisosDe` (mismo criterio, sondas `by_examen` sin filtrar).
+        puedeSolicitarDespublicar,
+        // Pista de UI, nunca autoridad — mismo disclaimer que `archivableAhora`.
+        despublicableAhora:
+          puedeSolicitarDespublicar && asigs.length === 0 && !tieneIntento,
+        // Precedencia FIJA: asignaciones primero (espejo de `motivoNoArchivable` y del
+        // orden de guardas de la mutation).
+        motivoNoDespublicable: !puedeSolicitarDespublicar
+          ? null
+          : asigs.length > 0
+            ? ({ tipo: "asignaciones", total: asigs.length } as const)
+            : tieneIntento
+              ? ({ tipo: "intentos" } as const)
+              : null,
       };
     });
   },
@@ -421,5 +456,317 @@ export const desarchivar = mutation({
 
     await ctx.db.patch(args.examenId, { estado: "publicado" });
     return { estado: "publicado" as const, cambiado: true };
+  },
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// El constructor (LUI-21 B): los escritores y su query
+// ═════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Título y duración de un guardado — compartido por `crear` y `actualizar`. Devuelve el
+ * título ya RECORTADO: lo que se valida es exactamente lo que se persiste (validar el trim
+ * y guardar el original admitiría títulos de puros espacios extremos).
+ */
+function validarBasicos(titulo: string, duracionMin: number): string {
+  const limpio = titulo.trim();
+  if (!limpio) throw new ConvexError("El examen necesita un nombre.");
+  if (limpio.length > MAX_TITULO)
+    throw new ConvexError(
+      `El nombre del examen supera los ${MAX_TITULO} caracteres.`,
+    );
+  if (
+    !Number.isInteger(duracionMin) ||
+    duracionMin <= 0 ||
+    duracionMin > MAX_DURACION_MIN
+  )
+    throw new ConvexError(
+      `El tiempo límite debe ser un entero entre 1 y ${MAX_DURACION_MIN} minutos.`,
+    );
+  return limpio;
+}
+
+/**
+ * Crea un borrador. Forma de mutation «crear»: autenticación → entrada → insert (no hay
+ * objeto previo: ni autoría, ni origen, ni salida idempotente).
+ *
+ * **Todos los args son REQUERIDOS** y `tipo` NO viaja del cliente: lo calcula
+ * `validarGuardado` de la estructura declarada y se escribe EXPLÍCITO (nunca `undefined`),
+ * así `by_tipo_seccion` no puede quedar incoherente. `descripcion` no es argumento: el
+ * constructor no la edita (el campo del schema queda ausente).
+ *
+ * La PLANTILLA («Simulacro de núcleo» / «Examen de módulo») es 100 % cliente — solo
+ * precarga el estado del formulario; el servidor no la conoce.
+ */
+export const crear = mutation({
+  args: {
+    titulo: v.string(),
+    duracionMin: v.number(),
+    secciones: v.array(seccionDeExamenValidator),
+    reactivoIds: v.array(v.id("reactivos")),
+  },
+  handler: async (ctx, args) => {
+    const sesion = await requireStaff(ctx);
+    const titulo = validarBasicos(args.titulo, args.duracionMin);
+    const { ids, tipo } = await validarGuardado(ctx, {
+      secciones: args.secciones,
+      reactivoIds: args.reactivoIds,
+    });
+    const id = await ctx.db.insert("examenes", {
+      titulo,
+      duracionMin: args.duracionMin,
+      secciones: args.secciones,
+      reactivoIds: ids,
+      tipo,
+      estado: "borrador",
+      autorId: sesion.userId, // de la sesión, nunca del cliente
+    });
+    return { id };
+  },
+});
+
+/**
+ * Guarda un borrador existente. Forma «actualizar»: autenticación/autoría → origen
+ * `borrador` → entrada → patch (no hay «destino alcanzado»: no es transición).
+ *
+ * **Todos los args REQUERIDOS** — el pitfall del `v.optional` en actualizaciones
+ * (`examenEstado.intencionTipoValidator`) no aplica a args que el cliente no puede omitir.
+ * `descripcion` NO es arg y NO entra al patch: la clave omitida = mantener lo que haya.
+ */
+export const actualizar = mutation({
+  args: {
+    examenId: v.id("examenes"),
+    titulo: v.string(),
+    duracionMin: v.number(),
+    secciones: v.array(seccionDeExamenValidator),
+    reactivoIds: v.array(v.id("reactivos")),
+  },
+  handler: async (ctx, args) => {
+    const e = await examenAutorizado(ctx, args.examenId, "editar");
+    if (e.estado !== "borrador")
+      throw new ConvexError(
+        "Solo se editan borradores; un publicado sin asignaciones ni intentos puede volver a borrador desde la biblioteca.",
+      );
+    const titulo = validarBasicos(args.titulo, args.duracionMin);
+    const { ids, tipo } = await validarGuardado(ctx, {
+      secciones: args.secciones,
+      reactivoIds: args.reactivoIds,
+    });
+    await ctx.db.patch(args.examenId, {
+      titulo,
+      duracionMin: args.duracionMin,
+      secciones: args.secciones,
+      reactivoIds: ids,
+      tipo,
+    });
+    return { id: args.examenId };
+  },
+});
+
+/**
+ * `borrador → publicado`. Forma «transición»: autenticación/autoría → **destino alcanzado
+ * (no-op idempotente, ANTES de validar el origen — contrato de `examenEstado.ts`)** →
+ * origen explícito → guardas → patch.
+ *
+ * ⚠️ El origen se valida EXPLÍCITO (`estado === "borrador"`), no con
+ * `transicionPermitida(desde, "publicado")`: la tabla también contiene
+ * `archivado → publicado` (desarchivar), así que validar solo la transición dejaría que
+ * «publicar» DESARCHIVARA por la puerta trasera — la misma lección, en espejo, que el
+ * origen explícito de `desarchivar`.
+ *
+ * Las guardas de contenido viven en `examenGuardado.validarPublicable` (exportadas para
+ * que LUI-22 las re-ejecute en `asignar`). Las METAS no se miran aquí: la confirmación de
+ * secciones incompletas es exclusiva del cliente.
+ */
+export const publicar = mutation({
+  args: { examenId: v.id("examenes") },
+  handler: async (ctx, args) => {
+    const e = await examenAutorizado(ctx, args.examenId, "publicar");
+
+    if (e.estado === "publicado")
+      return { estado: "publicado" as const, cambiado: false };
+    if (e.estado !== "borrador")
+      throw new ConvexError(
+        "Solo se publican borradores; un examen archivado se desarchiva.",
+      );
+
+    await validarPublicable(ctx, e);
+    await ctx.db.patch(args.examenId, { estado: "publicado" });
+    return { estado: "publicado" as const, cambiado: true };
+  },
+});
+
+/**
+ * `publicado → borrador` (despublicar — «Volver a borrador»). Forma «transición»:
+ * autenticación/autoría → no-op idempotente → origen explícito → transición → guardas →
+ * patch.
+ *
+ * Las guardas son el contrato preposicionado en `examenEstado.TRANSICIONES`: solo puede
+ * volver a borrador si NO tiene asignaciones NI intentos — la MISMA pregunta que
+ * `calcularBloqueo`, respondida por `compromisosDe` (sondas `by_examen`, la de intentos
+ * SIN filtrar estado: los intentos DIRECTOS existen y un `en_curso` compromete igual).
+ * Precedencia de mensajes: asignaciones primero (espejo de `archivar` y de
+ * `motivoNoDespublicable`).
+ */
+export const despublicar = mutation({
+  args: { examenId: v.id("examenes") },
+  handler: async (ctx, args) => {
+    const e = await examenAutorizado(ctx, args.examenId, "despublicar");
+
+    if (e.estado === "borrador")
+      return { estado: "borrador" as const, cambiado: false };
+    if (e.estado !== "publicado")
+      throw new ConvexError(
+        "Solo un examen publicado puede volver a borrador.",
+      );
+    if (!transicionPermitida("publicado", "borrador"))
+      throw new ConvexError("Transición no permitida.");
+
+    const compromisos = await compromisosDe(ctx, args.examenId);
+    if (compromisos.asignacion)
+      throw new ConvexError(
+        "Este examen ya tiene asignaciones; no puede volver a borrador.",
+      );
+    if (compromisos.intento)
+      throw new ConvexError(
+        "Este examen ya tiene intentos registrados; no puede volver a borrador.",
+      );
+
+    await ctx.db.patch(args.examenId, { estado: "borrador" });
+    return { estado: "borrador" as const, cambiado: true };
+  },
+});
+
+/**
+ * Lo que el CONSTRUCTOR necesita de un examen, en filas ligeras (LUI-21 B).
+ *
+ * ⚠️ El nombre NO es `constructor`: `api.examenes.constructor` colisionaría con la
+ * propiedad heredada de todo objeto de JavaScript.
+ *
+ * **Cotas ANTES de resolver un solo reactivo:** los escritores nuevos garantizan
+ * ≤ MAX_REACTIVOS, pero un examen LEGADO admitido por el schema puede traer hasta 8192
+ * ids. Si excede, se devuelve un estado de PROBLEMA explícito y la pantalla monta solo
+ * lectura/error — **jamás se trunca en silencio** (una lista recortada sin aviso es
+ * indistinguible de un bug).
+ *
+ * Los items van EN EL ORDEN de `reactivoIds` (fantasmas en posición, contrato de
+ * `obtener`); la agrupación por sección y el drift («la sección real del reactivo ya no
+ * está declarada») los DERIVA el cliente — el servidor no duplica esa cuenta. `enunciado`
+ * sale como TEXTO PLANO (la lista no pinta HTML). También es la fuente del banner de
+ * crear-directo: título y `puedeEditar` salen de aquí, nunca de params de URL.
+ */
+export const paraConstructor = query({
+  args: { examenId: v.string() },
+  handler: async (ctx, args) => {
+    const sesion = await requireStaff(ctx);
+    const id = ctx.db.normalizeId("examenes", args.examenId);
+    const e = id ? await ctx.db.get(id) : null;
+    if (!id || !e) return null;
+
+    const esAdmin = sesion.perfil.rol === "admin";
+    const puedeEditar =
+      (esAdmin || e.autorId === sesion.userId) && e.estado === "borrador";
+    const tipo = normalizarTipo(e.tipo);
+
+    if (
+      e.reactivoIds.length > MAX_REACTIVOS ||
+      (e.secciones !== undefined && e.secciones.length > MAX_SECCIONES)
+    ) {
+      return {
+        problema: "fueraDeCota" as const,
+        id: e._id,
+        titulo: e.titulo,
+        estado: e.estado,
+      };
+    }
+
+    // Nombres del temario, resueltos AL LEER (tablas chicas; sin filtrar `activo`:
+    // una rama retirada sigue nombrando).
+    const [seccionesDocs, areasDocs] = await Promise.all([
+      ctx.db.query("secciones").collect(),
+      ctx.db.query("areasTematicas").collect(),
+    ]);
+    const seccionPorId = new Map(seccionesDocs.map((s) => [s._id, s]));
+    const areaPorId = new Map(areasDocs.map((a) => [a._id, a]));
+
+    const docs = await Promise.all(e.reactivoIds.map((rid) => ctx.db.get(rid)));
+
+    // Bloques: agrupación por el id CRUDO `r.bloque.lecturaId` (la unidad que el
+    // constructor mueve). Título y tamaño del bloque salen de la BD VIVA — si la lectura
+    // ganó una hermana, el cliente lo ve y el próximo guardado la incluirá.
+    const lecturaIds = [
+      ...new Set(
+        docs.flatMap((r) => (r?.bloque ? [r.bloque.lecturaId] : [])),
+      ),
+    ];
+    const [lecturaDocs, hermanasPorLectura] = await Promise.all([
+      Promise.all(lecturaIds.map((lid) => ctx.db.get(lid))),
+      Promise.all(
+        lecturaIds.map((lid) =>
+          ctx.db
+            .query("reactivos")
+            .withIndex("by_bloque", (q) => q.eq("bloque.lecturaId", lid))
+            .collect(),
+        ),
+      ),
+    ]);
+    const tituloLectura = new Map<string, string>();
+    const nPreguntas = new Map<string, number>();
+    lecturaIds.forEach((lid, i) => {
+      tituloLectura.set(lid, lecturaDocs[i]?.titulo ?? "—");
+      nPreguntas.set(lid, hermanasPorLectura[i].length);
+    });
+
+    const items = docs.map((r, i) => {
+      if (!r) return { faltante: true as const, id: e.reactivoIds[i] };
+      const seccion = seccionPorId.get(r.seccionId);
+      const area = areaPorId.get(r.areaId);
+      return {
+        faltante: false as const,
+        id: r._id,
+        enunciado:
+          r.contenidoFormato === "html" ? aTextoPlano(r.enunciado) : r.enunciado,
+        dificultad: r.dificultad,
+        activo: r.activo,
+        tieneImagen: r.imagenId !== undefined,
+        seccionId: r.seccionId,
+        seccionNombre: seccion?.nombre ?? "—",
+        areaId: r.areaId,
+        areaNombre: area?.nombre ?? "—",
+        bloque: r.bloque
+          ? {
+              lecturaId: r.bloque.lecturaId,
+              orden: r.bloque.orden,
+              titulo: tituloLectura.get(r.bloque.lecturaId) ?? "—",
+              nPreguntas: nPreguntas.get(r.bloque.lecturaId) ?? 0,
+            }
+          : null,
+      };
+    });
+
+    return {
+      problema: null,
+      id: e._id,
+      titulo: e.titulo,
+      duracionMin: e.duracionMin,
+      estado: e.estado,
+      // El tipo ALMACENADO (normalizado): la hidratación legado lo usa de fallback — un
+      // borrador de módulo VACÍO no tiene reactivos de los que derivar su sección.
+      tipo,
+      esAutor: e.autorId === sesion.userId,
+      puedeEditar,
+      secciones:
+        e.secciones?.map((s) => {
+          const doc = seccionPorId.get(s.seccionId);
+          return {
+            seccionId: s.seccionId,
+            nombre: doc?.nombre ?? "—",
+            tipoSeccion: doc?.tipo ?? ("nucleo" as const),
+            activo: doc?.activo ?? false,
+            meta: s.meta ?? null,
+          };
+        }) ?? null,
+      items,
+    };
   },
 });

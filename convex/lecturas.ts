@@ -1,9 +1,4 @@
-import {
-  query,
-  mutation,
-  type QueryCtx,
-  type MutationCtx,
-} from "./_generated/server";
+import { query, mutation, type MutationCtx } from "./_generated/server";
 import { type Doc, type Id } from "./_generated/dataModel";
 import { v, ConvexError } from "convex/values";
 import { requireStaff } from "./authz";
@@ -11,18 +6,14 @@ import { resolverClasificacion } from "./temario";
 import { sanear, aTextoPlano, textoPlanoAHtml } from "./sanitizar";
 import {
   MAX_PREGUNTAS,
-  expandirBloquesPuro,
   lecturaPublicable,
   porOrdenDeBloque,
   preguntaValidator,
   reordenar,
-  validarBloquesCompletosPuro,
   validarTextoBase,
   validarTitulo,
-  type BloqueDeLectura,
-  type PreguntaOrdenable,
-  type ReactivoDeExamen,
 } from "./bloque";
+import { comoOrdenable, reactivosDeLectura } from "./examenGuardado";
 import {
   ajustarContadores,
   calcularBloqueo,
@@ -47,37 +38,6 @@ import {
  * borra el campo al recibir `undefined` y `undefined` desaparece al serializar, así que un
  * cliente viejo borraría datos en silencio. Usa una intención discriminada.
  */
-
-type Ctx = QueryCtx | MutationCtx;
-
-/** Vista ordenable de una pregunta (el `orden` vive dentro de `bloque`). */
-function comoOrdenable(r: Doc<"reactivos">): PreguntaOrdenable {
-  return {
-    _id: r._id,
-    _creationTime: r._creationTime,
-    orden: r.bloque?.orden ?? 0,
-  };
-}
-
-/**
- * El bloque de una lectura, YA ORDENADO. **Es el helper que LUI-21 tendrá que llamar**: la
- * regla «la lectura entra completa» se decide con `bloque.ts`, no re-derivada en el
- * constructor.
- */
-export async function reactivosDeLectura(
-  ctx: Ctx,
-  lecturaId: Id<"lecturas">,
-): Promise<Doc<"reactivos">[]> {
-  const bloque = await ctx.db
-    .query("reactivos")
-    .withIndex("by_bloque", (q) => q.eq("bloque.lecturaId", lecturaId))
-    .collect();
-  // El índice ya los entrega por `orden`, pero se reordena con el desempate estable: el
-  // `orden` persistido puede traer empates si alguien editó a mano la base.
-  return [...bloque].sort((a, b) =>
-    porOrdenDeBloque(comoOrdenable(a), comoOrdenable(b)),
-  );
-}
 
 /** ¿La rama de clasificación está DISPONIBLE? Conjuntivo: el nodo y todos sus ancestros. */
 function ramaDisponible(
@@ -562,73 +522,8 @@ export const cambiarEstadoPregunta = mutation({
   },
 });
 
-// ── Helpers que hereda el constructor de exámenes (LUI-21) ───────────────────
-
-/**
- * Carga los mapas que los helpers puros necesitan.
- *
- * ⚠️ Resuelve el DOCUMENTO de cada lectura, no solo sus preguntas: el índice `by_bloque`
- * encuentra las huérfanas de una lectura borrada, así que sin `ctx.db.get` la frontera vería
- * un bloque no vacío y aceptaría una lectura fantasma. Y carga la disponibilidad conjuntiva
- * de la clasificación, que es parte de la elegibilidad.
- */
-async function mapasDeBloque(ctx: Ctx, ids: Id<"reactivos">[]) {
-  const docs = await Promise.all(ids.map((id) => ctx.db.get(id)));
-  const porId = new Map<string, ReactivoDeExamen>();
-  const lecturas = new Set<Id<"lecturas">>();
-  for (const r of docs) {
-    if (!r) continue;
-    porId.set(r._id, { _id: r._id, bloque: r.bloque });
-    if (r.bloque) lecturas.add(r.bloque.lecturaId);
-  }
-  const idsLectura = [...lecturas];
-  const [docsLectura, bloques] = await Promise.all([
-    Promise.all(idsLectura.map((id) => ctx.db.get(id))),
-    Promise.all(idsLectura.map((id) => reactivosDeLectura(ctx, id))),
-  ]);
-  const disponibles = await Promise.all(
-    docsLectura.map(async (l) => {
-      if (!l?.seccionId || !l.areaId || !l.subtemaId) return false;
-      const [s, a, sub] = await Promise.all([
-        ctx.db.get(l.seccionId),
-        ctx.db.get(l.areaId),
-        ctx.db.get(l.subtemaId),
-      ]);
-      return Boolean(s?.activo && a?.activo && sub?.activo);
-    }),
-  );
-
-  const bloquePorLectura = new Map<string, BloqueDeLectura>();
-  idsLectura.forEach((id, i) => {
-    const l = docsLectura[i];
-    bloquePorLectura.set(id, {
-      existe: l !== null,
-      preguntas: bloques[i].map(comoOrdenable),
-      activas: bloques[i].filter((r) => r.activo).length,
-      lecturaActiva: l?.activo ?? false,
-      clasificacionDisponible: disponibles[i],
-    });
-  });
-  return { porId, bloquePorLectura };
-}
-
-/** Expande los ids para que cada bloque entre COMPLETO y en orden, conservando el orden
- *  relativo del examen. Lo llama el constructor al AGREGAR. */
-export async function expandirBloques(
-  ctx: Ctx,
-  ids: Id<"reactivos">[],
-): Promise<Id<"reactivos">[]> {
-  const { porId, bloquePorLectura } = await mapasDeBloque(ctx, ids);
-  return expandirBloquesPuro(ids, porId, bloquePorLectura) as Id<"reactivos">[];
-}
-
-/** La frontera de publicación: lanza si algún bloque quedaría partido, repetido, desordenado
- *  o con el `orden` corrupto en la base. */
-export async function validarBloquesCompletos(
-  ctx: Ctx,
-  ids: Id<"reactivos">[],
-): Promise<void> {
-  const { porId, bloquePorLectura } = await mapasDeBloque(ctx, ids);
-  const problema = validarBloquesCompletosPuro(ids, porId, bloquePorLectura);
-  if (problema) throw new ConvexError(problema);
-}
+// Los helpers que hereda el constructor de exámenes (`mapasDeBloque`, `expandirBloques`,
+// `validarBloquesCompletos`) y `reactivosDeLectura` viven desde LUI-21 B en el módulo
+// NEUTRAL `convex/examenGuardado.ts`: `reactivos.ts` (crear-directo) también los necesita
+// y no puede importarlos de aquí sin cerrar el ciclo `reactivos ↔ lecturas` que
+// `lecturaCompat.ts` existe para evitar. Este módulo los importa de allá.

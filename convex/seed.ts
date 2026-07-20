@@ -1360,6 +1360,13 @@ export const cargarDatosDePrueba = internalMutation({
         // semántica de mutations de ACTUALIZACIÓN (`resolverIntencionTipo`); un
         // seed convergente escribe el estado COMPLETO — la semántica contraria.
         tipo: tipoDe(e),
+        // Mismo trato para la ESTRUCTURA (LUI-21): los 14 exámenes del fixture son
+        // legados SIN estructura declarada, y la clave presente con `undefined` hace
+        // que el patch BORRE la que un E2E le haya guardado a un sembrado — sin esto,
+        // re-correr el seed sin `limpiarContenidoDemo` dejaría pegada la estructura
+        // anterior y el fixture no convergería. (Prueba discriminante: guardar
+        // estructura en un sembrado → re-seed SIN limpiar → `secciones` ausente.)
+        secciones: undefined,
         autorId:
           (e.autorCorreo &&
             instructorUserIdPorCorreo.get(norm(e.autorCorreo))) ||
