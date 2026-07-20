@@ -26,10 +26,16 @@ export const adminNav: NavItem[] = [
   { label: "Banco de reactivos", href: "/admin/reactivos", icon: FileQuestion },
   { label: "Lecturas", href: "/admin/lecturas", icon: BookText },
   { label: "Resumen de exámenes", href: "/admin/examenes", icon: ClipboardList },
+  // La biblioteca vive BAJO /admin/examenes por dominio, pero es OTRA pantalla
+  // (la lista institucional, LUI-20; el resumen es LUI-32 y conserva su ruta).
+  // El doble resaltado que este prefijo provocaría lo resuelve `SidebarNav` con
+  // «gana la coincidencia más larga».
+  { label: "Biblioteca de exámenes", href: "/admin/examenes/biblioteca", icon: FileCheck },
 ];
-// ⚠️ «Banco de reactivos» y «Lecturas» van en el menú pero NO en `EXTRAS_SHORTCUT`: los
-// accesos directos del panel (LUI-9) se derivan por `flatMap` y `e2e-lui9` aserta que son
-// EXACTAMENTE 5. Una entrada de shortcut aquí los volvería 6 y rompería esa prueba.
+// ⚠️ «Banco de reactivos», «Lecturas» y «Biblioteca de exámenes» van en el menú pero NO en
+// `EXTRAS_SHORTCUT`: los accesos directos del panel (LUI-9) se derivan por `flatMap` y
+// `e2e-lui9` aserta que son EXACTAMENTE 5. Una entrada de shortcut aquí los volvería 6 y
+// rompería esa prueba.
 
 export type ShortcutItem = NavItem & { description: string; tone: Tone };
 

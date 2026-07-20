@@ -161,6 +161,12 @@ try {
   await page.getByRole("button", { name: "Guardar reactivo" }).click();
   await page.waitForURL(/\/instructor\/reactivos$/, { timeout: 15_000 });
   await esperar(async () => (await filas(page).count()) > 0);
+  // AISLAR con `buscar`, como TODAS las demás secciones: esta era la única
+  // `filaDe` sin filtro previo y asumía «lo recién creado cae en la página 1» —
+  // cierto con 14 reactivos sembrados, falso desde los 18 de LUI-20 B (los 4
+  // nuevos de Comprensión lectora llenan la página 1 y este, de Pensamiento
+  // matemático, ordena en la 2).
+  await buscar(page, ENUN_NUEVO);
   const filaNueva = filaDe(page, ENUN_NUEVO);
   check("el reactivo nuevo aparece en el banco", (await filaNueva.count()) === 1);
   check(

@@ -64,14 +64,24 @@ export function SidebarNav({
       </div>
       <nav className="flex-1 space-y-1 p-3">
         {items.map((item) => {
-          // El ítem raíz («Inicio» → /admin o /instructor) SOLO está activo en su
-          // propia ruta: con `startsWith` a secas se marcaba activo en TODAS las
-          // subpáginas, y «Inicio» quedaba resaltado a la vez que «Grupos» en
-          // /admin/grupos (corregido en LUI-9).
-          const esRaiz = item.href === "/admin" || item.href === "/instructor";
-          const active = esRaiz
-            ? pathname === item.href
-            : pathname === item.href || pathname.startsWith(item.href + "/");
+          // Activo = la coincidencia MÁS LARGA del pathname (LUI-20). El
+          // `startsWith` a secas producía DOS resaltados cuando un href es
+          // prefijo de otro: «Inicio» en todas las subpáginas (LUI-9 lo tapó con
+          // un caso especial de raíz) y ahora «Resumen de exámenes»
+          // (/admin/examenes) encendido a la vez que «Biblioteca de exámenes»
+          // (/admin/examenes/biblioteca). La coincidencia más larga SUBSUME el
+          // caso de la raíz: /admin coincide en todas partes, pero cualquier
+          // subsección coincide MÁS — así que «Inicio» solo gana en /admin.
+          const coincide = (href: string) =>
+            pathname === href || pathname.startsWith(href + "/");
+          const masLarga = items.reduce(
+            (mejor, otro) =>
+              coincide(otro.href) && otro.href.length > mejor.length
+                ? otro.href
+                : mejor,
+            "",
+          );
+          const active = item.href === masLarga && coincide(item.href);
           const Icon = item.icon;
           return (
             <Link

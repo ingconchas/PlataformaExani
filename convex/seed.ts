@@ -6,6 +6,8 @@ import { inicioDeMesMx } from "./fechas";
 import { CONFIRMACION_SOLO_DEV, exigirDeploymentDeDesarrollo } from "./entorno";
 import { canonizar } from "./texto";
 import { construirTemario, recalcular, resolverClasificacion } from "./temario";
+import { validarMaterial, type MaterialDeReactivo } from "./material";
+import { type EstadoExamen, type TipoExamen } from "./examenEstado";
 
 /**
  * Datos de PRUEBA (ficticios) para desarrollo local.
@@ -189,6 +191,11 @@ const REACTIVOS: Array<{
   autorCorreo?: string;
   /** Título de la lectura a la que pertenece (LUI-17) → pinta el chip «▤ Lectura». */
   lectura?: string;
+  /** Material de presentación (LUI-16). Solo `REACTIVO_SOLO_SG4` lo declara: sin al menos
+   *  UN reactivo con material en el fixture, la aserción de geometría de la vista previa
+   *  (LUI-20 B) no tendría cajas que medir. Al escribirse pasa por `validarMaterial`, así
+   *  que respeta mínimos/máximos/no-vacío por construcción, no por inspección. */
+  material?: MaterialDeReactivo;
 }> = [
   {
     enunciado: "¿Cuál es el valor de x en la ecuación 2x + 6 = 14?",
@@ -413,6 +420,87 @@ const REACTIVOS: Array<{
     en: ["Biología", "Célula", "Membrana celular"],
     autorCorreo: "diana.instructor@demo.unx.mx",
   },
+  // ── Los 4 exclusivos de LUI-20 B ──────────────────────────────────────────
+  // Cada uno pertenece a UN SOLO examen (membresía mínima, ver `apartados` y
+  // `membresiaDe`): la exclusividad es lo que vuelve DISCRIMINANTES las
+  // aserciones del candado — un reactivo compartido seguiría congelado por otro
+  // examen aunque la regla estuviera rota, y el verde no probaría nada.
+  //
+  // Restricciones de clasificación (no decorativas — cada una protege un oráculo):
+  //  · «Tesis y argumentos»: la ÚNICA rama viva sin conteos absolutos en ninguna
+  //    suite. `e2e-lui15` §7 fija «Ecuaciones lineales»=9 y «Productos notables»=1;
+  //    lui14 fija «Operaciones con fracciones»=2 y Biología=1; «Triángulos» debe
+  //    seguir en 0 (es el único nodo borrable de lui18).
+  //  · dificultad facil/medio: lui14 fija Avanzado=1.
+  //  · sin `autorCorreo` (→ Cristian): lui14 fija Rubén=1 y Carlos=1.
+  //  · sin `lectura`: la expansión de bloque contagiaría el candado a hermanas.
+  //  · enunciados sin los substrings que las suites localizan.
+  {
+    enunciado: "¿Qué papel juega la evidencia al sostener una tesis?",
+    opciones: [
+      { id: "a", texto: "Sustituye a la tesis" },
+      { id: "b", texto: "La respalda con hechos verificables" },
+      { id: "c", texto: "Solo adorna el discurso" },
+      { id: "d", texto: "Debilita la conclusión" },
+    ],
+    opcionCorrecta: "b",
+    dificultad: "facil",
+    retroalimentacion:
+      "La evidencia aporta los hechos verificables que hacen sostenible una tesis.",
+    en: ["Comprensión lectora", "Textos argumentativos", "Tesis y argumentos"],
+  },
+  {
+    enunciado: "¿Qué distingue una opinión de un argumento?",
+    opciones: [
+      { id: "a", texto: "La opinión usa datos" },
+      { id: "b", texto: "El argumento ofrece razones que lo sostienen" },
+      { id: "c", texto: "No hay diferencia" },
+      { id: "d", texto: "El argumento es más corto" },
+    ],
+    opcionCorrecta: "b",
+    dificultad: "medio",
+    retroalimentacion:
+      "Un argumento se distingue por ofrecer razones verificables; la opinión no las exige.",
+    en: ["Comprensión lectora", "Textos argumentativos", "Tesis y argumentos"],
+  },
+  {
+    enunciado: "¿Cuál es la diferencia entre tesis y conclusión?",
+    opciones: [
+      { id: "a", texto: "Son sinónimos" },
+      { id: "b", texto: "La tesis se defiende; la conclusión cierra el razonamiento" },
+      { id: "c", texto: "La conclusión va primero" },
+      { id: "d", texto: "La tesis no necesita defensa" },
+    ],
+    opcionCorrecta: "b",
+    dificultad: "medio",
+    retroalimentacion:
+      "La tesis es la postura que se defiende a lo largo del texto; la conclusión cierra el razonamiento.",
+    en: ["Comprensión lectora", "Textos argumentativos", "Tesis y argumentos"],
+  },
+  {
+    enunciado: "¿Qué es una falacia de generalización apresurada?",
+    opciones: [
+      { id: "a", texto: "Concluir de casos insuficientes" },
+      { id: "b", texto: "Citar a una autoridad" },
+      { id: "c", texto: "Repetir la tesis" },
+      { id: "d", texto: "Atacar a la persona" },
+    ],
+    opcionCorrecta: "a",
+    dificultad: "facil",
+    retroalimentacion:
+      "Generalizar desde una muestra insuficiente produce conclusiones sin sustento.",
+    en: ["Comprensión lectora", "Textos argumentativos", "Tesis y argumentos"],
+    // El ÚNICO material del fixture (ver el docblock del campo).
+    material: {
+      tipo: "columnas",
+      columna1: ["Generalización apresurada", "Falsa causa", "Ataque personal"],
+      columna2: [
+        "Concluir de casos insuficientes",
+        "Confundir correlación con causa",
+        "Descalificar a quien argumenta",
+      ],
+    },
+  },
 ];
 
 // ── Lecturas (LUI-17) ───────────────────────────────────────────────────────
@@ -463,7 +551,7 @@ const LECTURAS: {
   },
 ];
 
-// Reactivos que hacen DISCRIMINANTE el candado «En uso en un examen activo» (LUI-14),
+// Reactivos que hacen DISCRIMINANTE el candado «En uso en un examen» (LUI-14),
 // por enunciado. El resto de reactivos va a los exámenes publicados ABIERTOS.
 const REACTIVO_SIN_EXAMEN = "¿Qué fracción es equivalente a 0.375?"; // (D) en ningún examen → LIBRE
 const REACTIVO_SOLO_BORRADOR = "¿Cuál es el resultado de 3/4 + 1/6?"; // (A) solo en el borrador → LIBRE
@@ -473,10 +561,25 @@ const REACTIVO_SOLO_FUTURO =
 // examen) → editable: fixture para probar «mantener una clasificación retirada al editar».
 const REACTIVO_RETIRADO_LIBRE = "¿Cuál es el desarrollo de (x + 3)²?";
 // (LUI-17) HERMANA de un bloque cuya OTRA pregunta sí está en un examen publicado con
-// asignación. Ella no entra a ningún examen, así que su candado viene EXCLUSIVAMENTE de la
-// expansión al bloque: es el fixture que hace discriminante «se congela la lectura entera».
+// asignación. No pertenece a ningún examen QUE CONGELE (desde LUI-20 B vive también en el
+// borrador «Comprensión de lectura», y un borrador no congela), así que su candado viene
+// EXCLUSIVAMENTE de la expansión al bloque: el fixture que hace discriminante «se congela
+// la lectura entera».
 const REACTIVO_HERMANA_LIBRE =
   "Segun el texto, ¿que funcion cumple una objecion en un debate?";
+// (LUI-20 B) Los 4 exclusivos de la tabla de verdad del candado y del archivado.
+// TODOS entran a `apartados`: si cayeran en `restoReactivos` entrarían a SG1/SG2 y
+// el candado ajeno taparía el que cada aserción quiere medir (falso verde) — o
+// peor, `ARCHIVADO_LIBRE` quedaría congelado por SG1 y su aserción «sin
+// compromisos → sin candado» fallaría CON el código correcto (falso rojo).
+const REACTIVO_SOLO_ARCHIVADO =
+  "¿Qué papel juega la evidencia al sostener una tesis?"; // solo SG0 (archivado + asignación cerrada) → BLOQUEADO
+const REACTIVO_INTENTO_DIRECTO =
+  "¿Qué distingue una opinión de un argumento?"; // solo «Práctica libre» (publicado + intento directo) → BLOQUEADO
+const REACTIVO_ARCHIVADO_LIBRE =
+  "¿Cuál es la diferencia entre tesis y conclusión?"; // solo SG5 (archivado sin NADA) → LIBRE
+const REACTIVO_SOLO_SG4 =
+  "¿Qué es una falacia de generalización apresurada?"; // solo SG4 → candado ANTES y DESPUÉS de archivarlo
 
 // ── Exámenes, asignaciones e intentos (LUI-9) ───────────────────────────────
 // Existen para que el panel de la administradora sea VERIFICABLE: sin ellos,
@@ -485,20 +588,97 @@ const REACTIVO_HERMANA_LIBRE =
 // El fixture es DISCRIMINANTE, no decorativo: cada dato está puesto para que una
 // implementación mal hecha falle de forma VISIBLE. Ver el comentario de cada uno.
 
-type Cuando = "esteMes" | "mesPasado" | "futura";
+// «cerrada» (LUI-20 B): ventana concluida CUALQUIER día del mes. Con la fórmula de
+// «mesPasado» (abre a −10d, cierra a +21d) la ventana sigue ABIERTA hasta el día 11
+// del mes en curso — un fixture «archivable» construido así fallaría según el día en
+// que corra la suite. Las cerradas abren a −(40+7i)d del día 1: cierran a −(19+7i)d,
+// SIEMPRE antes de `ahora`, incluido el día 1 a las 00:05.
+type Cuando = "esteMes" | "mesPasado" | "futura" | "cerrada";
 
+/**
+ * Fixture DECLARATIVO de exámenes (LUI-20 B).
+ *  · `estado` usa `EstadoExamen` del módulo puro: el tercer estado entra solo.
+ *  · `tipo` por NOMBRE de sección (se resuelve a id con el temario ya sembrado).
+ *    AUSENTE = general legado (el campo NO se escribe); «Práctica libre» lo lleva
+ *    EXPLÍCITO a propósito — el par ausente/explícito discrimina que la pantalla
+ *    pase por `normalizarTipo` y no por la mera presencia del campo.
+ *  · `miembros` reemplaza las ramas por estado/título que tenía `membresiaDe`: la
+ *    rama `estado === "borrador"` habría llenado los borradores NUEVOS con el
+ *    resto del banco (un examen de Redacción lleno de álgebra) y repartido
+ *    `REACTIVO_SOLO_BORRADOR` en tres borradores distintos.
+ */
 const EXAMENES: {
   titulo: string;
   descripcion: string;
   duracionMin: number;
-  estado: "borrador" | "publicado";
+  estado: EstadoExamen;
+  tipo?: { clase: "general" } | { clase: "modulo"; seccion: string };
+  autorCorreo?: string;
+  /** AUSENTE = «resto» (todos menos `apartados`). */
+  miembros?:
+    | { base: "resto"; extra?: string }
+    | { base: "solo"; enunciados: readonly string[] }
+    | { base: "fantasma" };
 }[] = [
+  // — Los 5 originales, con el MISMO resultado que producían las ramas viejas —
   { titulo: "Diagnóstico por áreas", descripcion: "Evaluación inicial de las cuatro áreas del EXANI II.", duracionMin: 90, estado: "publicado" },
   { titulo: "Simulacro General 1", descripcion: "Primer simulacro completo.", duracionMin: 180, estado: "publicado" },
   { titulo: "Simulacro General 2", descripcion: "Segundo simulacro completo.", duracionMin: 180, estado: "publicado" },
-  { titulo: "Simulacro General 3", descripcion: "Tercer simulacro completo.", duracionMin: 180, estado: "publicado" },
+  { titulo: "Simulacro General 3", descripcion: "Tercer simulacro completo.", duracionMin: 180, estado: "publicado",
+    miembros: { base: "resto", extra: REACTIVO_SOLO_FUTURO } },
   // Sin asignar y en borrador: ejercita `estado` y el índice `by_estado`.
-  { titulo: "Simulacro Final", descripcion: "En construcción.", duracionMin: 180, estado: "borrador" },
+  { titulo: "Simulacro Final", descripcion: "En construcción.", duracionMin: 180, estado: "borrador",
+    miembros: { base: "resto", extra: REACTIVO_SOLO_BORRADOR } },
+  // — LUI-20 B: la tabla de verdad del candado, fila por fila —
+  // SG0 = asignación SÍ · intento NO (su asignación va con `presentan: []`). Si
+  // tuviera intentos, esta fila y la de «Práctica libre» probarían la MISMA rama
+  // del ∨ y quien borrara la rama de asignaciones quedaría verde.
+  { titulo: "Simulacro General 0", descripcion: "Aplicado y retirado; conserva su historial.",
+    duracionMin: 180, estado: "archivado",
+    miembros: { base: "solo", enunciados: [REACTIVO_SOLO_ARCHIVADO] } },
+  // Práctica libre = asignación NO · intento SÍ (intentos DIRECTOS, paso 9b).
+  { titulo: "Práctica libre", descripcion: "Práctica sin asignación; intentos directos.",
+    duracionMin: 30, estado: "publicado", tipo: { clase: "general" },
+    miembros: { base: "solo", enunciados: [REACTIVO_INTENTO_DIRECTO] } },
+  // SG5 = asignación NO · intento NO → su reactivo queda LIBRE.
+  { titulo: "Simulacro General 5", descripcion: "Archivado sin compromisos.",
+    duracionMin: 180, estado: "archivado",
+    miembros: { base: "solo", enunciados: [REACTIVO_ARCHIVADO_LIBRE] } },
+  // El que el E2E ARCHIVA: solo asignaciones cerradas (determinista) y CON
+  // intentos — tras archivarlo es el caso «archivado con resultados» de la UI.
+  { titulo: "Simulacro General 4", descripcion: "Concluido; candidato a archivar.",
+    duracionMin: 180, estado: "publicado",
+    miembros: { base: "solo", enunciados: [REACTIVO_SOLO_SG4] } },
+  // Chip morado sobre PUBLICADO, sección con áreas.
+  { titulo: "Módulo Biología 1", descripcion: "Examen del módulo de Biología.",
+    duracionMin: 60, estado: "publicado", tipo: { clase: "modulo", seccion: "Biología" },
+    miembros: { base: "solo", enunciados: ["¿Cuál es la función principal de la membrana celular?"] } },
+  // Chip morado sobre BORRADOR y sección PLANA: caza acoplar el chip a `estado`
+  // y resolver el nombre del módulo caminando áreas (esta no tiene ninguna).
+  { titulo: "Módulo Matemáticas financieras", descripcion: "En construcción.",
+    duracionMin: 60, estado: "borrador", tipo: { clase: "modulo", seccion: "Matemáticas financieras" },
+    miembros: { base: "solo", enunciados: [] } },
+  // Borrador AJENO (Carlos): sin él, todos los exámenes comparten autor y la
+  // regla «solo su autor lo edita» no sería probable.
+  { titulo: "Diagnóstico Redacción", descripcion: "Borrador de otro autor.",
+    duracionMin: 45, estado: "borrador", autorCorreo: "carlos.instructor@demo.unx.mx",
+    miembros: { base: "solo", enunciados: [] } },
+  // `reactivoIds` con un id COLGANTE (el arreglo no tiene FK): la pantalla debe
+  // tolerarlo, no encogerse en silencio.
+  { titulo: "Simulacro legado (migración)", descripcion: "Referencia a un reactivo que ya no existe.",
+    duracionMin: 90, estado: "publicado", miembros: { base: "fantasma" } },
+  // BLOQUE COMPLETO (las 2 preguntas de la lectura) en un examen: sin él, ningún
+  // examen contiene dos hermanas contiguas y la aserción «un pasaje por RACHA, no
+  // por pregunta» de la vista previa no discriminaría — con una sola pregunta de
+  // bloque, pintar el pasaje por racha o por pregunta da lo mismo. Es BORRADOR a
+  // propósito: un borrador no congela, así que la hermana apartada conserva su
+  // candado-solo-por-expansión (fixture de lui17) intacto.
+  { titulo: "Comprensión de lectura (borrador)", descripcion: "Bloque completo para revisión.",
+    duracionMin: 20, estado: "borrador",
+    miembros: { base: "solo", enunciados: [
+      "Segun el texto, ¿cual es el proposito principal de una objecion?",
+      REACTIVO_HERMANA_LIBRE,
+    ] } },
 ];
 
 /** La identidad de una asignación en el fixture es el par (examen, grupo). */
@@ -531,6 +711,17 @@ const ASIGNACIONES: {
   // Futura: la ventana aún no abre → ni métrica ni tabla. Si falta
   // `abreEn <= ahora`, ESTE encabeza «Últimos exámenes APLICADOS».
   { examen: "Simulacro General 3", grupo: "Matutino A", cuando: "futura", presentan: [] },
+  // ── Cerradas (LUI-20 B): a 40+ días del día 1 → concluidas CUALQUIER día ──
+  // Quedan fuera de «este mes» y muy por debajo del top-5 de «últimos exámenes»,
+  // así que el oráculo del panel (LUI-9) no se mueve. ⚠️ NO añadir aquí entradas
+  // `esteMes`: recalcularían `paso` y moverían los umbrales de apertura de las
+  // existentes y el orden del top-5.
+  // SG0 con `presentan: []` — la fila «asignación sí · intento no» de la tabla de
+  // verdad del candado. Con intentos no discriminaría la rama de asignaciones.
+  { examen: "Simulacro General 0", grupo: "Matutino A", cuando: "cerrada", presentan: [] },
+  // SG4 CON intentos: tras archivarlo en el E2E es «archivado con resultados».
+  { examen: "Simulacro General 4", grupo: "Matutino A", cuando: "cerrada", presentan: "activasDelGrupo" },
+  { examen: "Simulacro General 4", grupo: "Vespertino B", cuando: "cerrada", presentan: "activasDelGrupo" },
 ];
 
 /**
@@ -775,6 +966,9 @@ export const cargarDatosDePrueba = internalMutation({
     await ctx.runMutation(internal.bootstrap.sembrarTemarioNucleo, {});
 
     const subtemaPorRuta = new Map<string, Id<"subtemas">>();
+    // nombre canónico → id de sección, HOISTEADO fuera del bloque: lo consume el
+    // paso 7 para resolver el `tipo` de los exámenes de módulo (LUI-20 B).
+    const seccionIdPorNombre = new Map<string, Id<"secciones">>();
     {
       const seccionesExistentes = await ctx.db.query("secciones").collect();
       const seccionPorNombre = new Map(
@@ -846,6 +1040,11 @@ export const cargarDatosDePrueba = internalMutation({
             );
           }
         }
+      }
+      // Cubre AMBOS caminos (sección preexistente e insertada): al llegar aquí,
+      // `seccionPorNombre` contiene todas las del fixture.
+      for (const [clave, s] of seccionPorNombre) {
+        seccionIdPorNombre.set(clave, s._id);
       }
     }
 
@@ -949,6 +1148,11 @@ export const cargarDatosDePrueba = internalMutation({
           bloque,
           dificultad: r.dificultad,
           activo: r.activo ?? true,
+          // Clave SIEMPRE presente: `undefined` BORRA un material residual (el seed
+          // escribe el estado completo — converge, no preserva). Pasa por
+          // `validarMaterial` para que el fixture respete mínimos/máximos/no-vacío
+          // por construcción (LUI-20 B).
+          material: r.material ? validarMaterial(r.material) : undefined,
         });
         reactivoIdPorEnunciado.set(r.enunciado, existente._id);
         reparado.push("reactivo");
@@ -982,6 +1186,7 @@ export const cargarDatosDePrueba = internalMutation({
         bloque,
         autorId,
         activo: r.activo ?? true,
+        material: r.material ? validarMaterial(r.material) : undefined,
       });
       reactivoIdPorEnunciado.set(r.enunciado, id);
       insertado.push("reactivo");
@@ -1060,21 +1265,85 @@ export const cargarDatosDePrueba = internalMutation({
     const idSoloFuturo = reactivoIdPorEnunciado.get(REACTIVO_SOLO_FUTURO);
     const idRetiradoLibre = reactivoIdPorEnunciado.get(REACTIVO_RETIRADO_LIBRE);
     const idHermanaLibre = reactivoIdPorEnunciado.get(REACTIVO_HERMANA_LIBRE);
+    // ⚠️ Los 4 exclusivos de LUI-20 B entran a `apartados` OBLIGATORIAMENTE: si
+    // cayeran en `restoReactivos` entrarían a SG1/SG2 (publicados con asignación)
+    // y su candado ajeno taparía —o contradiría— el que cada aserción mide.
     const apartados = new Set(
-      [idSinExamen, idSoloBorrador, idSoloFuturo, idRetiradoLibre, idHermanaLibre].filter(
-        Boolean,
-      ) as Id<"reactivos">[],
+      [
+        idSinExamen,
+        idSoloBorrador,
+        idSoloFuturo,
+        idRetiradoLibre,
+        idHermanaLibre,
+        reactivoIdPorEnunciado.get(REACTIVO_SOLO_ARCHIVADO),
+        reactivoIdPorEnunciado.get(REACTIVO_INTENTO_DIRECTO),
+        reactivoIdPorEnunciado.get(REACTIVO_ARCHIVADO_LIBRE),
+        reactivoIdPorEnunciado.get(REACTIVO_SOLO_SG4),
+      ].filter(Boolean) as Id<"reactivos">[],
     );
     const restoReactivos = todosLosReactivoIds.filter((id) => !apartados.has(id));
-    const tituloFuturo = ASIGNACIONES.find((a) => a.cuando === "futura")?.examen;
-    const membresiaDe = (e: (typeof EXAMENES)[number]): Id<"reactivos">[] => {
-      if (e.estado === "borrador")
-        return idSoloBorrador
-          ? [...restoReactivos, idSoloBorrador]
-          : restoReactivos;
-      if (e.titulo === tituloFuturo)
-        return idSoloFuturo ? [...restoReactivos, idSoloFuturo] : restoReactivos;
-      return restoReactivos;
+
+    /** Resuelve un enunciado a id, o TRUENA: un fixture silenciosamente ausente
+     *  produce fallos indescifrables tres pasos después. */
+    const idDe = (enunciado: string): Id<"reactivos"> => {
+      const id = reactivoIdPorEnunciado.get(enunciado);
+      if (!id) {
+        throw new Error(
+          `La membresía de un examen refiere «${enunciado}», que no está en REACTIVOS.`,
+        );
+      }
+      return id;
+    };
+
+    /** Membresía DECLARATIVA (LUI-20 B; reemplaza las ramas por estado/título —
+     *  ver el docblock de `EXAMENES`). `fantasma` inserta un reactivo mínimo y lo
+     *  borra EN LA MISMA mutation: el id queda colgante pero bien formado, el
+     *  temario nunca lo cuenta (se borra antes de `recalcular`) y cada corrida
+     *  re-parchea el arreglo con un colgante fresco — converge. */
+    const membresiaDe = async (
+      e: (typeof EXAMENES)[number],
+    ): Promise<Id<"reactivos">[]> => {
+      const m = e.miembros ?? { base: "resto" as const };
+      if (m.base === "solo") return m.enunciados.map(idDe);
+      if (m.base === "fantasma") {
+        const subtemaEfimero = subtemaPorRuta.get(
+          ruta("Comprensión lectora", "Textos argumentativos", "Tesis y argumentos"),
+        );
+        if (!subtemaEfimero) throw new Error("Falta la rama del reactivo efímero.");
+        const clasifEfimera = await resolverClasificacion(ctx, subtemaEfimero, {});
+        const rid = await ctx.db.insert("reactivos", {
+          enunciado: "(reactivo efímero: existe solo dentro de esta corrida del seed)",
+          opciones: [
+            { id: "a", texto: "—" },
+            { id: "b", texto: "—" },
+            { id: "c", texto: "—" },
+          ],
+          opcionCorrecta: "a",
+          ...clasifEfimera,
+          dificultad: "facil",
+          retroalimentacion: "",
+          autorId: instructorUserId,
+          activo: true,
+        });
+        await ctx.db.delete(rid);
+        return [rid];
+      }
+      return m.extra ? [...restoReactivos, idDe(m.extra)] : restoReactivos;
+    };
+
+    /** `tipo` del examen por NOMBRE de sección → id. AUSENTE = general legado (el
+     *  campo no se escribe). Truena si el nombre no existe — nada de `continue`
+     *  silencioso. */
+    const tipoDe = (e: (typeof EXAMENES)[number]): TipoExamen | undefined => {
+      if (!e.tipo) return undefined;
+      if (e.tipo.clase === "general") return { clase: "general" };
+      const seccionId = seccionIdPorNombre.get(canonizar(e.tipo.seccion));
+      if (!seccionId) {
+        throw new Error(
+          `El examen «${e.titulo}» apunta al módulo «${e.tipo.seccion}», que no existe en TEMARIO_DEMO.`,
+        );
+      }
+      return { clase: "modulo", seccionId };
     };
 
     const examenesExistentes = await ctx.db.query("examenes").collect();
@@ -1083,10 +1352,18 @@ export const cargarDatosDePrueba = internalMutation({
       const datos = {
         titulo: e.titulo,
         descripcion: e.descripcion,
-        reactivoIds: membresiaDe(e),
+        reactivoIds: await membresiaDe(e),
         duracionMin: e.duracionMin,
         estado: e.estado,
-        autorId: instructorUserId,
+        // Clave SIEMPRE presente: en el patch, `undefined` BORRA un `tipo`
+        // residual y el examen converge a general. «Ausente = mantener» es
+        // semántica de mutations de ACTUALIZACIÓN (`resolverIntencionTipo`); un
+        // seed convergente escribe el estado COMPLETO — la semántica contraria.
+        tipo: tipoDe(e),
+        autorId:
+          (e.autorCorreo &&
+            instructorUserIdPorCorreo.get(norm(e.autorCorreo))) ||
+          instructorUserId,
       };
       const existente = examenesExistentes.find((x) => x.titulo === e.titulo);
       if (existente) {
@@ -1114,13 +1391,27 @@ export const cargarDatosDePrueba = internalMutation({
     const inicioMes = inicioDeMesMx(ahora);
     const delMes = ASIGNACIONES.filter((a) => a.cuando === "esteMes");
     const delMesPasado = ASIGNACIONES.filter((a) => a.cuando === "mesPasado");
+    const delCerradas = ASIGNACIONES.filter((a) => a.cuando === "cerrada");
     const paso = (ahora - inicioMes) / (delMes.length + 1);
 
     function abreEnDe(a: (typeof ASIGNACIONES)[number]): number {
       if (a.cuando === "futura") return ahora + 7 * DIA;
+      if (a.cuando === "cerrada") {
+        // 40, 47, 54… días ANTES del día 1: con la ventana de 21 días, cierran a
+        // −19, −26… — SIEMPRE antes de `ahora`, cualquier día del mes (LUI-20 B).
+        return inicioMes - (40 + 7 * delCerradas.indexOf(a)) * DIA;
+      }
       if (a.cuando === "mesPasado") {
-        // 10 y 3 días ANTES del día 1 → siempre caen en el mes anterior.
-        return inicioMes - (10 - 7 * delMesPasado.indexOf(a)) * DIA;
+        // 3+7k días ANTES del día 1, del más antiguo al más reciente. La fórmula
+        // vieja `(10 − 7·i)` se volvía NEGATIVA en i≥2: una tercera entrada habría
+        // aterrizado DENTRO del mes en curso — el fixture mentiría («mesPasado» que
+        // no lo es) y los días 1–4 rompería las aserciones LITERALES de e2e-lui9
+        // (la 1ª fila de «Últimos exámenes» dejaría de ser la que lleva «—»).
+        // Nota: NO rompería la métrica «7» — ese número es un oráculo DERIVADO del
+        // fixture, no un literal. Para n=2 esta fórmula produce exactamente los
+        // −10d/−3d de siempre: cero movimiento de datos.
+        const n = delMesPasado.length;
+        return inicioMes - (3 + 7 * (n - 1 - delMesPasado.indexOf(a))) * DIA;
       }
       return Math.round(inicioMes + (delMes.indexOf(a) + 1) * paso);
     }
@@ -1144,7 +1435,12 @@ export const cargarDatosDePrueba = internalMutation({
         examenId,
         grupoId,
         abreEn,
-        cierraEn: abreEn + 21 * DIA, // ventana larga: la mayoría siguen ABIERTAS
+        // Ventana de 21 días. ⚠️ NO afirmar «la mayoría siguen abiertas»: depende
+        // del día del mes (a fin de mes las primeras `esteMes` ya cerraron). Los
+        // únicos estados de ventana DETERMINISTAS todo el mes son: `cerrada`
+        // (cierra a ≥19 días antes del día 1), `futura` (abre en +7d) y las
+        // `esteMes` de índice ≥3 (siempre abiertas: su cierre cae el mes entrante).
+        cierraEn: abreEn + 21 * DIA,
         creadoPor: instructorUserId,
       };
       const existente = asignacionesExistentes.find(
@@ -1171,23 +1467,38 @@ export const cargarDatosDePrueba = internalMutation({
         if (!alumnoId) continue;
 
         // Los instantes exactos no los muestra el panel; lo único que importa es
-        // (a) que caigan en el pasado y (b) el ORDEN entre los intentos de una
-        // misma alumna. Como fracción del tiempo transcurrido desde `abreEn`,
-        // siempre quedan en el pasado por reciente que sea la ventana.
-        const enVentana = (f: number) => Math.round(abreEn + (ahora - abreEn) * f);
+        // (a) que caigan en el pasado, (b) el ORDEN entre los intentos de una
+        // misma alumna y (c) que queden DENTRO de la ventana — de ahí el
+        // `min(ahora, cierraEn)`: en una ventana ya CERRADA hace semanas, el tope
+        // `ahora` de antes producía intentos posteriores a `cierraEn` (LUI-20 B).
+        const finVentana = Math.min(ahora, datos.cierraEn);
+        const enVentana = (f: number) =>
+          Math.round(abreEn + (finVentana - abreEn) * f);
         const base = puntajeDemo(`${asig.examen}|${asig.grupo}|${correo}`);
 
+        // ⚠️ `enviadoEn` y `puntaje` son claves OBLIGADAS (valor `number |
+        // undefined`), no opcionales: el spread solo esparce claves PRESENTES, y
+        // el `patch` solo elimina campos cuya clave llega con `undefined`. Con el
+        // tipo opcional de antes, una posición que convergiera de `enviado` a
+        // `en_curso` habría conservado puntaje y fecha de envío residuales — un
+        // «en curso» con calificación. (El comentario que había junto al patch
+        // AFIRMABA que mandaba `undefined`; no lo hacía.)
         type FixtureIntento = {
           estado: "en_curso" | "enviado";
           iniciadoEn: number;
-          enviadoEn?: number;
-          puntaje?: number;
+          enviadoEn: number | undefined;
+          puntaje: number | undefined;
         };
         const fixture: FixtureIntento[] = [];
 
         if (asig.enCurso === correo) {
           // Sin puntaje y sin enviar: si el promedio no filtra, sale NaN.
-          fixture.push({ estado: "en_curso", iniciadoEn: enVentana(0.5) });
+          fixture.push({
+            estado: "en_curso",
+            iniciadoEn: enVentana(0.5),
+            enviadoEn: undefined,
+            puntaje: undefined,
+          });
         } else {
           fixture.push({
             estado: "enviado",
@@ -1226,12 +1537,94 @@ export const cargarDatosDePrueba = internalMutation({
           const datosIntento = { examenId, alumnoId, asignacionId, ...fixture[k] };
           const previo = previos[k];
           if (previo) {
-            // `patch` con `puntaje: undefined` ELIMINA el campo — es justo lo que
-            // necesita el intento `en_curso`. Mismo mecanismo que `ultimoAccesoEn`.
+            // `patch` con la clave presente y `undefined` ELIMINA el campo — y
+            // AHORA las claves sí van siempre presentes (ver `FixtureIntento`).
             await ctx.db.patch(previo._id, datosIntento);
           } else {
             await ctx.db.insert("intentos", datosIntento);
             insertado.push(`intento:${asig.examen}·${correo}`);
+          }
+        }
+      }
+    }
+
+    // ── 9b. Intentos DIRECTOS (sin asignación) — LUI-20 B ──────────────────
+    // El schema los admite (`asignacionId` es opcional) y el candado los reconoce
+    // (rama ∨ de `calcularBloqueo`, revisión de la Entrega A); este paso
+    // materializa el ÚNICO fixture de esa rama. «Práctica libre» lleva:
+    //  · 1 `enviado` → `tieneResultados` con CERO asignaciones (mata
+    //    `tieneResultados = f(asignaciones)`),
+    //  · 1 `en_curso` → la ÚNICA razón por la que no es archivable (sin
+    //    asignaciones, la regla base lo dejaría pasar): discrimina la ampliación
+    //    del guard de archivar.
+    //
+    // Reconciliación calcada del paso 9, pero por `by_examen` filtrando
+    // `asignacionId === undefined` + alumna + posición cronológica (la del paso 9
+    // ancla en `by_asignacion`, que aquí no existe). El orden entre los dos
+    // intentos es estable entre corridas (6 días ≫ 30 minutos) → converge.
+    {
+      const INTENTOS_DIRECTOS: {
+        examen: string;
+        alumna: string;
+        fixture: {
+          estado: "en_curso" | "enviado";
+          /** ms hacia atrás desde `ahora`, del más antiguo al más reciente. */
+          hace: number;
+        }[];
+      }[] = [
+        {
+          examen: "Práctica libre",
+          alumna: "ana.lopez@correo.com",
+          fixture: [
+            { estado: "enviado", hace: 6 * DIA },
+            { estado: "en_curso", hace: 30 * 60_000 },
+          ],
+        },
+      ];
+
+      for (const d of INTENTOS_DIRECTOS) {
+        const examenId = examenIdPorTitulo.get(d.examen);
+        const alumnoId = alumnoUserIdPorCorreo.get(norm(d.alumna));
+        // TRUENA, no `continue`: un fixture silenciosamente ausente produce
+        // fallos indescifrables en el E2E que depende de él.
+        if (!examenId) throw new Error(`Intento directo: no existe el examen «${d.examen}».`);
+        if (!alumnoId) throw new Error(`Intento directo: no existe la alumna «${d.alumna}».`);
+
+        const previos = (
+          await ctx.db
+            .query("intentos")
+            .withIndex("by_examen", (q) => q.eq("examenId", examenId))
+            .collect()
+        )
+          .filter((i) => i.asignacionId === undefined && i.alumnoId === alumnoId)
+          .sort((a, b) => a.iniciadoEn - b.iniciadoEn);
+
+        for (let k = 0; k < d.fixture.length; k++) {
+          const f = d.fixture[k];
+          const iniciadoEn = ahora - f.hace;
+          // Las CUATRO claves variables SIEMPRE presentes (`asignacionId`
+          // incluida): el patch limpia cualquier residuo — un intento que fue
+          // «enviado» o que alguien ligó a una asignación a mano converge al
+          // fixture, no lo preserva.
+          const datosIntento = {
+            examenId,
+            alumnoId,
+            asignacionId: undefined,
+            estado: f.estado,
+            iniciadoEn,
+            enviadoEn:
+              f.estado === "enviado" ? iniciadoEn + 40 * 60_000 : undefined,
+            puntaje:
+              f.estado === "enviado"
+                ? puntajeDemo(`${d.examen}|directo|${d.alumna}`)
+                : undefined,
+          };
+          const previo = previos[k];
+          if (previo) {
+            await ctx.db.patch(previo._id, datosIntento);
+          } else {
+            await ctx.db.insert("intentos", datosIntento);
+            insertado.push(`intento-directo:${d.examen}·${d.alumna}`);
           }
         }
       }

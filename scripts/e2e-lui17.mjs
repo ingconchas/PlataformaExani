@@ -466,15 +466,16 @@ try {
     "pero SÍ deja desactivar (única operación permitida bajo candado)",
     (await page.getByRole("button", { name: "Desactivar" }).count()) > 0,
   );
-  // Y en el banco, la HERMANA —que no está en ningún examen— debe mostrar candado.
+  // Y en el banco, la HERMANA —que no está en ningún examen QUE CONGELE (desde
+  // LUI-20 B vive en un borrador, y un borrador no congela)— debe mostrar candado.
   await page.goto(`${BASE}/instructor/reactivos`);
   await esperar(async () => (await page.locator("tbody tr").count()) > 0);
   await page.getByPlaceholder("Buscar en el enunciado…").fill(HERMANA_LIBRE);
   await esperar(async () => (await page.locator("tbody tr").count()) === 1);
   const filaHermana = page.locator("tbody tr").first();
   check(
-    "⭐ la HERMANA (en ningún examen) muestra CANDADO, no lápiz",
-    (await filaHermana.getByRole("link", { name: /^En uso en un examen activo/ }).count()) === 1,
+    "⭐ la HERMANA (en ningún examen que congele) muestra CANDADO, no lápiz",
+    (await filaHermana.getByRole("link", { name: /^En uso en un examen/ }).count()) === 1,
   );
   check(
     "⭐ y no ofrece «Editar en la lectura»",

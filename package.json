@@ -19,6 +19,7 @@
     "e2e:lui16": "node scripts/e2e-lui16.mjs",
     "e2e:lui17": "node scripts/e2e-lui17.mjs",
     "e2e:lui18": "node scripts/e2e-lui18.mjs",
+    "e2e:lui20": "node scripts/e2e-lui20.mjs",
     "e2e:lui103": "node scripts/e2e-lui103.mjs"
   },
   "engines": {

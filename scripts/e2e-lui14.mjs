@@ -137,8 +137,8 @@ try {
     "encabezado «Banco de reactivos»",
     (await page.textContent("h1"))?.trim() === "Banco de reactivos",
   );
-  check("conteo total = 14 reactivos", cuerpo.includes("14 reactivos"));
-  check("las 14 filas se listan (2 páginas)", (await filas(page).count()) === 8, "página 1 = 8");
+  check("conteo total = 18 reactivos", cuerpo.includes("18 reactivos")); // LUI-20 B: +4 exclusivos (oráculo actualizado a propósito)
+  check("las 18 filas se listan (3 páginas)", (await filas(page).count()) === 8, "página 1 = 8");
 
   console.log("\n2 · Filtro por AUTOR incluye a un autor INACTIVO (sale de las filas)");
   const opcionesAutor = (

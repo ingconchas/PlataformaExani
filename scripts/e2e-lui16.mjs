@@ -446,7 +446,7 @@ try {
   await page.goto(`${BASE}/instructor/reactivos`);
   await buscar(page, EN_USO);
   await filaDe(page, EN_USO)
-    .getByRole("link", { name: /en un examen activo|^Editar el reactivo/ })
+    .getByRole("link", { name: /en un examen|^Editar el reactivo/ })
     .first()
     .click();
   await esperar(async () => (await page.getByRole("tab", { name: "Ordenamiento" }).count()) === 1);
