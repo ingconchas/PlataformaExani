@@ -200,6 +200,13 @@ export const listarGestion = query({
  * `string` y lo normaliza: si es malformado o no existe → `null` (la ficha
  * muestra «no encontrado»), evitando el error de validación de Convex ante una
  * URL como `/admin/grupos/foo`.
+ *
+ * ⚠️ El `.collect()` de `asignaciones.by_grupo` lee TODO el historial del grupo.
+ * LUI-22 volvió ilimitados los solapes por examen: la cota
+ * `MAX_ASIGNACIONES_POR_EXAMEN` reduce la pendiente, no acota esta lectura
+ * (misma deuda declarada que `examenes.listar`). Las filas-alumno no aparecen
+ * aquí (`by_grupo eq id` jamás matchea `undefined`): una asignación individual
+ * NO cuenta como aplicación del grupo — decisión en `metricas.ts`.
  */
 export const obtener = query({
   args: { grupoId: v.string() },

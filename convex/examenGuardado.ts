@@ -33,9 +33,9 @@ import type { TipoExamen } from "./examenEstado";
  * `constructorExamen.ts`, `sanitizar.ts`) + `_generated`; jamás `lecturas.ts`,
  * `reactivos.ts` ni `examenes.ts`. Lo consumen los tres escritores (`examenes.crear`,
  * `examenes.actualizar`, `reactivos.crear` con destino), `examenes.publicar` — y
- * **LUI-22**: `asignar` debe re-ejecutar `validarPublicable` COMPLETO antes de crear la
- * asignación (un publicado sin compromisos no está congelado y pudo degradarse), y puede
- * importarlo de aquí sin tocar `examenes.ts`.
+ * `asignaciones.asignar` (LUI-22), que re-ejecuta `validarPublicable` COMPLETO antes de
+ * crear la asignación (un publicado sin compromisos no está congelado y pudo degradarse)
+ * importándolo de aquí, sin tocar `examenes.ts`.
  *
  * Los helpers de bloque (`mapasDeBloque`, `expandirBloques`, `validarBloquesCompletos`,
  * `reactivosDeLectura`) se MUDARON aquí desde `lecturas.ts` en LUI-21 B — refactor sin
@@ -247,7 +247,7 @@ function etiquetaDe(r: Doc<"reactivos">): string {
 
 /**
  * Las guardas de CONTENIDO de `examenes.publicar`, con mensajes nombrados y en orden. Se
- * exporta para que **LUI-22 las re-ejecute en `asignar`**: nada de lo que se valida aquí
+ * exporta para que **`asignaciones.asignar` las re-ejecute**: nada de lo que se valida aquí
  * está garantizado DESPUÉS de publicar (un publicado sin compromisos no congela —
  * reclasificaciones, desactivaciones y retiros del temario pueden degradarlo antes de la
  * primera asignación; asignar crea el compromiso y el candado entra).
