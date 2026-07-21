@@ -2,6 +2,7 @@ import { internalMutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { v } from "convex/values";
+import { camposDestino, destinoDeFila } from "./asignacionDestino";
 import { inicioDeMesMx } from "./fechas";
 import { CONFIRMACION_SOLO_DEV, exigirDeploymentDeDesarrollo } from "./entorno";
 import { canonizar } from "./texto";
@@ -1440,7 +1441,9 @@ export const cargarDatosDePrueba = internalMutation({
       const abreEn = abreEnDe(asig);
       const datos = {
         examenId,
-        grupoId,
+        // El destino SOLO se arma esparciendo `camposDestino` (frontera XOR, LUI-22):
+        // el seed es un escritor más y no queda fuera del invariante.
+        ...camposDestino({ grupoId }),
         abreEn,
         // Ventana de 21 días. ⚠️ NO afirmar «la mayoría siguen abiertas»: depende
         // del día del mes (a fin de mes las primeras `esteMes` ya cerraron). Los
@@ -1450,9 +1453,14 @@ export const cargarDatosDePrueba = internalMutation({
         cierraEn: abreEn + 21 * DIA,
         creadoPor: instructorUserId,
       };
-      const existente = asignacionesExistentes.find(
-        (x) => x.examenId === examenId && x.grupoId === grupoId,
-      );
+      // La reconciliación NORMALIZA con `destinoDeFila` antes de comparar el par: una
+      // fila-alumno residual del E2E jamás se confunde con una sembrada (y una fila
+      // malformada revienta aquí, nunca se interpreta en silencio).
+      const existente = asignacionesExistentes.find((x) => {
+        if (x.examenId !== examenId) return false;
+        const destino = destinoDeFila(x);
+        return destino.tipo === "grupo" && destino.grupoId === grupoId;
+      });
       let asignacionId: Id<"asignaciones">;
       if (existente) {
         await ctx.db.patch(existente._id, datos);
@@ -1731,10 +1739,18 @@ export const cargarDatosDePrueba = internalMutation({
         gruposActivos: gruposFinal.filter((g) => g.activo).length,
         alumnosRegistrados: alumnosFinal.filter((p) => p.activo).length,
         examenesAplicadosMes: aplicadasDelMes.length,
-        ultimosExamenes: ultimas.map((a) => ({
-          examen: examenPorId.get(a.examenId) ?? "?",
-          grupo: grupoPorId.get(a.grupoId) ?? "?",
-        })),
+        ultimosExamenes: ultimas.map((a) => {
+          // Espejo del render de `panel.resumen`: el destino se interpreta vía
+          // `destinoDeFila` (rama alumno inalcanzable con este fixture — total igual).
+          const destino = destinoDeFila(a);
+          return {
+            examen: examenPorId.get(a.examenId) ?? "?",
+            grupo:
+              destino.tipo === "alumno"
+                ? "Asignación individual"
+                : (grupoPorId.get(destino.grupoId) ?? "?"),
+          };
+        }),
       },
       temarioEsperado,
       mensaje:

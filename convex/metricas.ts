@@ -37,6 +37,14 @@ import { type Doc } from "./_generated/dataModel";
  * elegir la acción de la fila, no «¿la asignación fue aplicada?». Y LUI-20
  * mantiene el invariante `fueAplicada(a,t) ⟺ estadoDeVentana(a,t) !==
  * "programada"` — lo asegura `scripts/test-examenes.ts`.)
+ *
+ * Filas-ALUMNO (LUI-22): una asignación individual aplicada CUENTA como
+ * aplicada en AMBAS expresiones de la regla — decisión documentada. Excluirlas
+ * exigiría filtrar el rango de `by_abre` desde un predicado (imposible) o migrar
+ * los dos consumidores a medias, exactamente lo que este comentario prohíbe.
+ * `grupos.obtener` no las ve (su `by_grupo eq id` jamás matchea `undefined`):
+ * una individual no es una aplicación DEL GRUPO, también a propósito. LUI-30
+ * migrará las filas-alumno junto con todo lo demás.
  */
 export function fueAplicada(a: Doc<"asignaciones">, ahora: number): boolean {
   return a.abreEn <= ahora;

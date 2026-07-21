@@ -327,22 +327,50 @@ export default defineSchema({
     // `tipo` o de clase `general` se indexan como `undefined` y jamás se consultan.
     .index("by_tipo_seccion", ["tipo.seccionId"]),
 
-  // Asignación de un examen a un grupo, con ventana de aplicación.
+  // Asignación de un examen a su DESTINO —un grupo XOR un alumno individual— con ventana
+  // de aplicación (LUI-22 ensanchó el destino; antes solo grupos).
+  //
+  // INVARIANTE «exactamente uno»: toda fila tiene `grupoId` o `alumnoId`, jamás ambos ni
+  // ninguno. El schema no puede expresar ese XOR entre opcionales, así que lo sostienen las
+  // dos fronteras de `convex/asignacionDestino.ts`: los escritores solo pueden esparcir el
+  // fragmento de `camposDestino` (una clave exacta) y los lectores que interpretan el
+  // destino normalizan con `destinoDeFila` (ambos/ninguno → lanza). Forward-only limpio:
+  // las filas pre-LUI-22 traen `grupoId` y son válidas bajo el superset sin migración.
+  // `alumnoId` es `v.id("users")` por consistencia con `intentos.alumnoId` y `creadoPor`.
+  //
+  // Las filas son BORRABLES: `cancelar` (LUI-22) elimina una asignación SOLO si su ventana
+  // sigue programada y no tiene intentos. El acumulado por examen tiene techo
+  // (`MAX_ASIGNACIONES_POR_EXAMEN`, política de producto) — que REDUCE LA PENDIENTE de los
+  // lectores acumulativos (`examenes.listar`, `grupos.obtener`), no los acota: ver el
+  // docblock de la constante.
+  //
+  // ⚠️ Sin índice `by_alumno`: en LUI-22 no tiene un solo consumidor (`cancelar` va por
+  // `ctx.db.get`, la pantalla por `by_examen*`, el panel por `by_abre`) y un índice
+  // estampado sin lector es exactamente lo que este repo no hace. «Mis exámenes» (portal
+  // de la alumna) lo añadirá junto con su primer lector.
   asignaciones: defineTable({
     examenId: v.id("examenes"),
-    grupoId: v.id("grupos"),
+    grupoId: v.optional(v.id("grupos")), // destino grupo (filas legadas: siempre presente)
+    alumnoId: v.optional(v.id("users")), // destino alumno individual (LUI-22)
     abreEn: v.number(), // epoch ms
     cierraEn: v.number(),
     creadoPor: v.id("users"),
   })
     .index("by_grupo", ["grupoId"])
     .index("by_examen", ["examenId"])
+    // «Asignaciones existentes de este examen» en orden de APERTURA (Diseño 19). Sobre
+    // `by_examen` a secas, `.order("desc")` ordenaría por el desempate implícito
+    // `_creationTime` — el contrato de la pantalla es `abreEn` desc y la paginación
+    // (`existentesDe`, LUI-22-B) necesita que el índice lo encodee.
+    .index("by_examen_abre", ["examenId", "abreEn"])
     // Orden y rango temporal de «aplicación» (LUI-9). Sin él, «los 5 exámenes más
     // recientes» exige `.collect()` de toda la tabla + sort en JS, y «los del mes
     // en curso» escanea todo el historial. Con él, el panel lee EXACTAMENTE 5
     // documentos y la métrica solo los del mes.
     // Además ENCODEA la decisión de que `abreEn` —no `cierraEn`— es la marca
-    // canónica de aplicación: ver `convex/metricas.ts`.
+    // canónica de aplicación: ver `convex/metricas.ts`. Indexa TAMBIÉN las
+    // filas-alumno (LUI-22): una asignación individual aplicada CUENTA como
+    // aplicación en el panel — decisión documentada en `metricas.ts`.
     .index("by_abre", ["abreEn"]),
 
   // Intento / simulacro de una alumna sobre un examen.

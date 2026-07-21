@@ -13,6 +13,7 @@
     "test:bloque": "tsx scripts/test-bloque.ts",
     "test:examenes": "tsx scripts/test-examenes.ts",
     "test:constructor": "tsx scripts/test-constructor.ts",
+    "test:asignacion": "tsx scripts/test-asignacion.ts",
     "test:imagenes": "node scripts/test-imagenes.mjs",
     "e2e:lui9": "node scripts/e2e-lui9.mjs",
     "e2e:lui14": "node scripts/e2e-lui14.mjs",
