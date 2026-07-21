@@ -53,7 +53,10 @@
  * `requireStaff`); la guarda de intentos de `cancelar` (no hay player que fabrique un
  * intento sobre una PROGRAMADA); el orden entrada-cruda-antes-de-leer y las cotas del
  * destino (la UI manda arreglos conformes); la cota post-collect de `todosLosGrupos`
- * (fixture de 3-4 grupos); el invariante XOR en la fila (irrepresentable por el
+ * (fixture de 3-4 grupos) — y su PROYECCIÓN en el cliente junto con las cotas 20/30 del
+ * destino (8 alumnas y 3-4 grupos jamás las alcanzan): cubiertas porque el cliente
+ * reutiliza EL MISMO `validarDestinoCrudo` puro que la mutation (bordes en
+ * test-asignacion) + revisión; el invariante XOR en la fila (irrepresentable por el
  * validator de args); la idempotencia de `cancelar` sobre fila ya borrada; la guarda de
  * capacidad y los estados de capacidad agotada (600 filas vía UI es impracticable — los
  * bordes viven en test-asignacion); el ANCLAJE a `ahoraServidor` (§7b prueba el TIMER;
@@ -431,10 +434,11 @@ try {
 
   // ════ §7b · CRUCE de frontera con la pantalla abierta ════
   console.log("\n7b · Programada → «En curso» sin recargar (timer anclado)");
-  // Frontera calculada JUSTO antes del submit: el próximo minuto que deje ≥25 s de
-  // margen (cerca del segundo 59, la fila nacería abierta y jamás veríamos Programada).
+  // Frontera calculada JUSTO antes del submit: el próximo minuto que deje ≥40 s de
+  // margen (cerca del segundo 59 la fila nacería abierta, y el TESTIGO DE RE-ANCLA de
+  // abajo necesita ~15 s para aterrizar ANTES del cruce).
   let abre7b = alMinuto(Date.now()) + MIN;
-  if (abre7b - Date.now() < 25_000) abre7b += MIN;
+  if (abre7b - Date.now() < 40_000) abre7b += MIN;
   await elegirGrupo(page, "Sabatino C");
   await llenarVentana(page, abre7b, abre7b + DIA);
   await espera(async () => !(await confirmarBtn(page).isDisabled()));
@@ -446,6 +450,27 @@ try {
   check(
     "nace «Programada» (aseverada ANTES del cruce)",
     ((await filaSabatino().textContent()) ?? "").includes("Programada"),
+  );
+  // TESTIGO DE RE-ANCLA (revisión de B, mayor): una actualización REACTIVA a mitad de
+  // la espera — otra pestaña crea una programada, así que `paraAsignar` re-entrega
+  // `ahoraServidor` (re-ancla) y `existentes` gana una fila (re-render). Con el reloj
+  // roto (retardo re-armado contra el `ahora` del montaje), el timer cruzaría TARDE y
+  // el poll DERIVADO de abajo lo caza.
+  const page2 = await ctxAdmin.newPage();
+  await abrirAsignar(page2, BIB_ADMIN, EXAMEN);
+  await elegirGrupo(page2, "Vespertino B");
+  const abrePoke = alMinuto(Date.now() + 10 * DIA);
+  await llenarVentana(page2, abrePoke, abrePoke + DIA);
+  await poller(page2)(async () => !(await confirmarBtn(page2).isDisabled()));
+  await confirmarYLeerToast(page2, BIB_ADMIN);
+  await page2.close();
+  await espera(async () =>
+    (await filasExistentes(page).filter({ hasText: "Vespertino B" }).count()) === 1,
+  );
+  check(
+    "⭐ la re-ancla reactiva llegó ANTES del cruce (y Sabatino sigue «Programada»)",
+    ((await filaSabatino().textContent()) ?? "").includes("Programada"),
+    "si esto cae, el poke tardó de más y el testigo sería vacuo — sube el margen",
   );
   // Timeout DERIVADO de la frontera (jamás un literal rígido).
   const margen7b = abre7b - Date.now() + 15_000;
@@ -460,6 +485,7 @@ try {
       .getByRole("button", { name: /^Cancelar la asignación de/ })
       .count()) === 0,
   );
+  check("limpieza: la programada del poke (Vespertino B) se cancela", await cancelarPrimera(page));
 
   // ════ §8 · Zona horaria: navegador en New York, negocio en MX ════
   console.log("\n8 · Zona horaria (America/New_York) + fixture de Valeria (diana)");

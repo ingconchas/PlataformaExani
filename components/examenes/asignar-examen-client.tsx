@@ -14,6 +14,11 @@ import { FileText, X } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import {
+  MAX_GRUPOS_DESTINO,
+  validarDestinoCrudo,
+  type Destino,
+} from "@/convex/asignacionDestino";
+import {
   MIN_VIGENCIA_RESTANTE_MS,
   estadoDeVentana,
   etiquetaVentana,
@@ -151,15 +156,24 @@ function AsignarForm({
   // `ahoraServidor` con cada cambio de datos → re-ancla. Redondeo a ENTERO: los helpers
   // de ventana exigen enteros solo en las fronteras, pero un `ahora` fraccionario haría
   // ruido en comparaciones y logs.
-  // El ref se escribe SOLO en el efecto (regla react-hooks/refs del repo); entre
-  // re-anclas, `ahora` avanza únicamente en los disparos del timer — no hace falta un
-  // setState síncrono al re-anclar: el ancla nueva solo AFINA la estimación del próximo
-  // disparo.
+  // El ref se escribe SOLO en efectos (regla react-hooks/refs del repo) y todo setState
+  // es ASÍNCRONO (regla set-state-in-effect). ⚠️ El estado `ahora` NO puede quedarse en
+  // el instante del montaje: cada re-ancla refresca en el siguiente tick, y el efecto
+  // del timer se AUTO-CORRIGE si detecta deriva (hallazgo mayor de la revisión de B:
+  // sin esto, una actualización reactiva a mitad de espera re-armaba el retardo contra
+  // el `ahora` viejo — cruce tardío — y tras una espera sin fronteras la validación en
+  // vivo usaba la hora del montaje).
   const ancla = useRef<{ servidor: number; perf: number } | null>(null);
+  const [ahora, setAhora] = useState(() => Math.floor(datos.ahoraServidor));
+  const tick = () => {
+    const a = ancla.current;
+    if (a) setAhora(Math.floor(a.servidor + (performance.now() - a.perf)));
+  };
   useEffect(() => {
     ancla.current = { servidor: datos.ahoraServidor, perf: performance.now() };
+    const t = setTimeout(tick, 0);
+    return () => clearTimeout(t);
   }, [datos.ahoraServidor]);
-  const [ahora, setAhora] = useState(() => Math.floor(datos.ahoraServidor));
 
   // ── Estado del formulario ─────────────────────────────────────────────────
   const [destinoTipo, setDestinoTipo] = useState<"todos" | "grupos" | "alumnos">(
@@ -194,28 +208,33 @@ function AsignarForm({
   // dejaría el botón habilitado hasta otra interacción. Clamp a 2³¹−1, limpieza y
   // re-armado en cada disparo/cambio, margen al cruzar.
   useEffect(() => {
+    // Toda frontera y retardo se calcula contra el ESTIMADO fresco del ancla — jamás
+    // contra el estado `ahora`, que puede haberse quedado atrás (el efecto re-corre por
+    // reactividad de datos, no solo por disparos del timer). Si la deriva supera 1 s,
+    // primero se refresca el estado (tick asíncrono) y este efecto re-corre ya al día.
+    const a = ancla.current;
+    const estimado = a
+      ? Math.floor(a.servidor + (performance.now() - a.perf))
+      : ahora;
+    if (estimado - ahora > 1000) {
+      const t0 = setTimeout(tick, 0);
+      return () => clearTimeout(t0);
+    }
     const fronteras: number[] = [];
     for (const r of existentes.results) {
-      if (r.abreEn > ahora) fronteras.push(r.abreEn);
-      if (r.cierraEn > ahora) fronteras.push(r.cierraEn);
+      if (r.abreEn > estimado) fronteras.push(r.abreEn);
+      if (r.cierraEn > estimado) fronteras.push(r.cierraEn);
     }
     if (cierreEpoch !== null) {
       const limite = cierreEpoch - MIN_VIGENCIA_RESTANTE_MS;
-      if (limite > ahora) fronteras.push(limite);
+      if (limite > estimado) fronteras.push(limite);
     }
     if (fronteras.length === 0) return;
     const retardo = Math.min(
-      Math.max(Math.min(...fronteras) + MARGEN_FRONTERA_MS - ahora, 0),
+      Math.max(Math.min(...fronteras) + MARGEN_FRONTERA_MS - estimado, 0),
       CLAMP_TIMER_MS,
     );
-    const t = setTimeout(() => {
-      const a = ancla.current;
-      setAhora(
-        a
-          ? Math.floor(a.servidor + (performance.now() - a.perf))
-          : Math.floor(datos.ahoraServidor),
-      );
-    }, retardo);
+    const t = setTimeout(tick, retardo);
     return () => clearTimeout(t);
   }, [ahora, existentes.results, cierreEpoch, datos.ahoraServidor]);
 
@@ -234,6 +253,35 @@ function AsignarForm({
             .filter((g) => gruposSel.includes(g.id))
             .reduce((s, g) => s + g.alumnosCount, 0)
         : alumnosSel.size;
+
+  // El MISMO destino que enviará el submit, validado con el MISMO helper puro de la
+  // mutation (revisión de B, medio): sin esto, 31 alumnas o 21 grupos dejaban el botón
+  // habilitado y el rechazo llegaba hasta el servidor. La rama «todos» no trae arreglo
+  // que `validarDestinoCrudo` acote — su tope se proyecta aquí igual que la mutation lo
+  // aplica post-collect.
+  const destinoActual: Destino = useMemo(
+    () =>
+      destinoTipo === "todos"
+        ? { tipo: "todosLosGrupos" }
+        : destinoTipo === "grupos"
+          ? { tipo: "grupos", grupoIds: gruposSel as Id<"grupos">[] }
+          : { tipo: "alumnos", alumnoIds: [...alumnosSel] as Id<"users">[] },
+    [destinoTipo, gruposSel, alumnosSel],
+  );
+  const errorDestino = useMemo(() => {
+    if (filasDestino === 0) return null;
+    if (destinoActual.tipo === "todosLosGrupos") {
+      return datos.grupos.length > MAX_GRUPOS_DESTINO
+        ? `Hay más de ${MAX_GRUPOS_DESTINO} grupos activos; asigna por grupos específicos.`
+        : null;
+    }
+    try {
+      validarDestinoCrudo(destinoActual);
+      return null;
+    } catch (e) {
+      return mensajeDeError(e);
+    }
+  }, [filasDestino, destinoActual, datos.grupos.length]);
 
   // ── Capacidad: el cliente PROYECTA filasDestino, no solo `=== 0` ──────────
   const agotada = datos.capacidadRestante === 0;
@@ -254,6 +302,7 @@ function AsignarForm({
   const puedeConfirmar =
     !enviando &&
     filasDestino > 0 &&
+    errorDestino === null &&
     aperturaEpoch !== null &&
     cierreEpoch !== null &&
     errorVentana === null &&
@@ -263,19 +312,10 @@ function AsignarForm({
     if (!puedeConfirmar || aperturaEpoch === null || cierreEpoch === null) return;
     setErrorServidor(null);
     setEnviando(true);
-    const destino =
-      destinoTipo === "todos"
-        ? { tipo: "todosLosGrupos" as const }
-        : destinoTipo === "grupos"
-          ? { tipo: "grupos" as const, grupoIds: gruposSel as Id<"grupos">[] }
-          : {
-              tipo: "alumnos" as const,
-              alumnoIds: [...alumnosSel] as Id<"users">[],
-            };
     try {
       const res = await asignar({
         examenId: datos.examen.id,
-        destino,
+        destino: destinoActual,
         abreEn: aperturaEpoch,
         cierraEn: cierreEpoch,
       });
@@ -492,6 +532,7 @@ function AsignarForm({
       </section>
 
       {errorVentana && <Alert kind="error">{errorVentana}</Alert>}
+      {errorDestino && <Alert kind="warning">{errorDestino}</Alert>}
       {mensajeCapacidad && <Alert kind="warning">{mensajeCapacidad}</Alert>}
       {errorServidor && <Alert kind="error">{errorServidor}</Alert>}
 
