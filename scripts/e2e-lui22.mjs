@@ -434,11 +434,11 @@ try {
 
   // ════ §7b · CRUCE de frontera con la pantalla abierta ════
   console.log("\n7b · Programada → «En curso» sin recargar (timer anclado)");
-  // Frontera calculada JUSTO antes del submit: el próximo minuto que deje ≥40 s de
+  // Frontera calculada JUSTO antes del submit: el próximo minuto que deje ≥45 s de
   // margen (cerca del segundo 59 la fila nacería abierta, y el TESTIGO DE RE-ANCLA de
-  // abajo necesita ~15 s para aterrizar ANTES del cruce).
+  // abajo espera hasta T−30 s y necesita ~15 s de flujo para aterrizar ANTES del cruce).
   let abre7b = alMinuto(Date.now()) + MIN;
-  if (abre7b - Date.now() < 40_000) abre7b += MIN;
+  if (abre7b - Date.now() < 45_000) abre7b += MIN;
   await elegirGrupo(page, "Sabatino C");
   await llenarVentana(page, abre7b, abre7b + DIA);
   await espera(async () => !(await confirmarBtn(page).isDisabled()));
@@ -453,9 +453,13 @@ try {
   );
   // TESTIGO DE RE-ANCLA (revisión de B, mayor): una actualización REACTIVA a mitad de
   // la espera — otra pestaña crea una programada, así que `paraAsignar` re-entrega
-  // `ahoraServidor` (re-ancla) y `existentes` gana una fila (re-render). Con el reloj
-  // roto (retardo re-armado contra el `ahora` del montaje), el timer cruzaría TARDE y
-  // el poll DERIVADO de abajo lo caza.
+  // `ahoraServidor` (re-ancla) y `existentes` gana una fila (re-render). ⚠️ El poke se
+  // RETRASA hasta ~25 s antes del cruce: un reloj roto re-arma el retardo contra el
+  // `ahora` del MONTAJE, así que el cruce se pasa por ≈(instante del poke − montaje) —
+  // con el poke temprano ese retraso cabía dentro del deadline y la roja pasaba en
+  // falso (lección de la primera pasada de R9). Deadline apretado: +8 s tras la
+  // frontera (la versión sana cruza en +250 ms).
+  await espera(async () => abre7b - Date.now() <= 30_000, 120_000);
   const page2 = await ctxAdmin.newPage();
   await abrirAsignar(page2, BIB_ADMIN, EXAMEN);
   await elegirGrupo(page2, "Vespertino B");
@@ -472,8 +476,9 @@ try {
     ((await filaSabatino().textContent()) ?? "").includes("Programada"),
     "si esto cae, el poke tardó de más y el testigo sería vacuo — sube el margen",
   );
-  // Timeout DERIVADO de la frontera (jamás un literal rígido).
-  const margen7b = abre7b - Date.now() + 15_000;
+  // Timeout DERIVADO de la frontera (jamás un literal rígido) y APRETADO: +8 s bastan
+  // para el render sano (+250 ms) y NO perdonan el retraso de un reloj roto.
+  const margen7b = abre7b - Date.now() + 8_000;
   const cruzo = await poller(page)(
     async () => ((await filaSabatino().textContent()) ?? "").includes("En curso"),
     margen7b,
