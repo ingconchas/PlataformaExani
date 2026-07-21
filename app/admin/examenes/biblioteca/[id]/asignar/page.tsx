@@ -1,11 +1,27 @@
-import { ScreenPlaceholder } from "@/components/dev/screen-placeholder";
+import { PageHeader } from "@/components/layout/page-header";
+import { Alert } from "@/components/ui/alert";
+import { AsignarExamenClient } from "@/components/examenes/asignar-examen-client";
 
-export default function Page() {
+export default async function Page({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = await params;
+
+  if (!process.env.NEXT_PUBLIC_CONVEX_URL) {
+    return (
+      <>
+        <PageHeader title="Asignar examen" description="Asignación de examen" />
+        <Alert kind="warning">
+          Esta pantalla necesita la base de datos. Corre <code>npx convex dev</code>{" "}
+          y define <code>NEXT_PUBLIC_CONVEX_URL</code> en <code>.env.local</code>{" "}
+          para verla.
+        </Alert>
+      </>
+    );
+  }
   return (
-    <ScreenPlaceholder
-      titulo="Asignar examen"
-      diseno="19-asignar-examen.html"
-      descripcion="Asigna el examen a un grupo con fechas (LUI-22)."
-    />
+    <AsignarExamenClient basePath="/admin/examenes/biblioteca" examenId={id} />
   );
 }

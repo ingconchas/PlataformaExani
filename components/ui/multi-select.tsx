@@ -24,6 +24,9 @@ export function MultiSelect({
   value,
   onChange,
   placeholder = "Selecciona…",
+  // El default conserva el copy histórico de LUI-12 (instructores) byte-idéntico;
+  // otros consumidores (grupos en LUI-22) pasan el suyo.
+  emptyMessage = "No hay instructores disponibles.",
   error,
   disabled = false,
 }: {
@@ -32,6 +35,7 @@ export function MultiSelect({
   value: string[];
   onChange: (next: string[]) => void;
   placeholder?: string;
+  emptyMessage?: string;
   error?: string;
   disabled?: boolean;
 }) {
@@ -144,7 +148,7 @@ export function MultiSelect({
           >
             {options.length === 0 && (
               <p className="px-3.5 py-2.5 text-small text-muted">
-                No hay instructores disponibles.
+                {emptyMessage}
               </p>
             )}
             {options.map((o) => {

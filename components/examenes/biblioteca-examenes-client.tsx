@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useConvexAuth, useQuery } from "convex/react";
@@ -19,6 +19,8 @@ import {
 import { SearchInput } from "@/components/ui/search-input";
 import { Select } from "@/components/ui/select";
 import { Tabs } from "@/components/ui/tabs";
+import { Toast } from "@/components/ui/toast";
+import { consumeFlash } from "@/lib/flash";
 import { TipoExamenChip } from "./tipo-examen-chip";
 import { ConfirmarArchivadoModal } from "./confirmar-archivado-modal";
 import { ConfirmarDespublicadoModal } from "./confirmar-despublicado-modal";
@@ -107,6 +109,16 @@ export function BibliotecaExamenesClient({ basePath }: { basePath: string }) {
   const [page, setPage] = useState(1);
   const [modal, setModal] = useState<ModalState>({ tipo: "cerrado" });
 
+  // Toast flash ONE-SHOT (LUI-22: «Examen asignado…» sobrevive al regreso desde
+  // /asignar). Se consume al montar; un refresh ya no lo re-muestra. El consumo va en
+  // un timeout: leer-y-borrar sessionStorage es impuro (prohibido en render) y un
+  // setState síncrono en el efecto dispara renders en cascada (regla del repo).
+  const [flash, setFlash] = useState<string | null>(null);
+  useEffect(() => {
+    const t = setTimeout(() => setFlash(consumeFlash()), 0);
+    return () => clearTimeout(t);
+  }, []);
+
   const examenes = useMemo(() => listar ?? [], [listar]);
 
   const opcAutor = useMemo(() => {
@@ -192,6 +204,7 @@ export function BibliotecaExamenesClient({ basePath }: { basePath: string }) {
 
   return (
     <>
+      {flash && <Toast onClose={() => setFlash(null)}>{flash}</Toast>}
       <PageHeader
         title="Exámenes"
         description={
