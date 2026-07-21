@@ -217,12 +217,9 @@ async function abrirAsignar(pg, biblioteca, titulo) {
 }
 
 
-/** Las filas de «Asignaciones existentes» (una por Badge de estado de ventana). */
-const filasExistentes = (pg) =>
-  pg
-    .locator("section", { hasText: "Asignaciones existentes" })
-    .locator("span")
-    .filter({ hasText: /^(Programada|En curso|Cerrada)$/ });
+/** Las filas de «Asignaciones existentes» (gancho `data-asignacion` del client — un
+ *  locator por texto casaría también el CONTENEDOR y toda aserción de orden mentiría). */
+const filasExistentes = (pg) => pg.locator("[data-asignacion]");
 
 /** Selecciona un grupo en el MultiSelect (abre, elige, cierra con Escape). */
 async function elegirGrupo(pg, nombre) {
@@ -444,10 +441,7 @@ try {
   await confirmarYLeerToast(page, BIB_ADMIN);
   await abrirAsignar(page, BIB_ADMIN, EXAMEN);
   const filaSabatino = () =>
-    page.locator("section", { hasText: "Asignaciones existentes" })
-      .locator("div")
-      .filter({ hasText: "Sabatino C" })
-      .last();
+    filasExistentes(page).filter({ hasText: "Sabatino C" }).first();
   await espera(async () => (await filaSabatino().count()) > 0);
   check(
     "nace «Programada» (aseverada ANTES del cruce)",
@@ -703,11 +697,7 @@ try {
     (await filasExistentes(page).count()) === baseline12 + 21,
   );
   const abre8d = alMinuto(Date.now() + 8 * DIA);
-  const primeraFila = page
-    .locator("section", { hasText: "Asignaciones existentes" })
-    .locator("div")
-    .filter({ hasText: /Programada|En curso|Cerrada/ })
-    .first();
+  const primeraFila = filasExistentes(page).first();
   check(
     "⭐ la primera fila es la de apertura +8d — orden por abreEn DESC, no por inserción",
     ((await primeraFila.textContent()) ?? "").includes(rangoEsperado(abre8d, abre8d + DIA)),

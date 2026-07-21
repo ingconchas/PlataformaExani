@@ -509,8 +509,13 @@ function AsignarForm({
             const cancelable =
               r.puedeSolicitarCancelar && estado === "programada";
             return (
+              // `data-asignacion`: gancho de OBSERVABILIDAD para el E2E (precedente
+              // `data-item` del constructor, LUI-21): sin él, el orden de la lista no es
+              // aseverable — un locator por texto casa también el contenedor, que
+              // contiene el texto de TODAS las filas y pasa con cualquier orden.
               <div
                 key={r.id}
+                data-asignacion
                 className="flex items-center gap-3 border-b border-border px-4 py-3 last:border-b-0"
               >
                 <span className="text-body font-medium text-ink">
