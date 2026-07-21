@@ -29,6 +29,7 @@ import {
   validarDestinoCrudo,
   type Destino,
 } from "../convex/asignacionDestino";
+import { epochDeRelojMx, rangoCortoMx } from "../convex/fechas";
 
 let ok = 0;
 let fallos = 0;
@@ -296,6 +297,69 @@ check(
   Math.max(MAX_ALUMNOS_DESTINO, MAX_GRUPOS_DESTINO) <=
     MAX_ASIGNACIONES_POR_EXAMEN / 20,
   "caza reintroducir el conflicto del plan v5 (una op que retira el examen) al mover UNA constante",
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+console.log("6 · fechas (LUI-22 B) — datetime-local en reloj MX y rango humano");
+// ─────────────────────────────────────────────────────────────────────────────
+
+check(
+  "⭐ epochDeRelojMx: 07:00 reloj MX = 13:00 UTC (el +6 explícito)",
+  epochDeRelojMx("2026-07-08T07:00") === Date.UTC(2026, 6, 8, 13, 0),
+  "caza el offset con el signo invertido (−6 daría 01:00 UTC)",
+);
+check("malformado: cadena vacía → null", epochDeRelojMx("") === null);
+check("malformado: solo fecha → null", epochDeRelojMx("2026-07-08") === null);
+check(
+  "malformado: con segundos → null",
+  epochDeRelojMx("2026-07-08T07:00:00") === null,
+);
+check("malformado: texto libre → null", epochDeRelojMx("8 de julio") === null);
+check(
+  "⭐ fecha IRREAL 30-feb → null",
+  epochDeRelojMx("2026-02-30T10:00") === null,
+  "Date.UTC lo normaliza a 2-mar EN SILENCIO; el round-trip lo caza",
+);
+check(
+  "⭐ fecha IRREAL mes 13 → null",
+  epochDeRelojMx("2026-13-01T10:00") === null,
+);
+check(
+  "⭐ hora IRREAL 24:00 → null",
+  epochDeRelojMx("2026-07-08T24:00") === null,
+);
+check(
+  "⭐ 29-feb de año NO bisiesto → null",
+  epochDeRelojMx("2026-02-29T10:00") === null,
+);
+check(
+  "⭐ 29-feb de año bisiesto SÍ pasa",
+  epochDeRelojMx("2028-02-29T10:00") !== null,
+);
+
+const ts = (reloj: string) => {
+  const t = epochDeRelojMx(reloj);
+  if (t === null) throw new Error(`fixture malformado: ${reloj}`);
+  return t;
+};
+check(
+  "rangoCortoMx: mismo mes → «8 al 12 de julio»",
+  rangoCortoMx(ts("2026-07-08T07:00"), ts("2026-07-12T23:59")) ===
+    "8 al 12 de julio",
+);
+check(
+  "rangoCortoMx: mismo día → «8 de julio»",
+  rangoCortoMx(ts("2026-07-08T07:00"), ts("2026-07-08T12:00")) === "8 de julio",
+);
+check(
+  "rangoCortoMx: cruza mes → «28 de junio al 3 de julio»",
+  rangoCortoMx(ts("2026-06-28T07:00"), ts("2026-07-03T23:59")) ===
+    "28 de junio al 3 de julio",
+);
+check(
+  "rangoCortoMx: cruza año → ambos años explícitos",
+  rangoCortoMx(ts("2026-12-28T07:00"), ts("2027-01-03T23:59")) ===
+    "28 de diciembre de 2026 al 3 de enero de 2027",
 );
 
 // Tipado: `Destino` es la unión discriminada de args — el compilador es parte de la prueba.

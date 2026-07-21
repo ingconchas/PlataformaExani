@@ -20,6 +20,10 @@ type Ctx = QueryCtx | MutationCtx;
  * admite esos dos literales) — la AUTORIDAD es siempre la mutation, que sí pasa por aquí.
  *
  * Módulo propio y neutral para no crear el ciclo `examenes.ts ↔ reactivos.ts`.
+ *
+ * La LIBERACIÓN por `asignaciones.cancelar` (LUI-22) es coherente sin tocar nada aquí:
+ * la sonda lee filas VIVAS en cada evaluación — cancelada la única asignación de un
+ * publicado sin intentos, `{asignacion:false, intento:false}` y el candado se abre solo.
  */
 export async function compromisosDe(
   ctx: Ctx,

@@ -70,6 +70,13 @@ function comoHtmlSeguro(
  * perfiles SOLO de los autores distintos + **2 sondas indexadas `.first()` por
  * examen** sobre `intentos.by_examen_estado`. `intentos` es la tabla grande
  * (alumnas × exámenes): jamás `.collect()`.
+ *
+ * ⚠️ LUI-22 industrializó la creación de asignaciones (solapes legales, hasta 20
+ * filas por operación): la cota `MAX_ASIGNACIONES_POR_EXAMEN` REDUCE LA
+ * PENDIENTE de este collect — peor caso O(MAX × exámenes) — pero NO lo convierte
+ * en lectura acotada (el número de exámenes no tiene techo y un legado por
+ * encima del máximo entra completo). Agregados/resumen materializado = deuda
+ * declarada para cuando el volumen lo exija; prod arrancó en 0 (2026-07-20).
  */
 export const listar = query({
   args: {},
@@ -368,8 +375,10 @@ async function examenAutorizado(
  *  1. TODAS las asignaciones concluidas. Una futura compromete tanto como una
  *     abierta: al llegar su fecha, un examen archivado quedaría en un estado que
  *     nadie definió («¿le aparece a la alumna o desaparece?») — ambas respuestas
- *     contradicen «retirado de uso». La cancelación de asignaciones es de
- *     LUI-22; esta regla no la presupone.
+ *     contradicen «retirado de uso». La cancelación (`asignaciones.cancelar`,
+ *     LUI-22) existe SOLO para programadas: cancelarlas es hoy el camino para
+ *     destrabar un archivar bloqueado por futuras; esta regla sigue sin
+ *     presuponerla (una futura NO cancelada compromete igual).
  *  2. Sin intento EN CURSO — incluidos los DIRECTOS (sin asignación), que
  *     existen porque `asignacionId` es opcional: una alumna a media sesión.
  *     ⚠️ Pasivo documentado: sin autocierre de intentos (LUI-22+/LUI-27), un
@@ -441,8 +450,10 @@ export const archivar = mutation({
  * (`validarBloquesCompletos`, elegibilidad del temario…).
  *
  * Sin guardas extra: vuelve a un estado que sigue congelado por
- * `calcularBloqueo`, y sus asignaciones (todas concluidas desde el archivado; la
- * cancelación no existe aún) no cambian de significado.
+ * `calcularBloqueo`, y sus asignaciones no cambian de significado — todas
+ * concluidas desde el archivado, y la cancelación (LUI-22) no las alcanza:
+ * exige ventana PROGRAMADA y un archivado no tiene programadas por la guarda
+ * de archivar.
  */
 export const desarchivar = mutation({
   args: { examenId: v.id("examenes") },
@@ -574,8 +585,8 @@ export const actualizar = mutation({
  * «publicar» DESARCHIVARA por la puerta trasera — la misma lección, en espejo, que el
  * origen explícito de `desarchivar`.
  *
- * Las guardas de contenido viven en `examenGuardado.validarPublicable` (exportadas para
- * que LUI-22 las re-ejecute en `asignar`). Las METAS no se miran aquí: la confirmación de
+ * Las guardas de contenido viven en `examenGuardado.validarPublicable` (exportadas —
+ * `asignaciones.asignar` las re-ejecuta). Las METAS no se miran aquí: la confirmación de
  * secciones incompletas es exclusiva del cliente.
  */
 export const publicar = mutation({

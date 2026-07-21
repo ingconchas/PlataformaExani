@@ -10,6 +10,7 @@
 
 import type * as alumnos from "../alumnos.js";
 import type * as asignacionDestino from "../asignacionDestino.js";
+import type * as asignaciones from "../asignaciones.js";
 import type * as auth from "../auth.js";
 import type * as authz from "../authz.js";
 import type * as bloque from "../bloque.js";
@@ -56,6 +57,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   alumnos: typeof alumnos;
   asignacionDestino: typeof asignacionDestino;
+  asignaciones: typeof asignaciones;
   auth: typeof auth;
   authz: typeof authz;
   bloque: typeof bloque;
