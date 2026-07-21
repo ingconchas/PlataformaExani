@@ -180,7 +180,7 @@ check(
 check(
   "⭐ ventana invertida (abre > cierra) nunca está abierta",
   estadoDeVentana(2_000, 1_000, 1_500) !== "abierta",
-  "rechazarlas al escribir es frontera de LUI-22; aquí no se puede romper",
+  "validarVentana las rechaza al escribir (test-asignacion); esta función sigue TOTAL para lo persistido",
 );
 
 // El invariante que ata esta función a `metricas.fueAplicada`, contra el código REAL.

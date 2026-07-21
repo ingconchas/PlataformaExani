@@ -1,5 +1,6 @@
 import { query } from "./_generated/server";
 import { type Doc } from "./_generated/dataModel";
+import { destinoDeFila } from "./asignacionDestino";
 import { requireAdmin } from "./authz";
 import { fechaCortaMx, fechaLargaMx, inicioDeMesMx } from "./fechas";
 
@@ -105,9 +106,14 @@ export const resumen = query({
     // 15 lecturas como máximo, en paralelo. Mismo patrón que `grupos.listarGestion`.
     const ultimosExamenes = await Promise.all(
       ultimas.map(async (a) => {
+        // El destino se interpreta SOLO vía `destinoDeFila` (invariante XOR de LUI-22):
+        // «Grupo eliminado» queda reservado a una fila-grupo cuyo doc desapareció.
+        const destino = destinoDeFila(a);
         const [examen, grupo, intentos] = await Promise.all([
           ctx.db.get(a.examenId),
-          ctx.db.get(a.grupoId),
+          destino.tipo === "grupo"
+            ? ctx.db.get(destino.grupoId)
+            : Promise.resolve(null),
           ctx.db
             .query("intentos")
             .withIndex("by_asignacion", (q) => q.eq("asignacionId", a._id))
@@ -116,7 +122,10 @@ export const resumen = query({
         return {
           id: a._id,
           examen: examen?.titulo ?? "Examen eliminado",
-          grupo: grupo?.nombre ?? "Grupo eliminado",
+          grupo:
+            destino.tipo === "alumno"
+              ? "Asignación individual"
+              : (grupo?.nombre ?? "Grupo eliminado"),
           fecha: fechaCortaMx(a.abreEn),
           fechaMs: a.abreEn,
           puntajePromedio: puntajePromedio(intentos),

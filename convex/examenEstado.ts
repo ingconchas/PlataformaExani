@@ -1,4 +1,4 @@
-import { v, type Infer } from "convex/values";
+import { ConvexError, v, type Infer } from "convex/values";
 
 /**
  * Ciclo de vida del EXAMEN (LUI-20), en un módulo PURO.
@@ -241,8 +241,9 @@ export type EstadoVentana = "programada" | "abierta" | "cerrada";
  * contra instantes distintos y los contadores no sumarían), y la prueba pura puede fijarlo.
  *
  * TOTAL por construcción: con una ventana degenerada (`abreEn === cierraEn`) o invertida
- * (`abreEn > cierraEn`) devuelve programada o cerrada, **nunca abierta**. Rechazar ventanas
- * invertidas al ESCRIBIR es frontera de LUI-22; aquí no se rompe nada.
+ * (`abreEn > cierraEn`) devuelve programada o cerrada, **nunca abierta**. Las malformadas
+ * las rechaza `validarVentana` (abajo, LUI-22) en la frontera de ESCRITURA de
+ * `asignaciones`; esta función sigue siendo TOTAL para lo ya persistido.
  *
  * ⚠️ Una query de Convex **no se re-invalida por el paso del tiempo**: se re-ejecuta cuando
  * cambia un documento que leyó. Una fila renderizada «programada» no salta sola a «abierta»
@@ -275,4 +276,70 @@ export function ventanaConcluida(
   ahora: number,
 ): boolean {
   return estadoDeVentana(abreEn, cierraEn, ahora) === "cerrada";
+}
+
+/**
+ * Vigencia mínima que debe quedarle a una ventana AL ESCRIBIRSE (LUI-22). Un margen de
+ * milisegundos sería inservible: entre validar y commitear corre la mutation entera y
+ * **Convex CONGELA `Date.now()` al inicio de la función** (contrato del runtime — volver a
+ * llamarlo antes del insert devuelve el mismo instante), así que exigir `cierraEn > ahora` a
+ * secas permitiría filas que NACEN cerradas: contarían como aplicadas al instante
+ * (`metricas.fueAplicada`), comprometerían el examen y jamás podrían cancelarse (cancelar
+ * exige programada). 60 s también absorben el desfase del ancla `ahoraServidor` que usa el
+ * cliente (latencia de query + transporte + hidratación).
+ *
+ * Constante COMPARTIDA: la usan la mutation `asignar` (con su `Date.now()` congelado) y la
+ * validación en vivo del cliente (con el `ahora` anclado) — mismo umbral, mismo mensaje.
+ */
+export const MIN_VIGENCIA_RESTANTE_MS = 60_000;
+
+/** Copys de `validarVentana`, exportados para que el cliente pinte EXACTAMENTE lo mismo. */
+export const MSG_VENTANA_INVERTIDA =
+  "La fecha de cierre debe ser posterior a la apertura.";
+export const MSG_VENTANA_PASADA =
+  "La fecha de cierre ya pasó o está demasiado cerca; elige un cierre en el futuro.";
+
+/**
+ * Frontera de ESCRITURA de la ventana (LUI-22) — la pareja de `estadoDeVentana`: aquella es
+ * TOTAL para leer lo persistido; esta impide persistir basura nueva. Rechaza:
+ *
+ *   · fechas no enteras / NaN / ±Infinity (⚠️ el orden importa: `NaN` esquiva toda
+ *     comparación — un `if (cierra <= abre) throw` a secas lo DEJA PASAR);
+ *   · degenerada (`abre === cierra`) e invertida (`abre > cierra`);
+ *   · ventana sin vigencia útil: exige `cierraEn ≥ ahora + MIN_VIGENCIA_RESTANTE_MS` —
+ *     ordenada-pero-pasada incluida. Se PERMITE `abreEn ≤ ahora` (asignación inmediatamente
+ *     abierta: el flujo real de «aplícalo ya»).
+ *
+ * `ahora` es PARÁMETRO (misma disciplina que `estadoDeVentana`); no se exige entero — el
+ * cliente ancla con fracciones de `performance.now()` y redondea antes de llamar.
+ */
+export function validarVentana(
+  abreEn: number,
+  cierraEn: number,
+  ahora: number,
+): void {
+  if (!Number.isInteger(abreEn) || !Number.isInteger(cierraEn)) {
+    throw new ConvexError("Las fechas de la ventana no son válidas.");
+  }
+  if (cierraEn <= abreEn) throw new ConvexError(MSG_VENTANA_INVERTIDA);
+  if (cierraEn < ahora + MIN_VIGENCIA_RESTANTE_MS) {
+    throw new ConvexError(MSG_VENTANA_PASADA);
+  }
+}
+
+/**
+ * Etiqueta VISIBLE del estado de ventana (Diseño 19): la abierta se muestra «En curso», no
+ * «Abierta». `Record` deliberado —misma media defensa que `CONGELA`—: un cuarto estado no
+ * compila hasta decidir su etiqueta.
+ */
+const ETIQUETA_VENTANA: Record<EstadoVentana, "Programada" | "En curso" | "Cerrada"> = {
+  programada: "Programada",
+  abierta: "En curso",
+  cerrada: "Cerrada",
+};
+
+export function etiquetaVentana(
+  estado: EstadoVentana,
+): "Programada" | "En curso" | "Cerrada" {
+  return ETIQUETA_VENTANA[estado];
 }
