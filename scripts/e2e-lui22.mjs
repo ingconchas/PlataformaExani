@@ -23,11 +23,17 @@
  *  · §2 el conteo dinámico suma `alumnosCount` de los grupos elegidos, con singular.
  *  · §3 invertida/degenerada/PASADA bloquean con el copy EXACTO del servidor
  *    (`MSG_VENTANA_*` compartidos) — la pasada caza validar solo forma y orden.
- *  · §4 la fila-alumno compromete: candado del banco + despublicar IMPEDIDO — mata una
- *    implementación con tabla aparte (compromisosDe no la vería).
- *  · §5 cancelar LIBERA: despublicar habilitado y reactivo libre otra vez.
- *  · §6 asignar RE-ejecuta validarPublicable: reactivo desactivado → rechazo del
- *    SERVIDOR con su mensaje, y NO se creó ninguna fila.
+ *  · §4 la fila-alumno COMPROMETE: despublicar IMPEDIDO por `compromisosDe` — mata una
+ *    implementación con tabla aparte de asignaciones individuales. ⚠️ El testigo gemelo
+ *    del CANDADO del banco no tiene fixture viable: el único reactivo de «Módulo
+ *    Biología 1» («membrana celular») vive en SEIS exámenes del seed (SG1/SG2/SG3/
+ *    Diagnóstico lo comparten) y está bloqueado por ellos SIEMPRE — el candado usa la
+ *    MISMA sonda `compromisosDe` que despublicar, así que la costura queda cubierta por
+ *    este testigo + la revisión de código.
+ *  · §5 cancelar LIBERA: la fila desaparece por reactividad y despublicar habilita.
+ *  · §6 asignar RE-ejecuta validarPublicable: «Simulacro legado (migración)» es un
+ *    PUBLICADO con reactivo FANTASMA (degradado después de publicar, sin mutar nada) →
+ *    rechazo del SERVIDOR con su mensaje exacto y CERO filas creadas.
  *  · §7b el estado CRUZA la frontera con la pantalla abierta (timer del cliente) — una
  *    query que estampara el estado, o una derivación única al montar, pintaría
  *    «Programada» para siempre.
@@ -71,9 +77,9 @@ const CARLOS = "carlos.instructor@demo.unx.mx";
 const DIANA = "diana.instructor@demo.unx.mx";
 
 const EXAMEN = "Módulo Biología 1";
+const LEGADO = "Simulacro legado (migración)";
 const SG3 = "Simulacro General 3";
 const SG5 = "Simulacro General 5";
-const R_MEMBRANA = "membrana celular";
 const ANA = "Ana López Ramírez";
 const VALERIA = "Valeria Cruz Núñez";
 const GRUPO_E22 = "Nocturno E22";
@@ -163,8 +169,6 @@ const navegador = await chromium.launch({ headless: !HEADED });
 // ── Helpers de página ────────────────────────────────────────────────────────
 const filas = (pg) => pg.locator("tbody tr");
 const filaDe = (pg, texto) => filas(pg).filter({ hasText: texto }).first();
-const candadoBanco = (fila) =>
-  fila.getByRole("link", { name: /abrir .* para desactivar/ });
 
 function poller(pg) {
   return async (cond, ms = 10_000) => {
@@ -185,17 +189,33 @@ async function login(pg, correo, urlRe) {
   await pg.waitForURL(urlRe, { timeout: 20_000 });
 }
 
-/** Abre /asignar del examen desde la biblioteca (por el enlace real de la fila). */
+/**
+ * Abre /asignar del examen desde la biblioteca (por el enlace real de la fila) y espera
+ * a que TANTO el formulario COMO la lista paginada de existentes estén hidratados — la
+ * lista es una query aparte (`existentesDe`): un snapshot temprano la vería en
+ * `LoadingFirstPage` y toda aserción sobre ella pasaría/fallaría en falso.
+ */
 async function abrirAsignar(pg, biblioteca, titulo) {
   await pg.goto(`${BASE}${biblioteca}`);
   const espera = poller(pg);
   await espera(async () => (await filas(pg).count()) > 0);
+  // La biblioteca PAGINA (8 por página): sin buscar, una fila publicada puede vivir en
+  // la página 2 y el enlace jamás aparecería (lección de LUI-21).
+  await pg.getByPlaceholder("Buscar por título…").fill(titulo);
+  await espera(async () => (await filaDe(pg, titulo).count()) === 1);
   await pg.getByRole("link", { name: `Asignar «${titulo}»` }).click();
   await pg.waitForURL(/\/asignar$/, { timeout: 15_000 });
   await espera(async () =>
     ((await pg.textContent("body")) ?? "").includes("¿A quién va dirigido?"),
   );
+  await espera(async () => {
+    if ((await filasExistentes(pg).count()) > 0) return true;
+    return ((await pg.textContent("body")) ?? "").includes(
+      "Este examen aún no tiene asignaciones.",
+    );
+  });
 }
+
 
 /** Las filas de «Asignaciones existentes» (una por Badge de estado de ventana). */
 const filasExistentes = (pg) =>
@@ -233,16 +253,17 @@ async function confirmarYLeerToast(pg, biblioteca) {
 
 /** Cancela la PRIMERA fila cancelable visible y espera a que el conteo baje. */
 async function cancelarPrimera(pg) {
+  const espera = poller(pg);
+  const botones = pg.getByRole("button", { name: /^Cancelar la asignación de/ });
+  // Contar DESPUÉS de que la lista ofrezca la acción: un `antes = 0` prematuro vuelve
+  // imposible el poll (`=== -1`) aunque la cancelación funcione — el bug de la corrida 1.
+  if (!(await espera(async () => (await botones.count()) > 0))) return false;
   const antes = await filasExistentes(pg).count();
-  await pg
-    .getByRole("button", { name: /^Cancelar la asignación de/ })
-    .first()
-    .click();
+  await botones.first().click();
   await pg
     .getByRole("dialog")
     .getByRole("button", { name: "Cancelar asignación" })
     .click();
-  const espera = poller(pg);
   return espera(async () => (await filasExistentes(pg).count()) === antes - 1);
 }
 
@@ -348,13 +369,8 @@ try {
     ((await dialogo4.textContent()) ?? "").includes("Ya tiene 1 asignación"),
   );
   await dialogo4.getByRole("button", { name: "Cancelar" }).click();
-  await page.goto(`${BASE}/admin/reactivos`);
-  await espera(async () => (await filas(page).count()) > 0);
-  check(
-    "⭐ banco: «membrana celular» BLOQUEADO (candado)",
-    (await candadoBanco(filaDe(page, R_MEMBRANA)).count()) === 1,
-  );
   await abrirAsignar(page, BIB_ADMIN, EXAMEN);
+  await espera(async () => ((await page.textContent("body")) ?? "").includes(ANA));
   const cuerpo4 = (await page.textContent("body")) ?? "";
   check("⭐ existentes muestra el NOMBRE de la alumna (no un grupo)", cuerpo4.includes(ANA));
   check("la fila nace «Programada»", (await filasExistentes(page).count()) === 1 && cuerpo4.includes("Programada"));
@@ -372,28 +388,24 @@ try {
     !(await dialogo5.getByRole("button", { name: "Volver a borrador" }).isDisabled()),
   );
   await dialogo5.getByRole("button", { name: "Cancelar" }).click();
-  await page.goto(`${BASE}/admin/reactivos`);
-  await espera(async () => (await filas(page).count()) > 0);
-  check(
-    "⭐ banco: «membrana celular» LIBRE otra vez",
-    (await candadoBanco(filaDe(page, R_MEMBRANA)).count()) === 0,
-  );
 
   // ════ §6 · asignar RE-ejecuta validarPublicable (la discriminante mayor) ════
-  console.log("\n6 · Publicado degradado: asignar rechaza con el mensaje del servidor");
-  await filaDe(page, R_MEMBRANA).getByRole("link", { name: /^Editar el reactivo/ }).click();
-  await page.waitForURL(/\/editar$/);
-  await page.getByRole("button", { name: "Desactivar" }).click();
-  await page.waitForURL(/\/admin\/reactivos/);
-  await abrirAsignar(page, BIB_ADMIN, EXAMEN);
+  console.log("\n6 · Publicado degradado (reactivo fantasma): el servidor rechaza asignar");
+  await abrirAsignar(page, BIB_ADMIN, LEGADO);
   await elegirGrupo(page, "Matutino A");
   await llenarVentana(page, Date.now() + DIA, Date.now() + 2 * DIA);
   await espera(async () => !(await confirmarBtn(page).isDisabled()));
   await confirmarBtn(page).click();
-  await espera(async () => ((await page.textContent("body")) ?? "").includes("está desactivado"));
+  await espera(async () =>
+    ((await page.textContent("body")) ?? "").includes(
+      "El examen referencia un reactivo que ya no existe.",
+    ),
+  );
   check(
-    "⭐ rechazo del SERVIDOR: el reactivo desactivado bloquea asignar",
-    ((await page.textContent("body")) ?? "").includes("está desactivado"),
+    "⭐ rechazo del SERVIDOR con el mensaje EXACTO de validarPublicable",
+    ((await page.textContent("body")) ?? "").includes(
+      "El examen referencia un reactivo que ya no existe.",
+    ),
     "si asignar no re-ejecuta validarPublicable, esto asigna un examen roto",
   );
   check("seguimos en /asignar (no navegó)", /\/asignar$/.test(page.url()));
@@ -401,12 +413,6 @@ try {
     "⭐ NO se creó ninguna asignación",
     (await filasExistentes(page).count()) === 0,
   );
-  await page.goto(`${BASE}/admin/reactivos`);
-  await espera(async () => (await filas(page).count()) > 0);
-  await filaDe(page, R_MEMBRANA).getByRole("link", { name: /^Editar el reactivo/ }).click();
-  await page.waitForURL(/\/editar$/);
-  await page.getByRole("button", { name: "Reactivar" }).click();
-  await page.waitForURL(/\/admin\/reactivos/);
 
   // ════ §7 · Ventana ABIERTA («En curso», sin Cancelar) ════
   console.log("\n7 · Asignación abierta: «En curso» y sin cancelación");
@@ -565,6 +571,8 @@ try {
   console.log("\n10 · Admin: problemas, hrefs de zona y cancelación admin-no-creadora");
   await page.goto(`${BASE}${BIB_ADMIN}`);
   await espera(async () => (await filas(page).count()) > 0);
+  await page.getByPlaceholder("Buscar por título…").fill(SG5);
+  await espera(async () => (await filaDe(page, SG5).count()) === 1);
   const hrefVerSG5 = await filaDe(page, SG5)
     .getByRole("link", { name: `Ver el examen «${SG5}»` })
     .getAttribute("href");
@@ -642,7 +650,7 @@ try {
     await modal11.locator("#grupo-nombre").fill(GRUPO_E22);
     await modal11.locator("#grupo-ciclo").fill("2026-A");
     await modal11.locator("select").selectOption("matutino");
-    await modal11.getByRole("combobox").click();
+    await modal11.getByRole("combobox", { name: "Instructores" }).click();
     await page.getByRole("option", { name: /Cristian/ }).click();
     await page.keyboard.press("Escape");
     await modal11.getByRole("button", { name: /Crear|Guardar/ }).click();
