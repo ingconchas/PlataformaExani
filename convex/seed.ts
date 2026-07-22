@@ -29,6 +29,14 @@ import { type EstadoExamen, type TipoExamen } from "./examenEstado";
 
 const DIA = 24 * 60 * 60 * 1000;
 const norm = (correo: string) => correo.trim().toLowerCase();
+
+/**
+ * Prefijo de los grupos TEMPORALES del E2E de la frontera de membresías (LUI-19,
+ * §5c). Es un NAMESPACE: la reconciliación estrecha del paso 6b y
+ * `limpiarMembresiasParaCota` solo tocan grupos cuyo nombre empiece así — jamás
+ * los del fixture ni asociaciones manuales de dev.
+ */
+const MARCA_COTA_LUI19 = "[Cota LUI-19]";
 const nombreCompleto = (nombre: string, apellidos: string) =>
   [nombre, apellidos].filter(Boolean).join(" ");
 
@@ -1234,6 +1242,9 @@ export const cargarDatosDePrueba = internalMutation({
     }
 
     // ── 6. Grupo↔instructor (upsert por par, evita duplicados) ─────────────
+    // El seed escribe las uniones DIRECTO (≤4 por instructor — muy por debajo de
+    // la frontera `asegurarCapacidadMembresias` que sí aplican los escritores
+    // productivos; documentado en instructores.ts).
     for (const [nombreGrupo, correos] of Object.entries(GRUPO_INSTRUCTORES)) {
       const grupoId = grupoIdPorNombre.get(nombreGrupo);
       if (!grupoId) continue;
@@ -1248,6 +1259,42 @@ export const cargarDatosDePrueba = internalMutation({
         await ctx.db.insert("grupoInstructores", { grupoId, instructorId });
         yaLigados.add(instructorId as string);
         insertado.push(`grupo-instructor:${nombreGrupo}`);
+      }
+    }
+
+    // ── 6b. Reconciliación ESTRECHA de uniones (LUI-19) ────────────────────
+    // SOLO retira: (a) filas DUPLICADAS del mismo par dentro de los grupos del
+    // fixture y (b) uniones hacia grupos marcados «[Cota LUI-19]» (residuo del
+    // E2E de la frontera de membresías, si su `finally` no alcanzó a limpiar).
+    // Nada más: una poda global borraría asociaciones manuales legítimas del
+    // deployment de dev.
+    for (const grupoId of grupoIdPorNombre.values()) {
+      const filas = await ctx.db
+        .query("grupoInstructores")
+        .withIndex("by_grupo", (q) => q.eq("grupoId", grupoId))
+        .collect();
+      const vistos = new Set<string>();
+      for (const fila of filas) {
+        const key = fila.instructorId as string;
+        if (vistos.has(key)) {
+          await ctx.db.delete(fila._id);
+          reparado.push("grupo-instructor:duplicado");
+        } else {
+          vistos.add(key);
+        }
+      }
+    }
+    const gruposMarcadosLui19 = (await ctx.db.query("grupos").collect()).filter(
+      (g) => g.nombre.startsWith(MARCA_COTA_LUI19),
+    );
+    for (const g of gruposMarcadosLui19) {
+      const filas = await ctx.db
+        .query("grupoInstructores")
+        .withIndex("by_grupo", (q) => q.eq("grupoId", g._id))
+        .collect();
+      for (const fila of filas) {
+        await ctx.db.delete(fila._id);
+        reparado.push("grupo-instructor:cota-lui19");
       }
     }
 
@@ -1452,6 +1499,10 @@ export const cargarDatosDePrueba = internalMutation({
         // `esteMes` de índice ≥3 (siempre abiertas: su cierre cae el mes entrante).
         cierraEn: abreEn + 21 * DIA,
         creadoPor: instructorUserId,
+        // Read-model del panel del instructor (LUI-19): mismo estampado que hace
+        // `asignar` — y como la reconciliación PATCHEA, también repara filas de
+        // dev previas al campo.
+        tituloExamen: asig.examen,
       };
       // La reconciliación NORMALIZA con `destinoDeFila` antes de comparar el par: una
       // fila-alumno residual del E2E jamás se confunde con una sembrada (y una fila
@@ -1732,9 +1783,115 @@ export const cargarDatosDePrueba = internalMutation({
       totalFilas: (await construirTemario(ctx)).length,
     };
 
+    // ── Oráculo del panel del INSTRUCTOR (LUI-19) ──────────────────────────
+    // Mismo principio que `panelEsperado`: conteo PROPIO contra la BD REAL —
+    // independiente de las queries de `panelInstructor.ts`, así un error en
+    // ellas se caza igual. Filas CRUDAS y SIN filtrar por tiempo: entre el seed
+    // y el assert solo se mueve el reloj, y el spec E2E re-deriva «qué está
+    // abierto» con su propio `Date.now()` AL ASERTAR (las ventanas `esteMes` de
+    // índice <3 cambian de estado según el día del mes — congelarlas mentiría).
+    // ⚠️ PROHIBIDO añadir asignaciones al fixture desde aquí: este bloque solo
+    // ENSANCHA el retorno. `totalReactivos` se cuenta de FILAS (no del contador
+    // denormalizado): misma independencia que el oráculo del temario — el E2E
+    // también caza una deriva del contador que la query heredaría.
+    const intentosFinal = await ctx.db.query("intentos").collect();
+    const unionesFinal = await ctx.db.query("grupoInstructores").collect();
+    const alumnasActivasPorGrupoId = new Map<
+      string,
+      { userId: Id<"users">; nombre: string }[]
+    >();
+    for (const p of alumnosFinal) {
+      if (!p.activo || !p.grupoId) continue;
+      const lista = alumnasActivasPorGrupoId.get(p.grupoId as string) ?? [];
+      lista.push({
+        userId: p.userId,
+        nombre: nombreCompleto(p.nombre, p.apellidos ?? ""),
+      });
+      alumnasActivasPorGrupoId.set(p.grupoId as string, lista);
+    }
+    const intentosPorAsignacion = new Map<string, typeof intentosFinal>();
+    for (const i of intentosFinal) {
+      if (!i.asignacionId) continue;
+      const lista = intentosPorAsignacion.get(i.asignacionId as string) ?? [];
+      lista.push(i);
+      intentosPorAsignacion.set(i.asignacionId as string, lista);
+    }
+    const grupoDocPorId = new Map(gruposFinal.map((g) => [g._id as string, g]));
+
+    const oraculoInstructor = (correo: string) => {
+      const userId = instructorUserIdPorCorreo.get(norm(correo));
+      const nombrePila =
+        INSTRUCTORES.find((i) => norm(i.correo) === norm(correo))?.nombre ?? "?";
+      const susGrupos = userId
+        ? [
+            ...new Map(
+              unionesFinal
+                .filter((u) => u.instructorId === userId)
+                .map((u) => grupoDocPorId.get(u.grupoId as string))
+                .filter(
+                  (g): g is NonNullable<typeof g> => g !== undefined && g.activo,
+                )
+                .map((g) => [g._id as string, g] as const),
+            ).values(),
+          ].sort((a, b) => a.nombre.localeCompare(b.nombre, "es"))
+        : [];
+      return {
+        nombre: nombrePila,
+        grupos: susGrupos.map((g) => ({
+          nombre: g.nombre,
+          alumnasActivas: (alumnasActivasPorGrupoId.get(g._id as string) ?? [])
+            .map((a) => a.nombre)
+            .sort((a, b) => a.localeCompare(b, "es")),
+        })),
+        asignaciones: susGrupos.flatMap((g) => {
+          const roster = alumnasActivasPorGrupoId.get(g._id as string) ?? [];
+          return asignacionesFinal
+            .filter((a) => a.grupoId === g._id)
+            .map((a) => {
+              const deEsta = intentosPorAsignacion.get(a._id as string) ?? [];
+              // Espejo de la sonda del panel: por alumna ACTIVA del roster,
+              // «enviado» GANA sobre «en_curso»; sin intento → no aparece.
+              const porAlumna: {
+                nombre: string;
+                estado: "enviado" | "en_curso";
+              }[] = [];
+              for (const al of roster) {
+                const suyos = deEsta.filter((i) => i.alumnoId === al.userId);
+                if (suyos.length === 0) continue;
+                porAlumna.push({
+                  nombre: al.nombre,
+                  estado: suyos.some((i) => i.estado === "enviado")
+                    ? "enviado"
+                    : "en_curso",
+                });
+              }
+              return {
+                examen: examenPorId.get(a.examenId) ?? "?",
+                examenId: a.examenId as string,
+                grupo: g.nombre,
+                abreEn: a.abreEn,
+                cierraEn: a.cierraEn,
+                porAlumna,
+              };
+            });
+        }),
+      };
+    };
+
     return {
       insertado,
       reparado,
+      panelInstructorEsperado: {
+        totalReactivos: reactivosFinal.length,
+        instructores: {
+          "cristian.instructor@demo.unx.mx": oraculoInstructor(
+            "cristian.instructor@demo.unx.mx",
+          ),
+          "diana.instructor@demo.unx.mx": oraculoInstructor(
+            "diana.instructor@demo.unx.mx",
+          ),
+        },
+      },
       panelEsperado: {
         gruposActivos: gruposFinal.filter((g) => g.activo).length,
         alumnosRegistrados: alumnosFinal.filter((p) => p.activo).length,
@@ -1758,5 +1915,206 @@ export const cargarDatosDePrueba = internalMutation({
           ? `Seed OK — insertado: ${insertado.length ? insertado.join(", ") : "nada"} · reparado: ${reparado.length ? reparado.join(", ") : "nada"}`
           : "Todo ya existía y estaba al día.",
     };
+  },
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers del E2E de LUI-19 (cotas del panel del instructor) — SOLO_DEV
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * (LUI-19 · §5b del E2E) COMPLETA las asignaciones VIVAS de un grupo HASTA el
+ * objetivo — no «inserta N»: el fixture ya trae vivas (p. ej. Vespertino B con
+ * SG2 `esteMes` de índice ≥3, siempre abierta) y sembrar de más correría los
+ * conteos de la prueba. Las nuevas son FUTURAS (abren en +30 días): una futura
+ * jamás cuenta como «aplicada» (`abreEn <= ahora`), así que el oráculo de lui9
+ * queda intacto — la prohibición de añadir asignaciones `esteMes` se respeta.
+ * Consumidor único: `scripts/e2e-lui19.mjs`; la pizarra (`limpiarContenidoDemo`)
+ * las barre con toda la tabla.
+ */
+export const completarVivasParaCota = internalMutation({
+  args: {
+    confirmar: v.literal(CONFIRMACION_SOLO_DEV),
+    grupoNombre: v.string(),
+    objetivo: v.number(),
+  },
+  handler: async (ctx, args) => {
+    exigirDeploymentDeDesarrollo();
+    const ahora = Date.now();
+    const grupo = (await ctx.db.query("grupos").collect()).find(
+      (g) => g.nombre === args.grupoNombre,
+    );
+    if (!grupo) throw new Error(`No existe el grupo «${args.grupoNombre}».`);
+    const vivas = (
+      await ctx.db
+        .query("asignaciones")
+        .withIndex("by_grupo_cierra", (q) =>
+          q.eq("grupoId", grupo._id).gt("cierraEn", ahora),
+        )
+        .collect()
+    ).length;
+    const faltan = args.objetivo - vivas;
+    if (faltan <= 0) return { creadas: 0, vivas };
+    const examen = await ctx.db
+      .query("examenes")
+      .withIndex("by_estado", (q) => q.eq("estado", "publicado"))
+      .first();
+    if (!examen) throw new Error("No hay examen publicado para sembrar vivas.");
+    const admin = await ctx.db
+      .query("perfiles")
+      .withIndex("by_rol", (q) => q.eq("rol", "admin"))
+      .first();
+    if (!admin) throw new Error("No hay administradora para `creadoPor`.");
+    for (let i = 0; i < faltan; i++) {
+      const abreEn = ahora + 30 * DIA + i * DIA;
+      await ctx.db.insert("asignaciones", {
+        examenId: examen._id,
+        ...camposDestino({ grupoId: grupo._id }),
+        abreEn,
+        cierraEn: abreEn + DIA,
+        creadoPor: admin.userId,
+        tituloExamen: examen.titulo,
+      });
+    }
+    return { creadas: faltan, vivas: vivas + faltan };
+  },
+});
+
+/**
+ * (LUI-19 · §5c del E2E) Prepara el escenario de la frontera de membresías:
+ *
+ *  1. TRES grupos temporales ACTIVOS marcados («Candidato G/A/B»), asignados
+ *     inicialmente a OTRO instructor (`candidatosPara`) — candidatos VÁLIDOS
+ *     para los formularios reales (que solo ofrecen grupos activos); si el
+ *     instructor bajo prueba ya estaba ligado a alguno, se le desliga (el test
+ *     necesita añadirlos él).
+ *  2. Fillers CERRADOS marcados («Filler NNN») con una unión cada uno hasta que
+ *     el instructor tenga EXACTAMENTE `objetivo` uniones — cerrados: invisibles
+ *     para el panel (filtro `activo`), para `asignar` y para el oráculo de lui9
+ *     (`gruposActivos` cuenta activos). Idempotente: reutiliza los marcados
+ *     existentes antes de crear.
+ *
+ * Toda mutación EXITOSA de §5c cae dentro del namespace marcado ⇒
+ * `limpiarMembresiasParaCota` restaura EXACTAMENTE el estado previo (suite
+ * repetible). El helper escribe uniones DIRECTO (es el andamio que construye el
+ * estado «al borde de la cota» — la frontera productiva es justo lo que la
+ * prueba va a ejercitar vía las mutations reales).
+ */
+export const sembrarMembresiasParaCota = internalMutation({
+  args: {
+    confirmar: v.literal(CONFIRMACION_SOLO_DEV),
+    instructorCorreo: v.string(),
+    objetivo: v.number(),
+    candidatosPara: v.string(),
+  },
+  handler: async (ctx, args) => {
+    exigirDeploymentDeDesarrollo();
+    const buscarUser = async (correo: string) => {
+      const u = await ctx.db
+        .query("users")
+        .withIndex("email", (q) => q.eq("email", norm(correo)))
+        .first();
+      if (!u) throw new Error(`No existe el usuario «${correo}».`);
+      return u._id;
+    };
+    const instructorId = await buscarUser(args.instructorCorreo);
+    const duenoCandidatos = await buscarUser(args.candidatosPara);
+
+    // 1. Candidatos ACTIVOS G/A/B.
+    for (const letra of ["G", "A", "B"]) {
+      const nombre = `${MARCA_COTA_LUI19} Candidato ${letra}`;
+      const existente = (await ctx.db.query("grupos").collect()).find(
+        (g) => g.nombre === nombre,
+      );
+      let grupoId;
+      if (existente) {
+        grupoId = existente._id;
+        if (!existente.activo) await ctx.db.patch(grupoId, { activo: true });
+      } else {
+        grupoId = await ctx.db.insert("grupos", {
+          nombre,
+          ciclo: "Cota",
+          activo: true,
+        });
+      }
+      const uniones = await ctx.db
+        .query("grupoInstructores")
+        .withIndex("by_grupo", (q) => q.eq("grupoId", grupoId))
+        .collect();
+      if (!uniones.some((u) => u.instructorId === duenoCandidatos)) {
+        await ctx.db.insert("grupoInstructores", {
+          grupoId,
+          instructorId: duenoCandidatos,
+        });
+      }
+      for (const u of uniones) {
+        if (u.instructorId === instructorId) await ctx.db.delete(u._id);
+      }
+    }
+
+    // 2. Fillers CERRADOS hasta dejar al instructor en `objetivo` uniones.
+    const actuales = await ctx.db
+      .query("grupoInstructores")
+      .withIndex("by_instructor", (q) => q.eq("instructorId", instructorId))
+      .collect();
+    let faltan = args.objetivo - actuales.length;
+    const ligadosSet = new Set(actuales.map((u) => u.grupoId as string));
+    let ligados = 0;
+    let creados = 0;
+    const todos = await ctx.db.query("grupos").collect();
+    for (const g of todos) {
+      if (faltan <= 0) break;
+      if (!g.nombre.startsWith(`${MARCA_COTA_LUI19} Filler`)) continue;
+      if (ligadosSet.has(g._id as string)) continue;
+      await ctx.db.insert("grupoInstructores", {
+        grupoId: g._id,
+        instructorId,
+      });
+      ligadosSet.add(g._id as string);
+      ligados++;
+      faltan--;
+    }
+    let n = todos.filter((g) =>
+      g.nombre.startsWith(`${MARCA_COTA_LUI19} Filler`),
+    ).length;
+    while (faltan > 0) {
+      const grupoId = await ctx.db.insert("grupos", {
+        nombre: `${MARCA_COTA_LUI19} Filler ${String(++n).padStart(3, "0")}`,
+        ciclo: "Cota",
+        activo: false,
+      });
+      await ctx.db.insert("grupoInstructores", { grupoId, instructorId });
+      creados++;
+      faltan--;
+    }
+    return { creados, ligados, uniones: args.objetivo };
+  },
+});
+
+/**
+ * (LUI-19 · `finally` del E2E) Borra TODOS los grupos marcados «[Cota LUI-19]»
+ * — fillers Y candidatos — y sus uniones: restaura exactamente el estado previo
+ * a §5c. Solo toca el namespace marcado.
+ */
+export const limpiarMembresiasParaCota = internalMutation({
+  args: { confirmar: v.literal(CONFIRMACION_SOLO_DEV) },
+  handler: async (ctx) => {
+    exigirDeploymentDeDesarrollo();
+    const marcados = (await ctx.db.query("grupos").collect()).filter((g) =>
+      g.nombre.startsWith(MARCA_COTA_LUI19),
+    );
+    let uniones = 0;
+    for (const g of marcados) {
+      const filas = await ctx.db
+        .query("grupoInstructores")
+        .withIndex("by_grupo", (q) => q.eq("grupoId", g._id))
+        .collect();
+      for (const f of filas) {
+        await ctx.db.delete(f._id);
+        uniones++;
+      }
+      await ctx.db.delete(g._id);
+    }
+    return { grupos: marcados.length, uniones };
   },
 });

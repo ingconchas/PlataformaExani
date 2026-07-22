@@ -1,32 +1,19 @@
 import { PageHeader } from "@/components/layout/page-header";
-import { Card, CardDescription } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { Alert } from "@/components/ui/alert";
+import { InicioInstructorClient } from "./inicio-client";
 
-export default function InstructorInicio() {
-  return (
-    <>
-      <PageHeader
-        title="Inicio"
-        description="Tu banco de reactivos y exámenes."
-        action={<Button>Nuevo reactivo</Button>}
-      />
-      <div className="grid gap-4 sm:grid-cols-3">
-        <Card>
-          <CardDescription>Reactivos</CardDescription>
-          <p className="font-condensed mt-1 text-display text-ink">642</p>
-        </Card>
-        <Card>
-          <CardDescription>Lecturas</CardDescription>
-          <p className="font-condensed mt-1 text-display text-ink">38</p>
-        </Card>
-        <Card>
-          <CardDescription>Exámenes</CardDescription>
-          <p className="font-condensed mt-1 text-display text-ink">27</p>
-        </Card>
-      </div>
-      <p className="mt-6 text-caption text-muted">
-        Diseño de referencia: design-reference/screens/13-panel-instructor.html
-      </p>
-    </>
-  );
+export default function Page() {
+  if (!process.env.NEXT_PUBLIC_CONVEX_URL) {
+    return (
+      <>
+        <PageHeader title="Inicio" description="Tus exámenes en aplicación." />
+        <Alert kind="warning">
+          Esta pantalla necesita la base de datos. Corre <code>npx convex dev</code>{" "}
+          y define <code>NEXT_PUBLIC_CONVEX_URL</code> en <code>.env.local</code>{" "}
+          para verla.
+        </Alert>
+      </>
+    );
+  }
+  return <InicioInstructorClient />;
 }

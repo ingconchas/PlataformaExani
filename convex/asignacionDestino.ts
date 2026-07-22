@@ -65,6 +65,25 @@ export const MAX_ALUMNOS_DESTINO = 30;
  */
 export const MAX_ASIGNACIONES_POR_EXAMEN = 600;
 
+/**
+ * Techo de asignaciones NO CERRADAS (`cierraEn > ahora`: abiertas Y programadas) por
+ * GRUPO. Nace como **cota de LECTURA del panel del instructor (LUI-19) aplicada en el
+ * escritor**: el panel lee, por grupo, solo el conjunto vivo vía
+ * `asignaciones.by_grupo_cierra` con `take(MAX + 1)`, y esta frontera es lo que hace a
+ * esa sonda DEMOSTRABLE — a diferencia del techo de 600 (que solo reduce la pendiente),
+ * esta cota SÍ ACOTA a su lector.
+ *
+ * La capacidad se **RECUPERA SOLA**: al cruzar `cierraEn` la fila deja de contar (y
+ * cancelar una programada también resta) — sin estados muertos. El fixture real usa ≤4
+ * vivas por grupo; 30 son semestres enteros de ventanas solapadas.
+ *
+ * Las filas-alumno NO llevan esta cota: el panel no las lee (v1 las excluye por
+ * construcción del índice) y ya las acotan `MAX_ALUMNOS_DESTINO` por operación y el
+ * techo por examen. Dimensiones independientes: 20 grupos/operación × 30 vivas/grupo se
+ * cruzan con el acumulado de 600/examen sin contradicción — miden ejes distintos.
+ */
+export const MAX_ASIGNACIONES_VIVAS_POR_GRUPO = 30;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // El destino
 // ─────────────────────────────────────────────────────────────────────────────
@@ -180,5 +199,25 @@ export function validarCapacidad(existentes: number, nuevas: number): void {
   if (existentes + nuevas > MAX_ASIGNACIONES_POR_EXAMEN)
     throw new ConvexError(
       `Este examen alcanzó el máximo de asignaciones (${MAX_ASIGNACIONES_POR_EXAMEN}).`,
+    );
+}
+
+/**
+ * Guarda de la cota de VIVAS por grupo (LUI-19). La mutation `asignar` le pasa, POR CADA
+ * grupo destino (ramas `grupos` Y `todosLosGrupos` — la cota no puede existir solo en la
+ * rama equivalente), el conteo acotado `by_grupo_cierra … take(MAX + 1).length` de las
+ * asignaciones aún no cerradas. Cada operación inserta UNA fila por grupo, así que la
+ * pregunta es siempre `existentes + 1`. El mensaje nombra al grupo: en una operación
+ * multi-grupo la administradora necesita saber CUÁL está lleno.
+ */
+export function validarCapacidadVivas(
+  nombreGrupo: string,
+  existentesVivas: number,
+): void {
+  if (existentesVivas + 1 > MAX_ASIGNACIONES_VIVAS_POR_GRUPO)
+    throw new ConvexError(
+      `El grupo «${nombreGrupo}» alcanzó el máximo de asignaciones vivas ` +
+        `(${MAX_ASIGNACIONES_VIVAS_POR_GRUPO}). La capacidad se libera al cerrar ` +
+        "ventanas o al cancelar programadas.",
     );
 }

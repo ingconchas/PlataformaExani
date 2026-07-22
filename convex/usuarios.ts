@@ -4,6 +4,8 @@ import { type Doc, type Id } from "./_generated/dataModel";
 import { v, ConvexError } from "convex/values";
 import { requireAdmin } from "./authz";
 import { credencialExiste } from "./credenciales";
+import { asegurarCapacidadMembresias } from "./instructores";
+import { MAX_GRUPOS_POR_INSTRUCTOR } from "./participacion";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -161,6 +163,13 @@ export const crear = mutation({
     const esInstructor = args.rol === "instructor";
     const materia = esInstructor ? args.materia?.trim() || undefined : undefined;
     const grupoIds = esInstructor ? dedupeGrupos(args.grupoIds ?? []) : [];
+    // Cota sobre la entrada DEDUPLICADA, antes de resolver cada grupo (LUI-19):
+    // rechazar aquí evita lecturas inútiles y errores genéricos de límites.
+    if (grupoIds.length > MAX_GRUPOS_POR_INSTRUCTOR) {
+      throw new ConvexError(
+        `Un instructor no puede tener más de ${MAX_GRUPOS_POR_INSTRUCTOR} grupos.`,
+      );
+    }
     for (const gid of grupoIds) await validarGrupoActivo(ctx, gid);
 
     const userId = await ctx.db.insert("users", {
@@ -174,6 +183,13 @@ export const crear = mutation({
       apellidos,
       materia,
       activo: true,
+    });
+    // Frontera de membresías (LUI-19): la cuenta es NUEVA (0 uniones), así que
+    // la sonda valida `0 + grupoIds.length` — el wiring centralizado es el mismo
+    // de los otros tres escritores, no una aritmética local.
+    await asegurarCapacidadMembresias(ctx, userId, {
+      añadidas: grupoIds.length,
+      removidas: 0,
     });
     for (const grupoId of grupoIds) {
       await ctx.db.insert("grupoInstructores", { grupoId, instructorId: userId });
@@ -242,6 +258,12 @@ export const actualizar = mutation({
     // instructor siempre envía el arreglo.
     if (esInstructor && args.grupoIds !== undefined) {
       const grupoIds = dedupeGrupos(args.grupoIds);
+      // Cota sobre la entrada DEDUPLICADA, antes de resolver cada grupo (LUI-19).
+      if (grupoIds.length > MAX_GRUPOS_POR_INSTRUCTOR) {
+        throw new ConvexError(
+          `Un instructor no puede tener más de ${MAX_GRUPOS_POR_INSTRUCTOR} grupos.`,
+        );
+      }
       const existentes = await ctx.db
         .query("grupoInstructores")
         .withIndex("by_instructor", (q) => q.eq("instructorId", perfil.userId))
@@ -251,6 +273,27 @@ export const actualizar = mutation({
       // aunque estén cerrados.
       for (const gid of grupoIds) {
         if (!yaAsignados.has(gid as string)) await validarGrupoActivo(ctx, gid);
+      }
+      // Frontera de membresías (LUI-19), con el delta que ESTA reconciliación
+      // computa: añadidas = deseados que no estaban; removidas = filas que van a
+      // borrarse (las no deseadas y los duplicados). Ante un legado saturado, la
+      // frontera rechaza toda ALTA (el tamaño real es desconocido) — depurar
+      // primero (solo bajas) y añadir después.
+      {
+        const deseadosPrevio = new Set(grupoIds.map((g) => g as string));
+        const vistosPrevio = new Set<string>();
+        let mantenidos = 0;
+        for (const row of existentes) {
+          const key = row.grupoId as string;
+          if (deseadosPrevio.has(key) && !vistosPrevio.has(key)) {
+            vistosPrevio.add(key);
+            mantenidos++;
+          }
+        }
+        await asegurarCapacidadMembresias(ctx, perfil.userId, {
+          añadidas: grupoIds.filter((g) => !yaAsignados.has(g as string)).length,
+          removidas: existentes.length - mantenidos,
+        });
       }
       const deseados = new Set(grupoIds.map((g) => g as string));
       const mantenidos = new Set<string>();

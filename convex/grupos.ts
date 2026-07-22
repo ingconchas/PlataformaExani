@@ -9,6 +9,7 @@ import { v, ConvexError } from "convex/values";
 import { requireAdmin } from "./authz";
 import { fueAplicada } from "./metricas";
 import { canonizar } from "./texto";
+import { asegurarCapacidadMembresias } from "./instructores";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -289,6 +290,16 @@ export const crear = mutation({
     const instructorIds = await validarInstructores(ctx, args.instructorIds);
     await validarNombreCicloUnico(ctx, nombre, ciclo);
 
+    // Frontera de membresías (LUI-19): el grupo nuevo suma UNA unión a cada
+    // instructor — se valida ANTES de insertar nada (la mutation es atómica,
+    // pero validar primero evita el insert-then-throw).
+    for (const instructorId of instructorIds) {
+      await asegurarCapacidadMembresias(ctx, instructorId, {
+        añadidas: 1,
+        removidas: 0,
+      });
+    }
+
     const grupoId = await ctx.db.insert("grupos", {
       nombre,
       ciclo,
@@ -339,6 +350,16 @@ export const actualizar = mutation({
     const yaAsignados = new Set(existentes.map((r) => r.instructorId as string));
     for (const id of instructorIds) {
       if (!yaAsignados.has(id as string)) await validarInstructorActivo(ctx, id);
+    }
+    // Frontera de membresías (LUI-19): solo los instructores AÑADIDOS suman una
+    // unión (los mantenidos no cambian; los removidos son bajas y no validan).
+    for (const id of instructorIds) {
+      if (!yaAsignados.has(id as string)) {
+        await asegurarCapacidadMembresias(ctx, id, {
+          añadidas: 1,
+          removidas: 0,
+        });
+      }
     }
     await ctx.db.patch(args.grupoId, { nombre, ciclo, turno: args.turno });
     const deseados = new Set(instructorIds.map((id) => id as string));
