@@ -1,11 +1,14 @@
-import { ScreenPlaceholder } from "@/components/dev/screen-placeholder";
+import { ResultadoMinimoClient } from "./resultado-client";
 
-export default function Page() {
-  return (
-    <ScreenPlaceholder
-      titulo="Resultados del simulacro"
-      diseno="26-resultados-simulacro.html"
-      descripcion="Tu puntaje y desglose por área."
-    />
-  );
+/**
+ * Resultado de un intento (interino del paquete player; LUI-28 lo reemplaza).
+ * `[id]` es el INTENTO: cada repaso tiene su propio resultado.
+ */
+export default async function Page({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = await params;
+  return <ResultadoMinimoClient intentoId={id} />;
 }
