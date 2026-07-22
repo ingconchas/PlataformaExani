@@ -28,6 +28,7 @@
     "e2e:lui20": "node scripts/e2e-lui20.mjs",
     "e2e:lui21": "node scripts/e2e-lui21.mjs",
     "e2e:lui22": "node scripts/e2e-lui22.mjs",
+    "e2e:lui26": "node scripts/e2e-lui26.mjs",
     "e2e:lui103": "node scripts/e2e-lui103.mjs"
   },
   "engines": {
