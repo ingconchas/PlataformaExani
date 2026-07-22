@@ -36,6 +36,8 @@ import type * as lecturas from "../lecturas.js";
 import type * as material from "../material.js";
 import type * as metricas from "../metricas.js";
 import type * as panel from "../panel.js";
+import type * as panelInstructor from "../panelInstructor.js";
+import type * as participacion from "../participacion.js";
 import type * as plantillas from "../plantillas.js";
 import type * as politica from "../politica.js";
 import type * as pruebasImagenes from "../pruebasImagenes.js";
@@ -83,6 +85,8 @@ declare const fullApi: ApiFromModules<{
   material: typeof material;
   metricas: typeof metricas;
   panel: typeof panel;
+  panelInstructor: typeof panelInstructor;
+  participacion: typeof participacion;
   plantillas: typeof plantillas;
   politica: typeof politica;
   pruebasImagenes: typeof pruebasImagenes;

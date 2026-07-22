@@ -138,8 +138,9 @@ export default defineSchema({
   // `reactivosCount` va DENORMALIZADO: Convex no tiene `count()` que evite leer
   // los documentos, así que contar leyendo `reactivos` haría que esta pantalla se
   // suscribiera a la tabla entera (megabytes re-leídos en cada escritura de
-  // cualquier reactivo) y reventaría el tope de 8 MiB por query a ~4 000 reactivos
-  // (el tope de 16384 docs solo muerde bajo 512 B/doc; un reactivo pesa 1–4 KB).
+  // cualquier reactivo) y reventaría el tope de 16 MiB por transacción a ~8 000
+  // reactivos (el tope de 32 000 docs solo muerde bajo 512 B/doc; un reactivo
+  // pesa 1–4 KB).
   // Se impone AHORA porque hoy hay cero escritores de reactivos que retrofitear.
   // La deriva es cosmética: el gate de borrado usa una sonda `.first()`, no el
   // contador, y `temario:recalcularContadores` lo repara.
@@ -355,8 +356,28 @@ export default defineSchema({
     abreEn: v.number(), // epoch ms
     cierraEn: v.number(),
     creadoPor: v.id("users"),
+    // READ-MODEL del panel del instructor (LUI-19): el título del examen,
+    // estampado por `asignar` al crear la fila, para que el panel NO lea docs de
+    // `examenes` (un examen legado puede cargar miles de `reactivoIds` — ver
+    // `examenes.ts` — y 600 gets sin cota de bytes no caben en su presupuesto).
+    // INMUTABLE por el candado de LUI-20: `asignar` exige PUBLICADO y
+    // `calcularBloqueo` congela un publicado con compromiso (asignación o
+    // intento) — desde la primera asignación el título ya no puede cambiar, así
+    // que este espejo jamás queda rancio. ≤160 chars (cota del constructor,
+    // revalidada al publicar). Opcional SOLO por el legado hipotético
+    // pre-LUI-19: una fila sin el campo se OMITE del panel con el flag
+    // `asignacionesLegadasOmitidas` (prod tenía 0 asignaciones al desplegarse).
+    tituloExamen: v.optional(v.string()),
   })
     .index("by_grupo", ["grupoId"])
+    // «Asignaciones NO CERRADAS de un grupo» (LUI-19): selección MONÓTONA — una
+    // cerrada jamás reabre, así que `eq(grupoId).gt("cierraEn", ahora)` acota la
+    // lectura al conjunto VIVO y el historial crece sin costo para el panel.
+    // Techo DURO del conjunto: `MAX_ASIGNACIONES_VIVAS_POR_GRUPO` (frontera en
+    // el escritor `asignar`) ⇒ la sonda lee ≤ 30+1 filas por grupo. Lectores:
+    // `panelInstructor.resumen`/`participacionDeGrupo` y la propia sonda de
+    // capacidad de `asignar` — nace con sus lectores (regla de la casa, abajo).
+    .index("by_grupo_cierra", ["grupoId", "cierraEn"])
     .index("by_examen", ["examenId"])
     // «Asignaciones existentes de este examen» en orden de APERTURA (Diseño 19). Sobre
     // `by_examen` a secas, `.order("desc")` ordenaría por el desempate implícito
@@ -390,7 +411,13 @@ export default defineSchema({
     // `.first()` sobre (examenId, "enviado"). `by_examen` a secas no sirve — no distingue un
     // intento `en_curso` de uno `enviado`, y «tiene resultados» significa enviado.
     // `intentos` es la tabla GRANDE (alumnas × exámenes): jamás se hace `.collect()`.
-    .index("by_examen_estado", ["examenId", "estado"]),
+    .index("by_examen_estado", ["examenId", "estado"])
+    // Sondas del panel del instructor (LUI-19): DOS `.first()` por (asignación,
+    // alumna) — «¿ya envió?» y, solo si no, «¿trae en curso?» — la enumeración
+    // EXHAUSTIVA de `ESTADOS_INTENTO` (participacion.ts; un tercer estado obliga
+    // a revisarlas). ≤2 rangos y ≤2 docs por pareja SIN IMPORTAR reintentos: la
+    // regla de arriba se mantiene — el panel jamás colecciona esta tabla.
+    .index("by_asignacion_alumno_estado", ["asignacionId", "alumnoId", "estado"]),
 
   // Respuesta por reactivo dentro de un intento.
   respuestas: defineTable({

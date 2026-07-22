@@ -1,6 +1,11 @@
-import { query, mutation, type MutationCtx } from "./_generated/server";
+import {
+  query,
+  mutation,
+  type MutationCtx,
+  type QueryCtx,
+} from "./_generated/server";
 import { internal } from "./_generated/api";
-import { type Id } from "./_generated/dataModel";
+import { type Doc, type Id } from "./_generated/dataModel";
 import { v, ConvexError } from "convex/values";
 import { requireAdmin } from "./authz";
 import { credencialExiste } from "./credenciales";
@@ -19,6 +24,31 @@ function validarFormatoCorreo(correo: string): void {
   if (!FORMATO_CORREO.test(correo)) {
     throw new ConvexError("El correo no tiene un formato válido.");
   }
+}
+
+/**
+ * Perfiles de alumnas ACTIVAS de un grupo (las únicas que «recibirán este
+ * examen»). Frontera compartida de los flujos de ASIGNACIÓN (`asignaciones.ts`:
+ * el conteo del toast en `asignar` y las cifras de `paraAsignar`) — vive aquí, el
+ * módulo del dominio alumnos, desde LUI-19. Poblaciones chicas por construcción
+ * (grupos de decenas; mismo presupuesto aceptado de `alumnos.listar`).
+ *
+ * ⚠️ El panel del instructor (LUI-19) NO la usa: su roster se lee PAGINADO con
+ * tope de filas Y bytes (`perfiles.by_grupo` + `maximumBytesRead`) porque su
+ * presupuesto es contractual. AMBOS caminos filtran con el MISMO criterio
+ * (`rol === "alumno" && activo`): un solo concepto de «alumna activa del grupo»
+ * decide tanto quién recibe el examen como el denominador Y de «X de Y
+ * completaron».
+ */
+export async function alumnasActivasDeGrupo(
+  ctx: QueryCtx | MutationCtx,
+  grupoId: Id<"grupos">,
+): Promise<Doc<"perfiles">[]> {
+  const perfiles = await ctx.db
+    .query("perfiles")
+    .withIndex("by_grupo", (q) => q.eq("grupoId", grupoId))
+    .collect();
+  return perfiles.filter((p) => p.rol === "alumno" && p.activo);
 }
 
 /** Si se especifica grupo, debe existir y estar activo. */

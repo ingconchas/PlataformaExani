@@ -1,15 +1,17 @@
 import { ConvexError, v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
-import { mutation, query, type QueryCtx, type MutationCtx } from "./_generated/server";
+import { mutation, query } from "./_generated/server";
 import { type Doc, type Id } from "./_generated/dataModel";
 import { requireStaff } from "./authz";
 import {
   MAX_GRUPOS_DESTINO,
   MAX_ASIGNACIONES_POR_EXAMEN,
+  MAX_ASIGNACIONES_VIVAS_POR_GRUPO,
   camposDestino,
   destinoDeFila,
   destinoValidator,
   validarCapacidad,
+  validarCapacidadVivas,
   validarDestinoCrudo,
 } from "./asignacionDestino";
 import {
@@ -20,6 +22,8 @@ import {
 } from "./examenEstado";
 import { validarPublicable } from "./examenGuardado";
 import { rangoCortoMx } from "./fechas";
+import { gruposActivosDelInstructor } from "./instructores";
+import { alumnasActivasDeGrupo } from "./alumnos";
 
 /**
  * ASIGNACIÓN de examen (LUI-22): aplicar un examen PUBLICADO a su destino —todos los
@@ -42,44 +46,28 @@ import { rangoCortoMx } from "./fechas";
  *    y el candado de `calcularBloqueo` entra solo.
  */
 
-type Ctx = QueryCtx | MutationCtx;
-
 function nombreCompleto(p: Doc<"perfiles">): string {
   return [p.nombre, p.apellidos].filter(Boolean).join(" ");
 }
 
 /**
- * El conjunto autorizado del INSTRUCTOR: sus grupos por `grupoInstructores.by_instructor`,
- * filtrados a existentes y ACTIVOS. Es EL MISMO conjunto en la mutation y en la
- * hidratación (`paraAsignar`) — sin el filtro de `activo`, una llamada directa asignaría a
- * un alumno activo de un grupo cerrado aunque la UI no lo ofrezca.
+ * Los helpers de alcance (`gruposActivosDelInstructor`, `alumnasActivasDeGrupo`)
+ * viven desde LUI-19 en sus módulos de dominio (`instructores.ts` / `alumnos.ts`),
+ * acotados y compartidos. El de grupos devuelve además `membresiaDesbordada`
+ * (legado con más uniones que el techo): en los flujos de asignación eso LANZA —
+ * operar sobre un subconjunto que finge ser el todo autorizaría de menos o de más.
  */
-async function gruposActivosDelInstructor(
-  ctx: Ctx,
-  instructorId: Id<"users">,
-): Promise<Map<Id<"grupos">, Doc<"grupos">>> {
-  const unions = await ctx.db
-    .query("grupoInstructores")
-    .withIndex("by_instructor", (q) => q.eq("instructorId", instructorId))
-    .collect();
-  const out = new Map<Id<"grupos">, Doc<"grupos">>();
-  for (const u of unions) {
-    const g = await ctx.db.get(u.grupoId);
-    if (g && g.activo) out.set(g._id, g);
+function exigirMembresiaSana(resultado: {
+  grupos: Map<Id<"grupos">, Doc<"grupos">>;
+  membresiaDesbordada: boolean;
+}): Map<Id<"grupos">, Doc<"grupos">> {
+  if (resultado.membresiaDesbordada) {
+    throw new ConvexError(
+      "Tu cuenta tiene más grupos de los permitidos (datos previos a la cota); " +
+        "pide a una administradora depurar tus membresías.",
+    );
   }
-  return out;
-}
-
-/** Perfiles de alumnas ACTIVAS de un grupo (las únicas que «recibirán este examen»). */
-async function alumnasActivasDeGrupo(
-  ctx: Ctx,
-  grupoId: Id<"grupos">,
-): Promise<Doc<"perfiles">[]> {
-  const perfiles = await ctx.db
-    .query("perfiles")
-    .withIndex("by_grupo", (q) => q.eq("grupoId", grupoId))
-    .collect();
-  return perfiles.filter((p) => p.rol === "alumno" && p.activo);
+  return resultado.grupos;
 }
 
 /**
@@ -141,7 +129,9 @@ export const asignar = mutation({
     // aprende del estado interno del examen.
     const misGrupos = esAdmin
       ? null
-      : await gruposActivosDelInstructor(ctx, sesion.userId);
+      : exigirMembresiaSana(
+          await gruposActivosDelInstructor(ctx, sesion.userId),
+        );
 
     const filas: Array<{ grupoId: Id<"grupos"> } | { alumnoId: Id<"users"> }> = [];
     const gruposDestino: Doc<"grupos">[] = [];
@@ -207,6 +197,21 @@ export const asignar = mutation({
       }
     }
 
+    // 5b. COTA DE VIVAS por grupo destino (LUI-19), en AMBAS ramas de grupos —
+    // `gruposDestino` ya está materializado venga de `todosLosGrupos` o de
+    // `grupos` (la cota no puede existir solo en la rama equivalente). Sonda
+    // acotada sobre `by_grupo_cierra` (`cierraEn > ahora` = no cerradas); esta
+    // frontera es la que hace DEMOSTRABLE la lectura del panel del instructor.
+    for (const g of gruposDestino) {
+      const vivas = await ctx.db
+        .query("asignaciones")
+        .withIndex("by_grupo_cierra", (q) =>
+          q.eq("grupoId", g._id).gt("cierraEn", ahora),
+        )
+        .take(MAX_ASIGNACIONES_VIVAS_POR_GRUPO + 1);
+      validarCapacidadVivas(g.nombre, vivas.length);
+    }
+
     // 6. CAPACIDAD del acumulado (barata, antes del conteo proporcional): lectura
     // acotada por construcción (≤ MAX+1 docs), jamás un collect sin techo.
     const existentes = await ctx.db
@@ -233,7 +238,11 @@ export const asignar = mutation({
     await validarPublicable(ctx, examen);
 
     // 9. Inserts (una transacción). Solapes/duplicados entre asignaciones DISTINTAS:
-    // legales a propósito (AC), sin sonda de duplicado.
+    // legales a propósito (AC), sin sonda de duplicado. `tituloExamen` es el
+    // read-model del panel (LUI-19): estable por el candado de LUI-20 — este
+    // examen es PUBLICADO y la fila que insertamos lo compromete, así que
+    // `calcularBloqueo` congela su título desde este instante (docblock del
+    // campo en schema.ts).
     for (const fila of filas) {
       await ctx.db.insert("asignaciones", {
         examenId: args.examenId,
@@ -241,6 +250,7 @@ export const asignar = mutation({
         abreEn: args.abreEn,
         cierraEn: args.cierraEn,
         creadoPor: sesion.userId,
+        tituloExamen: examen.titulo,
       });
     }
 
@@ -384,7 +394,9 @@ export const paraAsignar = query({
     const todosLosGrupos = await ctx.db.query("grupos").collect();
     const misGrupos = esAdmin
       ? null
-      : await gruposActivosDelInstructor(ctx, sesion.userId);
+      : exigirMembresiaSana(
+          await gruposActivosDelInstructor(ctx, sesion.userId),
+        );
     const gruposOfertables = (
       esAdmin
         ? todosLosGrupos.filter((g) => g.activo)
@@ -507,7 +519,9 @@ export const existentesDe = query({
 
     const misGrupos = esAdmin
       ? null
-      : await gruposActivosDelInstructor(ctx, sesion.userId);
+      : exigirMembresiaSana(
+          await gruposActivosDelInstructor(ctx, sesion.userId),
+        );
 
     const resultado = await ctx.db
       .query("asignaciones")

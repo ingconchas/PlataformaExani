@@ -73,6 +73,26 @@ export function inicioDeMesMx(ahora: number): number {
   return Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), 1) + OFFSET_MX_MS;
 }
 
+/**
+ * Epoch ms de la PRÓXIMA medianoche en reloj MX. Un `ts` que cae EXACTAMENTE en
+ * medianoche devuelve la SIGUIENTE (nunca la misma): el consumidor es la frontera
+ * del reloj anclado del panel del instructor (LUI-19) — la fecha del encabezado se
+ * deriva en cliente con `fechaLargaMx(ahora)` y este instante es el tick que la
+ * cruza sola, porque una query de Convex no se re-invalida por el paso del tiempo
+ * (contrato de `examenEstado.estadoDeVentana`). `Date.UTC(y, m, d + 1)` normaliza
+ * fin de mes y fin de año sin casos especiales.
+ */
+export function siguienteMedianocheMx(ts: number): number {
+  const local = new Date(ts - OFFSET_MX_MS);
+  return (
+    Date.UTC(
+      local.getUTCFullYear(),
+      local.getUTCMonth(),
+      local.getUTCDate() + 1,
+    ) + OFFSET_MX_MS
+  );
+}
+
 /** «Lunes 6 de julio de 2026» — el formato exacto del encabezado del panel (LUI-9). */
 export function fechaLargaMx(ts: number): string {
   const d = new Date(ts - OFFSET_MX_MS);
@@ -83,6 +103,20 @@ export function fechaLargaMx(ts: number): string {
 export function fechaCortaMx(ts: number): string {
   const d = new Date(ts - OFFSET_MX_MS);
   return `${d.getUTCDate()} ${MESES_CORTOS[d.getUTCMonth()]}`;
+}
+
+/**
+ * «12 de julio, 23:59» — el badge «Cierra el {fecha, hora}» del panel del
+ * instructor (LUI-19, mock 13). Horas y minutos con cero a la izquierda («09:05»)
+ * y el minuto se TRUNCA (getters, jamás redondeo): redondear «23:59:40» hacia
+ * «00:00» anunciaría el cierre en el día equivocado. SIN año a propósito: es el
+ * formato exacto del mock y las ventanas de aplicación son de corto plazo — si una
+ * cruzara el año, día+mes siguen siendo inequívocos a escala de semanas.
+ */
+export function fechaHoraMx(ts: number): string {
+  const d = new Date(ts - OFFSET_MX_MS);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getUTCDate()} de ${MESES[d.getUTCMonth()]}, ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`;
 }
 
 /**
