@@ -109,6 +109,11 @@ export const MAX_GRUPOS_POR_INSTRUCTOR = 100;
  * primero `"enviado"` (completó) y, solo si no existe, `"en_curso"`. ⚠️ Un TERCER
  * estado en el schema obliga a revisar esas sondas — el check de longitud en
  * `test-panel-instructor.ts` existe para señalarlo.
+ *
+ * ⚠️ El paquete player (LUI-27) NO añadió un tercer estado: cómo se cerró un intento vive
+ * en el campo APARTE `intentos.formaCierre` (`simulacro.formaCierreValidator`)
+ * precisamente para no tocar esta enumeración ni sus dos sondas. `enviado` sigue
+ * significando lo mismo, con una etiqueta de por qué.
  */
 export const ESTADOS_INTENTO = ["en_curso", "enviado"] as const;
 export type EstadoIntentoAlumna = (typeof ESTADOS_INTENTO)[number];

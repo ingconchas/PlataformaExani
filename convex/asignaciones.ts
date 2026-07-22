@@ -6,12 +6,14 @@ import { requireStaff } from "./authz";
 import {
   MAX_GRUPOS_DESTINO,
   MAX_ASIGNACIONES_POR_EXAMEN,
+  MAX_ASIGNACIONES_VIVAS_POR_ALUMNA,
   MAX_ASIGNACIONES_VIVAS_POR_GRUPO,
   camposDestino,
   destinoDeFila,
   destinoValidator,
   validarCapacidad,
   validarCapacidadVivas,
+  validarCapacidadVivasAlumna,
   validarDestinoCrudo,
 } from "./asignacionDestino";
 import {
@@ -135,6 +137,9 @@ export const asignar = mutation({
 
     const filas: Array<{ grupoId: Id<"grupos"> } | { alumnoId: Id<"users"> }> = [];
     const gruposDestino: Doc<"grupos">[] = [];
+    // Los destinatarios individuales, con su nombre: la cota de vivas por alumna (paso 5c)
+    // necesita nombrar a la llena, igual que la de grupo.
+    const alumnosDestino: Array<{ alumnoId: Id<"users">; nombre: string }> = [];
 
     if (args.destino.tipo === "todosLosGrupos") {
       if (!esAdmin) {
@@ -193,6 +198,7 @@ export const asignar = mutation({
         if (misGrupos && (!perfil.grupoId || !misGrupos.has(perfil.grupoId))) {
           throw new ConvexError("Solo puedes asignar a alumnos de tus grupos.");
         }
+        alumnosDestino.push({ alumnoId, nombre: nombreCompleto(perfil) });
         filas.push(camposDestino({ alumnoId }));
       }
     }
@@ -210,6 +216,19 @@ export const asignar = mutation({
         )
         .take(MAX_ASIGNACIONES_VIVAS_POR_GRUPO + 1);
       validarCapacidadVivas(g.nombre, vivas.length);
+    }
+
+    // 5c. COTA DE VIVAS por ALUMNA (LUI-25), gemela de la anterior sobre
+    // `by_alumno_cierra`: es lo que hace SEGURO el corte de «Mis exámenes» (con ≤30
+    // vivas, su página descendente por cierre nunca deja fuera una abierta).
+    for (const a of alumnosDestino) {
+      const vivas = await ctx.db
+        .query("asignaciones")
+        .withIndex("by_alumno_cierra", (q) =>
+          q.eq("alumnoId", a.alumnoId).gt("cierraEn", ahora),
+        )
+        .take(MAX_ASIGNACIONES_VIVAS_POR_ALUMNA + 1);
+      validarCapacidadVivasAlumna(a.nombre, vivas.length);
     }
 
     // 6. CAPACIDAD del acumulado (barata, antes del conteo proporcional): lectura
@@ -238,11 +257,12 @@ export const asignar = mutation({
     await validarPublicable(ctx, examen);
 
     // 9. Inserts (una transacción). Solapes/duplicados entre asignaciones DISTINTAS:
-    // legales a propósito (AC), sin sonda de duplicado. `tituloExamen` es el
-    // read-model del panel (LUI-19): estable por el candado de LUI-20 — este
-    // examen es PUBLICADO y la fila que insertamos lo compromete, así que
-    // `calcularBloqueo` congela su título desde este instante (docblock del
-    // campo en schema.ts).
+    // legales a propósito (AC), sin sonda de duplicado. Los TRES read-models
+    // (`tituloExamen` del panel del instructor, `numReactivos`/`duracionMin` de «Mis
+    // exámenes») comparten candado: este examen es PUBLICADO y la fila que insertamos
+    // lo compromete, así que `calcularBloqueo` lo congela desde este instante y
+    // `examenes.actualizar` —que exige borrador— ya no puede moverlos (docblocks de
+    // los campos en schema.ts).
     for (const fila of filas) {
       await ctx.db.insert("asignaciones", {
         examenId: args.examenId,
@@ -251,6 +271,9 @@ export const asignar = mutation({
         cierraEn: args.cierraEn,
         creadoPor: sesion.userId,
         tituloExamen: examen.titulo,
+        numReactivos: examen.reactivoIds.length,
+        duracionMin: examen.duracionMin,
+        tipoExamen: normalizarTipo(examen.tipo),
       });
     }
 
@@ -285,10 +308,13 @@ export const asignar = mutation({
  * una programada cancelada nunca contó en `panel.resumen` ni en `grupos.obtener` (ambas
  * expresiones de la regla exigen `abreEn <= ahora`); borrarla no mueve un número.
  *
- * **Contrato para LUI-24 (player):** al crear un intento, validar que la asignación
- * exista y esté ABIERTA dentro de SU transacción — la carrera cancelar↔iniciar es hoy
- * imposible (no hay player), pero la serialización de Convex la resuelve solo si el
- * player la comprueba transaccionalmente.
+ * **Contrato con el player (LUI-26), ya CUMPLIDO:** `player.iniciarIntento` comprueba que
+ * la asignación exista y esté ABIERTA DENTRO de su propia transacción. Eso es lo que
+ * resuelve la carrera cancelar↔iniciar: ambas transacciones tocan el mismo documento, así
+ * que la serialización de Convex hace reintentar a una — si cancelar commitea primero,
+ * iniciar no encuentra la fila; si iniciar gana, la sonda de intentos de aquí abajo
+ * rechaza. (Los estados además son disjuntos —cancelar exige programada, iniciar
+ * abierta—, pero la garantía formal es la transaccional, no la temporal.)
  */
 export const cancelar = mutation({
   args: { asignacionId: v.id("asignaciones") },

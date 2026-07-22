@@ -16,9 +16,32 @@ const COLUMNAS: DataTableColumn[] = [
   { key: "puntaje", label: "Puntaje promedio", align: "right" },
 ];
 
-/** Puntaje EXANI en escala 700–1300: protagonista, en cifras condensadas. `null`
- *  → «—» (aún sin intentos calificados). Nunca 0: sería imposible en la escala. */
-function CeldaPuntaje({ valor }: { valor: number | null }) {
+/**
+ * Puntaje EXANI en escala 700–1300: protagonista, en cifras condensadas.
+ *
+ * TRES estados, no dos: la cifra; «—» = sin intentos calificados todavía; y **«Datos
+ * incompletos»** = la asignación tiene más intentos de los que el presupuesto de la query
+ * permite leer, así que el servidor NO promedió (`promedioIncompleto`). Pintar «—» en ese
+ * caso diría «nadie ha contestado» sobre una asignación llena de respuestas, y pintar el
+ * promedio del prefijo daría una cifra precisa y falsa. Nunca 0: sería imposible en la
+ * escala.
+ */
+function CeldaPuntaje({
+  valor,
+  incompleto,
+}: {
+  valor: number | null;
+  incompleto: boolean;
+}) {
+  if (incompleto)
+    return (
+      <span
+        className="text-small text-muted"
+        title="Este examen tiene demasiados intentos para calcular el promedio aquí."
+      >
+        Datos incompletos
+      </span>
+    );
   if (valor === null) return <span className="text-muted">—</span>;
   return (
     <span className="font-condensed text-[20px] font-semibold tabular-nums text-unx-blue">
@@ -38,7 +61,12 @@ export function InicioClient() {
     examen: <span className="font-semibold text-ink">{e.examen}</span>,
     grupo: e.grupo,
     fecha: <span className="text-muted">{e.fecha}</span>,
-    puntaje: <CeldaPuntaje valor={e.puntajePromedio} />,
+    puntaje: (
+      <CeldaPuntaje
+        valor={e.puntajePromedio}
+        incompleto={e.promedioIncompleto}
+      />
+    ),
   }));
 
   return (

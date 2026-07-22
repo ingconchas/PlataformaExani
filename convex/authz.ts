@@ -58,3 +58,25 @@ export async function requireStaff(ctx: Ctx): Promise<Sesion> {
   }
   return sesion;
 }
+
+/**
+ * Exige que la sesión sea de una ALUMNA ACTIVA — el gate del portal de la alumna
+ * («Mis exámenes», el player y sus resultados; LUI-25/26/27).
+ *
+ * El espejo de `requireStaff`: staff NO entra. No es simetría decorativa — el player
+ * escribe intentos y respuestas a nombre de `sesion.userId`, y un instructor que abriera
+ * un simulacro generaría datos académicos de una alumna inexistente (que además
+ * contaminarían participación y promedios). Devuelve `{ userId, perfil }`: el `perfil`
+ * trae el `grupoId` con el que «Mis exámenes» resuelve las asignaciones grupales.
+ *
+ * `requireSesion` ya rechaza perfiles desactivados: una alumna dada de baja a mitad de
+ * examen no puede responder ni enviar (su intento queda `en_curso` hasta que el cierre
+ * durable lo entregue con lo respondido).
+ */
+export async function requireAlumna(ctx: Ctx): Promise<Sesion> {
+  const sesion = await requireSesion(ctx);
+  if (sesion.perfil.rol !== "alumno") {
+    throw new ConvexError("Esta sección es del portal de la alumna.");
+  }
+  return sesion;
+}

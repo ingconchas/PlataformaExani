@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   useConvexAuth,
@@ -26,6 +26,7 @@ import {
 } from "@/convex/examenEstado";
 import { epochDeRelojMx } from "@/convex/fechas";
 import { setFlash } from "@/lib/flash";
+import { useRelojAnclado } from "@/lib/use-reloj-anclado";
 import { PageHeader } from "@/components/layout/page-header";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -44,10 +45,6 @@ type FilaExistente = FunctionReturnType<
   typeof api.asignaciones.existentesDe
 >["page"][number];
 
-/** `setTimeout` con retardo mayor dispara INMEDIATAMENTE en los navegadores. */
-const CLAMP_TIMER_MS = 2 ** 31 - 1;
-/** Margen al disparar en una frontera: evita re-evaluar un instante ANTES del cruce. */
-const MARGEN_FRONTERA_MS = 250;
 const PAGINA_EXISTENTES = 20;
 
 function mensajeDeError(e: unknown): string {
@@ -149,32 +146,6 @@ function AsignarForm({
     { initialNumItems: PAGINA_EXISTENTES },
   );
 
-  // ── Reloj ANCLADO al servidor ──────────────────────────────────────────────
-  // `ahoraServidor` es ancla de INICIO (el runtime de Convex congela Date.now()); el
-  // cliente avanza por tiempo transcurrido con `performance.now()` — jamás confía en el
-  // reloj del dispositivo, que puede estar desfasado. La reactividad re-entrega
-  // `ahoraServidor` con cada cambio de datos → re-ancla. Redondeo a ENTERO: los helpers
-  // de ventana exigen enteros solo en las fronteras, pero un `ahora` fraccionario haría
-  // ruido en comparaciones y logs.
-  // El ref se escribe SOLO en efectos (regla react-hooks/refs del repo) y todo setState
-  // es ASÍNCRONO (regla set-state-in-effect). ⚠️ El estado `ahora` NO puede quedarse en
-  // el instante del montaje: cada re-ancla refresca en el siguiente tick, y el efecto
-  // del timer se AUTO-CORRIGE si detecta deriva (hallazgo mayor de la revisión de B:
-  // sin esto, una actualización reactiva a mitad de espera re-armaba el retardo contra
-  // el `ahora` viejo — cruce tardío — y tras una espera sin fronteras la validación en
-  // vivo usaba la hora del montaje).
-  const ancla = useRef<{ servidor: number; perf: number } | null>(null);
-  const [ahora, setAhora] = useState(() => Math.floor(datos.ahoraServidor));
-  const tick = () => {
-    const a = ancla.current;
-    if (a) setAhora(Math.floor(a.servidor + (performance.now() - a.perf)));
-  };
-  useEffect(() => {
-    ancla.current = { servidor: datos.ahoraServidor, perf: performance.now() };
-    const t = setTimeout(tick, 0);
-    return () => clearTimeout(t);
-  }, [datos.ahoraServidor]);
-
   // ── Estado del formulario ─────────────────────────────────────────────────
   const [destinoTipo, setDestinoTipo] = useState<"todos" | "grupos" | "alumnos">(
     "grupos",
@@ -191,6 +162,23 @@ function AsignarForm({
   const aperturaEpoch = apertura === "" ? null : epochDeRelojMx(apertura);
   const cierreEpoch = cierre === "" ? null : epochDeRelojMx(cierre);
 
+  // ── Reloj ANCLADO al servidor ──────────────────────────────────────────────
+  // `useRelojAnclado` (hook compartido, `lib/use-reloj-anclado.ts`) — extraído de AQUÍ al
+  // tercer consumidor: `ahoraServidor` es ancla de INICIO, el avance lo pone
+  // `performance.now()` y el timer despierta en la próxima frontera con auto-corrección
+  // de deriva. Las fronteras son las de las filas cargadas Y la del FORMULARIO
+  // (`cierre − MIN_VIGENCIA`): sin esta última, un cierre tecleado que se vence dejaría
+  // el botón habilitado hasta otra interacción.
+  const fronterasDe = useCallback(() => {
+    const fs: number[] = [];
+    for (const r of existentes.results) {
+      fs.push(r.abreEn, r.cierraEn);
+    }
+    if (cierreEpoch !== null) fs.push(cierreEpoch - MIN_VIGENCIA_RESTANTE_MS);
+    return fs;
+  }, [existentes.results, cierreEpoch]);
+  const ahora = useRelojAnclado(datos.ahoraServidor, fronterasDe);
+
   // Validación EN VIVO con el MISMO helper que la mutation — mismo umbral, mismo copy.
   const errorVentana = useMemo(() => {
     if (aperturaEpoch === null || cierreEpoch === null) return null;
@@ -201,42 +189,6 @@ function AsignarForm({
       return mensajeDeError(e);
     }
   }, [aperturaEpoch, cierreEpoch, ahora]);
-
-  // ── Timer a la PRÓXIMA frontera ───────────────────────────────────────────
-  // El `min` incluye las fronteras de las filas cargadas Y la del FORMULARIO
-  // (`cierre − MIN_VIGENCIA`): sin filas futuras, un cierre tecleado que se vence
-  // dejaría el botón habilitado hasta otra interacción. Clamp a 2³¹−1, limpieza y
-  // re-armado en cada disparo/cambio, margen al cruzar.
-  useEffect(() => {
-    // Toda frontera y retardo se calcula contra el ESTIMADO fresco del ancla — jamás
-    // contra el estado `ahora`, que puede haberse quedado atrás (el efecto re-corre por
-    // reactividad de datos, no solo por disparos del timer). Si la deriva supera 1 s,
-    // primero se refresca el estado (tick asíncrono) y este efecto re-corre ya al día.
-    const a = ancla.current;
-    const estimado = a
-      ? Math.floor(a.servidor + (performance.now() - a.perf))
-      : ahora;
-    if (estimado - ahora > 1000) {
-      const t0 = setTimeout(tick, 0);
-      return () => clearTimeout(t0);
-    }
-    const fronteras: number[] = [];
-    for (const r of existentes.results) {
-      if (r.abreEn > estimado) fronteras.push(r.abreEn);
-      if (r.cierraEn > estimado) fronteras.push(r.cierraEn);
-    }
-    if (cierreEpoch !== null) {
-      const limite = cierreEpoch - MIN_VIGENCIA_RESTANTE_MS;
-      if (limite > estimado) fronteras.push(limite);
-    }
-    if (fronteras.length === 0) return;
-    const retardo = Math.min(
-      Math.max(Math.min(...fronteras) + MARGEN_FRONTERA_MS - estimado, 0),
-      CLAMP_TIMER_MS,
-    );
-    const t = setTimeout(tick, retardo);
-    return () => clearTimeout(t);
-  }, [ahora, existentes.results, cierreEpoch, datos.ahoraServidor]);
 
   // ── Destino derivado (de datos ESTAMPADOS; cero re-derivación de permisos) ─
   const filasDestino =
