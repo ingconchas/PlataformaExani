@@ -381,11 +381,12 @@ async function examenAutorizado(
  *     presuponerla (una futura NO cancelada compromete igual).
  *  2. Sin intento EN CURSO — incluidos los DIRECTOS (sin asignación), que
  *     existen porque `asignacionId` es opcional: una alumna a media sesión.
- *     ⚠️ Pasivo documentado: sin autocierre de intentos (LUI-22+/LUI-27), un
- *     `en_curso` zombi bloquea archivar indefinidamente. Aceptado: el rechazo es
- *     reversible (esperar/limpiar); archivar debajo de una alumna no lo es. Por
- *     eso el mensaje NOMBRA la causa — un «no se puede» opaco dejaría a la
- *     administradora sin diagnóstico.
+ *     El pasivo que esta guarda declaraba —un `en_curso` zombi bloqueando
+ *     archivar indefinidamente— quedó SALDADO por LUI-27: `player.iniciarIntento`
+ *     agenda el cierre durable de cada intento para su límite, así que un intento
+ *     abandonado se entrega solo (`player.cerrarVencido`) y el bloqueo dura, como
+ *     mucho, lo que dure el examen. El mensaje sigue NOMBRANDO la causa: un «no se
+ *     puede» opaco dejaría a la administradora sin diagnóstico.
  *
  * Es seguro archivar↔desarchivar SOLO porque `calcularBloqueo` congela también
  * lo archivado (Entrega A): sin eso, archivar→editar→desarchivar produciría un

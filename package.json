@@ -15,6 +15,8 @@
     "test:constructor": "tsx scripts/test-constructor.ts",
     "test:asignacion": "tsx scripts/test-asignacion.ts",
     "test:panel-instructor": "tsx scripts/test-panel-instructor.ts",
+    "test:simulacro": "tsx scripts/test-simulacro.ts",
+    "test:mis-examenes": "tsx scripts/test-mis-examenes.ts",
     "test:imagenes": "node scripts/test-imagenes.mjs",
     "e2e:lui9": "node scripts/e2e-lui9.mjs",
     "e2e:lui14": "node scripts/e2e-lui14.mjs",

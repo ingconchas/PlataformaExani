@@ -8,7 +8,12 @@ import { CONFIRMACION_SOLO_DEV, exigirDeploymentDeDesarrollo } from "./entorno";
 import { canonizar } from "./texto";
 import { construirTemario, recalcular, resolverClasificacion } from "./temario";
 import { validarMaterial, type MaterialDeReactivo } from "./material";
-import { type EstadoExamen, type TipoExamen } from "./examenEstado";
+import {
+  normalizarTipo,
+  type EstadoExamen,
+  type TipoExamen,
+} from "./examenEstado";
+import { limiteDe } from "./simulacro";
 
 /**
  * Datos de PRUEBA (ficticios) para desarrollo local.
@@ -37,6 +42,28 @@ const norm = (correo: string) => correo.trim().toLowerCase();
  * los del fixture ni asociaciones manuales de dev.
  */
 const MARCA_COTA_LUI19 = "[Cota LUI-19]";
+
+/**
+ * Antigüedad de los intentos EN CURSO del fixture (LUI-26).
+ *
+ * Antes se anclaban a la mitad de la ventana («0.5») o a «hace 30 minutos»: con el
+ * cronómetro real —`simulacro.limiteDe`, que recorta al cierre de la ventana— esos
+ * instantes ya estaban VENCIDOS casi siempre (la mitad de una ventana de 21 días son días,
+ * y «hace 30 min» con un examen de 30 min da límite = ahora), así que el fixture habría
+ * nacido muerto: el cierre durable los entregaría al instante y las suites que esperan un
+ * `en_curso` verían un `enviado`. 10 minutos de transcurso dejan margen cómodo hasta con el
+ * examen más corto del fixture (30 min → 20 restantes).
+ *
+ * `MARGEN_ENCURSO_MS` es lo que el seed EXIGE que quede de vida a cada `en_curso` sembrado:
+ * la aserción post-siembra lanza si no se cumple, para que el fixture jamás degrade en
+ * silencio cuando alguien acorte una duración o mueva una ventana.
+ */
+const ENCURSO_TRANSCURRIDO_MS = 10 * 60_000;
+const MARGEN_ENCURSO_MS = 15 * 60_000;
+
+/** Namespace de los grupos TEMPORALES del E2E del player (§14, «solo futuras»). Igual que
+ *  `MARCA_COTA_LUI19`: la limpieza solo toca lo que empieza así. */
+const MARCA_E2E_PLAYER = "[E2E LUI-26]";
 const nombreCompleto = (nombre: string, apellidos: string) =>
   [nombre, apellidos].filter(Boolean).join(" ");
 
@@ -823,8 +850,10 @@ export const limpiarContenidoDemo = internalMutation({
     for (const blob of blobs) await ctx.storage.delete(blob);
     borrado.imagenes = blobs.size;
 
-    // Orden: de las hojas hacia la raíz del grafo de contenido.
+    // Orden: de las hojas hacia la raíz del grafo de contenido. `posiciones` (cursor del
+    // player) va primero por lo mismo que `respuestas`: cuelga de `intentos`.
     const tablas = [
+      "posiciones",
       "respuestas",
       "intentos",
       "asignaciones",
@@ -1480,10 +1509,25 @@ export const cargarDatosDePrueba = internalMutation({
       alumnosActivosPorGrupo.set(a.grupo, lista);
     }
 
+    // Los `en_curso` sembrados, para la aserción post-siembra (abajo): el fixture no puede
+    // producir intentos que nazcan vencidos.
+    const enCursoSembrados: {
+      intentoId: Id<"intentos">;
+      etiqueta: string;
+      iniciadoEn: number;
+      duracionMin: number;
+      cierraEn: number | null;
+    }[] = [];
+
     for (const asig of ASIGNACIONES) {
       const examenId = examenIdPorTitulo.get(asig.examen);
       const grupoId = grupoIdPorNombre.get(asig.grupo);
       if (!examenId || !grupoId) continue;
+
+      // Los read-models de la asignación salen del documento del examen, igual que en
+      // `asignar` (que es la autoridad): título, número de reactivos, duración y tipo.
+      const examenDoc = await ctx.db.get(examenId);
+      if (!examenDoc) continue;
 
       const abreEn = abreEnDe(asig);
       const datos = {
@@ -1499,10 +1543,13 @@ export const cargarDatosDePrueba = internalMutation({
         // `esteMes` de índice ≥3 (siempre abiertas: su cierre cae el mes entrante).
         cierraEn: abreEn + 21 * DIA,
         creadoPor: instructorUserId,
-        // Read-model del panel del instructor (LUI-19): mismo estampado que hace
-        // `asignar` — y como la reconciliación PATCHEA, también repara filas de
-        // dev previas al campo.
+        // Read-models del panel del instructor (LUI-19) y de «Mis exámenes» (LUI-25):
+        // mismo estampado que hace `asignar` — y como la reconciliación PATCHEA,
+        // también repara filas de dev previas a los campos.
         tituloExamen: asig.examen,
+        numReactivos: examenDoc.reactivoIds.length,
+        duracionMin: examenDoc.duracionMin,
+        tipoExamen: normalizarTipo(examenDoc.tipo),
       };
       // La reconciliación NORMALIZA con `destinoDeFila` antes de comparar el par: una
       // fila-alumno residual del E2E jamás se confunde con una sembrada (y una fila
@@ -1549,21 +1596,35 @@ export const cargarDatosDePrueba = internalMutation({
         // `en_curso` habría conservado puntaje y fecha de envío residuales — un
         // «en curso» con calificación. (El comentario que había junto al patch
         // AFIRMABA que mandaba `undefined`; no lo hacía.)
+        //
+        // `numeroIntento` y `formaCierre` (paquete player) son claves OBLIGADAS por lo
+        // mismo. El número sigue la POSICIÓN cronológica del fixture, que es como
+        // reconcilia el bucle de abajo — así el 1 es siempre el diagnóstico y el
+        // invariante «un repaso es posterior a su diagnóstico» se respeta.
         type FixtureIntento = {
           estado: "en_curso" | "enviado";
           iniciadoEn: number;
           enviadoEn: number | undefined;
           puntaje: number | undefined;
+          numeroIntento: number;
+          formaCierre: "manual" | undefined;
         };
         const fixture: FixtureIntento[] = [];
 
         if (asig.enCurso === correo) {
           // Sin puntaje y sin enviar: si el promedio no filtra, sale NaN.
+          // ⚠️ ANCLADO A `ahora`, no a la mitad de la ventana: con el cronómetro real un
+          // intento iniciado hace días ya venció, y el cierre durable lo entregaría al
+          // instante — el fixture `en_curso` dejaría de existir. `max(abreEn, …)` lo
+          // mantiene dentro de la ventana el día 1 del mes, cuando la apertura es
+          // reciente. La aserción post-siembra verifica que le quede vida.
           fixture.push({
             estado: "en_curso",
-            iniciadoEn: enVentana(0.5),
+            iniciadoEn: Math.max(abreEn, ahora - ENCURSO_TRANSCURRIDO_MS),
             enviadoEn: undefined,
             puntaje: undefined,
+            numeroIntento: 1,
+            formaCierre: undefined,
           });
         } else {
           fixture.push({
@@ -1571,15 +1632,21 @@ export const cargarDatosDePrueba = internalMutation({
             iniciadoEn: enVentana(0.2),
             enviadoEn: enVentana(0.3),
             puntaje: base,
+            numeroIntento: 1,
+            formaCierre: "manual",
           });
           if (asig.reintenta === correo) {
             // 2º intento MEJOR (+150): si se promedian todos los intentos, o se
-            // toma el último, el número SUBE de forma detectable.
+            // toma el último, el número SUBE de forma detectable. Con `numeroIntento: 2`
+            // es además el discriminante de la regla de LUI-104 (este puntaje NO entra al
+            // promedio del panel).
             fixture.push({
               estado: "enviado",
               iniciadoEn: enVentana(0.6),
               enviadoEn: enVentana(0.7),
               puntaje: Math.min(1300, base + 150),
+              numeroIntento: 2,
+              formaCierre: "manual",
             });
           }
         }
@@ -1602,13 +1669,24 @@ export const cargarDatosDePrueba = internalMutation({
         for (let k = 0; k < fixture.length; k++) {
           const datosIntento = { examenId, alumnoId, asignacionId, ...fixture[k] };
           const previo = previos[k];
+          let intentoId: Id<"intentos">;
           if (previo) {
             // `patch` con la clave presente y `undefined` ELIMINA el campo — y
             // AHORA las claves sí van siempre presentes (ver `FixtureIntento`).
             await ctx.db.patch(previo._id, datosIntento);
+            intentoId = previo._id;
           } else {
-            await ctx.db.insert("intentos", datosIntento);
+            intentoId = await ctx.db.insert("intentos", datosIntento);
             insertado.push(`intento:${asig.examen}·${correo}`);
+          }
+          if (fixture[k].estado === "en_curso") {
+            enCursoSembrados.push({
+              intentoId,
+              etiqueta: `${asig.examen}·${correo}`,
+              iniciadoEn: fixture[k].iniciadoEn,
+              duracionMin: examenDoc.duracionMin,
+              cierraEn: datos.cierraEn,
+            });
           }
         }
       }
@@ -1643,7 +1721,10 @@ export const cargarDatosDePrueba = internalMutation({
           alumna: "ana.lopez@correo.com",
           fixture: [
             { estado: "enviado", hace: 6 * DIA },
-            { estado: "en_curso", hace: 30 * 60_000 },
+            // «Práctica libre» dura 30 min: con el ancla vieja («hace 30 minutos») el
+            // límite del intento era EXACTAMENTE `ahora` y el cierre durable lo habría
+            // entregado en el acto. Ver `ENCURSO_TRANSCURRIDO_MS`.
+            { estado: "en_curso", hace: ENCURSO_TRANSCURRIDO_MS },
           ],
         },
       ];
@@ -1665,6 +1746,10 @@ export const cargarDatosDePrueba = internalMutation({
           .filter((i) => i.asignacionId === undefined && i.alumnoId === alumnoId)
           .sort((a, b) => a.iniciadoEn - b.iniciadoEn);
 
+        const examenDirecto = await ctx.db.get(examenId);
+        if (!examenDirecto)
+          throw new Error(`Intento directo: examen «${d.examen}» ilegible.`);
+
         for (let k = 0; k < d.fixture.length; k++) {
           const f = d.fixture[k];
           const iniciadoEn = ahora - f.hace;
@@ -1684,16 +1769,98 @@ export const cargarDatosDePrueba = internalMutation({
               f.estado === "enviado"
                 ? puntajeDemo(`${d.examen}|directo|${d.alumna}`)
                 : undefined,
+            // Serie (examen, alumna) para los directos: la posición cronológica es el
+            // número, igual que en el paso 9.
+            numeroIntento: k + 1,
+            formaCierre: f.estado === "enviado" ? ("manual" as const) : undefined,
           };
           const previo = previos[k];
+          let intentoId: Id<"intentos">;
           if (previo) {
             await ctx.db.patch(previo._id, datosIntento);
+            intentoId = previo._id;
           } else {
-            await ctx.db.insert("intentos", datosIntento);
+            intentoId = await ctx.db.insert("intentos", datosIntento);
             insertado.push(`intento-directo:${d.examen}·${d.alumna}`);
+          }
+          if (f.estado === "en_curso") {
+            enCursoSembrados.push({
+              intentoId,
+              etiqueta: `${d.examen}·${d.alumna}`,
+              iniciadoEn,
+              duracionMin: examenDirecto.duracionMin,
+              cierraEn: null, // directo: sin ventana que recorte
+            });
           }
         }
       }
+    }
+
+    // ── 9c. Los `en_curso` sembrados son JUGABLES y se CIERRAN solos ────────
+    // Dos obligaciones que el paquete player impone al fixture:
+    //
+    //  (a) **Aserción que LANZA**: a cada `en_curso` debe quedarle vida real
+    //      (`MARGEN_ENCURSO_MS`). Sin ella, acortar la duración de un examen o mover una
+    //      ventana degradaría el fixture en silencio —el intento nacería vencido y el
+    //      cierre durable lo entregaría al instante— y las suites que esperan ver «En
+    //      curso» fallarían con un síntoma lejano a la causa.
+    //
+    //  (b) **Cierre durable agendado**, como haría `player.iniciarIntento`: estos intentos
+    //      son operables desde la UI de la alumna, así que deben comportarse igual que los
+    //      reales. Se CANCELA el job anterior (`cierreJobId`) antes de agendar el nuevo: en
+    //      cada reseed el límite se mueve, y sin la cancelación quedaría una cadena de jobs
+    //      viejos que disparan antes de tiempo y se re-agendan (correctos pero
+    //      acumulativos). Con ella: ≤1 job pendiente por intento vivo.
+    for (const e of enCursoSembrados) {
+      const limite = limiteDe(e.iniciadoEn, e.duracionMin, e.cierraEn);
+      if (limite - ahora < MARGEN_ENCURSO_MS) {
+        throw new Error(
+          `Fixture inválido: al intento en curso «${e.etiqueta}» le quedan ` +
+            `${Math.round((limite - ahora) / 60_000)} min (mínimo ` +
+            `${MARGEN_ENCURSO_MS / 60_000}). Revisa la duración del examen o la ventana.`,
+        );
+      }
+      const doc = await ctx.db.get(e.intentoId);
+      // …y que sigue siendo el ÚLTIMO de su serie: un `en_curso` con un número menor que
+      // algún enviado violaría el invariante de `iniciarIntento` («no se crea mientras
+      // haya uno vivo»), y la equivalencia «∃ enviado ⟺ el intento 1 está enviado» —de la
+      // que dependen las dos sondas del panel del instructor— dejaría de sostenerse.
+      // La SERIE es (asignación, alumna) para los asignados y (examen, alumna) para los
+      // directos — el mismo ámbito que usa `iniciarIntento` para numerar.
+      const hermanos = !doc
+        ? []
+        : doc.asignacionId
+          ? (
+              await ctx.db
+                .query("intentos")
+                .withIndex("by_asignacion", (q) =>
+                  q.eq("asignacionId", doc.asignacionId),
+                )
+                .collect()
+            ).filter((i) => i.alumnoId === doc.alumnoId)
+          : (
+              await ctx.db
+                .query("intentos")
+                .withIndex("by_examen", (q) => q.eq("examenId", doc.examenId))
+                .collect()
+            ).filter(
+              (i) => i.asignacionId === undefined && i.alumnoId === doc.alumnoId,
+            );
+      const maximo = Math.max(...hermanos.map((i) => i.numeroIntento ?? 0), 0);
+      if (doc && (doc.numeroIntento ?? 0) !== maximo) {
+        throw new Error(
+          `Fixture inválido: el intento en curso «${e.etiqueta}» es el número ` +
+            `${doc.numeroIntento} pero su serie llega hasta ${maximo}: un repaso no puede ` +
+            "quedar por debajo de un envío posterior.",
+        );
+      }
+      if (doc?.cierreJobId) await ctx.scheduler.cancel(doc.cierreJobId);
+      const cierreJobId = await ctx.scheduler.runAt(
+        limite,
+        internal.player.cerrarVencido,
+        { intentoId: e.intentoId },
+      );
+      await ctx.db.patch(e.intentoId, { cierreJobId });
     }
 
     // ── Oráculo del panel (LUI-9) ──────────────────────────────────────────
@@ -1878,9 +2045,63 @@ export const cargarDatosDePrueba = internalMutation({
       };
     };
 
+    // ── Oráculo de «Mis exámenes» (LUI-25) ─────────────────────────────────
+    // Mismo principio que los dos anteriores: se ENSANCHA el retorno (jamás se añaden
+    // fixtures) y las filas van CRUDAS, sin estado de ventana ni clasificación — el spec
+    // E2E re-deriva pendiente/completado/vencido con su propio `Date.now()` al asertar,
+    // porque las ventanas `esteMes` cambian de estado según el día del mes.
+    //
+    // Lo que sí resuelve aquí es la PERTENENCIA (qué asignaciones alcanzan a la alumna:
+    // las de su grupo ∪ las individuales suyas) y el orden de sus intentos, que es
+    // exactamente lo que la query debe reproducir. Los intentos DIRECTOS (sin asignación,
+    // «Práctica libre» de ana) quedan fuera a propósito: no son asignaciones y la pantalla
+    // no debe listarlos — discriminante gratis.
+    const oraculoAlumna = (correo: string) => {
+      const userId = alumnoUserIdPorCorreo.get(norm(correo));
+      const perfil = alumnosFinal.find((p) => p.userId === userId);
+      const grupoId = perfil?.grupoId;
+      const suyas = asignacionesFinal.filter(
+        (a) =>
+          (grupoId !== undefined && a.grupoId === grupoId) ||
+          a.alumnoId === userId,
+      );
+      return {
+        nombre: perfil ? nombreCompleto(perfil.nombre, perfil.apellidos ?? "") : "?",
+        grupo: grupoId ? (grupoPorId.get(grupoId) ?? "?") : null,
+        filas: suyas.map((a) => ({
+          examen: a.tituloExamen ?? examenPorId.get(a.examenId) ?? "?",
+          abreEn: a.abreEn,
+          cierraEn: a.cierraEn,
+          numReactivos: a.numReactivos ?? null,
+          duracionMin: a.duracionMin ?? null,
+          esModulo: (a.tipoExamen?.clase ?? "general") === "modulo",
+          intentos: intentosFinal
+            .filter((i) => i.asignacionId === a._id && i.alumnoId === userId)
+            .sort(
+              (x, y) =>
+                (x.numeroIntento ?? 0) - (y.numeroIntento ?? 0) ||
+                x.iniciadoEn - y.iniciadoEn,
+            )
+            .map((i) => ({
+              estado: i.estado,
+              numeroIntento: i.numeroIntento ?? null,
+              iniciadoEn: i.iniciadoEn,
+              enviadoEn: i.enviadoEn ?? null,
+              puntaje: i.puntaje ?? null,
+            })),
+        })),
+      };
+    };
+
     return {
       insertado,
       reparado,
+      misExamenesEsperado: {
+        "fernanda.alumna@demo.unx.mx": oraculoAlumna(
+          "fernanda.alumna@demo.unx.mx",
+        ),
+        "ana.lopez@correo.com": oraculoAlumna("ana.lopez@correo.com"),
+      },
       panelInstructorEsperado: {
         totalReactivos: reactivosFinal.length,
         instructores: {
@@ -1974,9 +2195,180 @@ export const completarVivasParaCota = internalMutation({
         cierraEn: abreEn + DIA,
         creadoPor: admin.userId,
         tituloExamen: examen.titulo,
+        numReactivos: examen.reactivoIds.length,
+        duracionMin: examen.duracionMin,
+        tipoExamen: normalizarTipo(examen.tipo),
       });
     }
     return { creadas: faltan, vivas: vivas + faltan };
+  },
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers del E2E del player (LUI-26 · LUI-27) — SOLO_DEV
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * ENVEJECE un intento en curso: mueve su `iniciadoEn` para que le queden exactamente
+ * `msRestantes` hasta el límite, y RE-AGENDA su cierre durable (cancelando el job anterior:
+ * ver el docblock de `intentos.cierreJobId`).
+ *
+ * Es el instrumento del testigo de TIEMPO del E2E: un simulacro real dura de 20 a 180
+ * minutos y ninguna suite puede esperar eso. Con esto, el cruce del umbral de 5 minutos, el
+ * cruce del cero y el escenario «tiempo agotado mientras el navegador estaba cerrado» se
+ * prueban en segundos, contra el MISMO código de producción — no se simula nada: el reloj
+ * del intento es real, solo empieza antes.
+ *
+ * ⚠️ `msRestantes` puede ser NEGATIVO (intento ya vencido, para el escenario del regreso).
+ * Consumidor único: `scripts/e2e-lui26.mjs`.
+ */
+export const envejecerIntento = internalMutation({
+  args: {
+    confirmar: v.literal(CONFIRMACION_SOLO_DEV),
+    correo: v.string(),
+    examen: v.string(),
+    msRestantes: v.number(),
+  },
+  handler: async (ctx, args) => {
+    exigirDeploymentDeDesarrollo();
+    const ahora = Date.now();
+
+    const users = await ctx.db.query("users").collect();
+    const user = users.find((u) => norm(u.email ?? "") === norm(args.correo));
+    if (!user) throw new Error(`No existe la cuenta «${args.correo}».`);
+
+    const examen = (await ctx.db.query("examenes").collect()).find(
+      (e) => e.titulo === args.examen,
+    );
+    if (!examen) throw new Error(`No existe el examen «${args.examen}».`);
+
+    // El más reciente en curso de esa alumna en ese examen.
+    const enCurso = (
+      await ctx.db
+        .query("intentos")
+        .withIndex("by_examen_estado", (q) =>
+          q.eq("examenId", examen._id).eq("estado", "en_curso"),
+        )
+        .collect()
+    )
+      .filter((i) => i.alumnoId === user._id)
+      .sort((a, b) => b.iniciadoEn - a.iniciadoEn)[0];
+    if (!enCurso) {
+      throw new Error(
+        `«${args.correo}» no tiene un intento en curso de «${args.examen}».`,
+      );
+    }
+
+    const asignacion = enCurso.asignacionId
+      ? await ctx.db.get(enCurso.asignacionId)
+      : null;
+    // Se despeja `iniciadoEn` de `limiteDe`: como el límite puede venir RECORTADO por
+    // `cierraEn`, se calcula el iniciado que da el restante pedido por DURACIÓN y se
+    // comprueba después contra el límite real.
+    const iniciadoEn =
+      ahora + args.msRestantes - examen.duracionMin * 60_000;
+    await ctx.db.patch(enCurso._id, { iniciadoEn });
+
+    const limite = limiteDe(
+      iniciadoEn,
+      examen.duracionMin,
+      asignacion?.cierraEn,
+    );
+    if (enCurso.cierreJobId) await ctx.scheduler.cancel(enCurso.cierreJobId);
+    const cierreJobId = await ctx.scheduler.runAt(
+      limite,
+      internal.player.cerrarVencido,
+      { intentoId: enCurso._id },
+    );
+    await ctx.db.patch(enCurso._id, { cierreJobId });
+
+    return {
+      intentoId: enCurso._id,
+      iniciadoEn,
+      limite,
+      restanteMs: limite - ahora,
+    };
+  },
+});
+
+/**
+ * Borra los grupos TEMPORALES del E2E del player y sus rastros (uniones con instructores y
+ * alumnas que hubieran quedado dentro). Namespace marcado: solo toca nombres que empiecen
+ * con `[E2E LUI-26]` — jamás los del fixture ni los grupos manuales de dev.
+ *
+ * Existe porque §14 necesita una alumna cuyo ÚNICO examen sea futuro, y el fixture no tiene
+ * ningún grupo así; el grupo se crea, se usa y se retira. Sin este helper quedaría un grupo
+ * de más en dev y los oráculos de otras suites tendrían que tolerarlo.
+ */
+export const limpiarGruposMarcados = internalMutation({
+  args: { confirmar: v.literal(CONFIRMACION_SOLO_DEV) },
+  handler: async (ctx) => {
+    exigirDeploymentDeDesarrollo();
+    const marcados = (await ctx.db.query("grupos").collect()).filter((g) =>
+      g.nombre.startsWith(MARCA_E2E_PLAYER),
+    );
+    let uniones = 0;
+    let asignaciones = 0;
+    for (const g of marcados) {
+      for (const u of await ctx.db.query("grupoInstructores").collect()) {
+        if (u.grupoId === g._id) {
+          await ctx.db.delete(u._id);
+          uniones++;
+        }
+      }
+      const suyas = await ctx.db
+        .query("asignaciones")
+        .withIndex("by_grupo", (q) => q.eq("grupoId", g._id))
+        .collect();
+      for (const a of suyas) {
+        await ctx.db.delete(a._id);
+        asignaciones++;
+      }
+      // Una alumna que se quedó dentro volvería a un grupo inexistente: se desliga.
+      for (const p of await ctx.db
+        .query("perfiles")
+        .withIndex("by_grupo", (q) => q.eq("grupoId", g._id))
+        .collect()) {
+        await ctx.db.patch(p._id, { grupoId: undefined });
+      }
+      await ctx.db.delete(g._id);
+    }
+    return { grupos: marcados.length, uniones, asignaciones };
+  },
+});
+
+/**
+ * Cuenta los cierres durables PENDIENTES, separando los HUÉRFANOS (jobs de intentos que la
+ * pizarra ya borró: terminarán en no-op, pero siguen ocupando la cola).
+ *
+ * Existe para que el E2E pueda DEMOSTRAR —no afirmar— que correr la suite dos veces no
+ * acumula trabajo residual relevante: registra el conteo antes y después, con la cota
+ * «pendientes ≤ intentos en curso vivos + los que creó la corrida». Un delta cero sería una
+ * exigencia falsa: las entregas legítimas dejan jobs futuros que aún no dispararon.
+ */
+export const contarJobsPendientes = internalMutation({
+  args: { confirmar: v.literal(CONFIRMACION_SOLO_DEV) },
+  handler: async (ctx) => {
+    exigirDeploymentDeDesarrollo();
+    const jobs = await ctx.db.system.query("_scheduled_functions").collect();
+    const cierres = jobs.filter(
+      (j) => j.name.includes("cerrarVencido") && j.state.kind === "pending",
+    );
+    let huerfanos = 0;
+    for (const j of cierres) {
+      const arg = j.args[0] as { intentoId?: Id<"intentos"> } | undefined;
+      const intento = arg?.intentoId ? await ctx.db.get(arg.intentoId) : null;
+      if (!intento || intento.estado === "enviado") huerfanos++;
+    }
+    const enCursoVivos = (
+      await ctx.db.query("intentos").collect()
+    ).filter((i) => i.estado === "en_curso").length;
+    return {
+      pendientes: cierres.length,
+      huerfanos,
+      enCursoVivos,
+      totalJobs: jobs.length,
+    };
   },
 });
 

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo } from "react";
 import {
   useConvexAuth,
   useQueries,
@@ -26,14 +26,10 @@ import {
   type ParticipacionDeGrupo,
 } from "@/convex/participacion";
 import { fechaHoraMx, fechaLargaMx } from "@/convex/fechas";
+import { useRelojAnclado } from "@/lib/use-reloj-anclado";
 
 type Q1 = FunctionReturnType<typeof api.panelInstructor.resumen>;
 type Material = FunctionReturnType<typeof api.panelInstructor.material>;
-
-/** `setTimeout` con retardo mayor dispara INMEDIATAMENTE en los navegadores. */
-const CLAMP_TIMER_MS = 2 ** 31 - 1;
-/** Margen al disparar en una frontera: evita re-evaluar un instante ANTES del cruce. */
-const MARGEN_FRONTERA_MS = 250;
 
 // Enlaces con forma de botón (un <Button> dentro de <Link> anidaría interactivos):
 // las clases COMPLETAS del Button primary/secondary md (button.tsx).
@@ -153,55 +149,27 @@ function PanelInstructorCargado({
   participaciones: ReadonlyMap<GrupoId, EstadoParticipacion>;
 }) {
   // ── Reloj ANCLADO al servidor ──────────────────────────────────────────────
-  // COPIA deliberada del patrón de `asignar-examen-client.tsx` (docblock ahí):
-  // `ahoraServidor` es ancla de INICIO; el cliente avanza con `performance.now()`
-  // — jamás confía en el reloj del dispositivo —, re-ancla con cada entrega
-  // reactiva y el timer se AUTO-CORRIGE ante deriva. Regla de tres declarada:
-  // al TERCER consumidor, extraer un `useRelojAnclado` compartido (no se toca
-  // `asignar-examen-client` — 11 rondas de auditoría encima — por un hook de dos
-  // consumidores). El ref se escribe SOLO en efectos y todo setState es
-  // asíncrono (reglas de hooks del repo).
-  const ancla = useRef<{ servidor: number; perf: number } | null>(null);
-  const [ahora, setAhora] = useState(() => Math.floor(q1.ahoraServidor));
-  const tick = () => {
-    const a = ancla.current;
-    if (a) setAhora(Math.floor(a.servidor + (performance.now() - a.perf)));
-  };
-  useEffect(() => {
-    ancla.current = { servidor: q1.ahoraServidor, perf: performance.now() };
-    const t = setTimeout(tick, 0);
-    return () => clearTimeout(t);
-  }, [q1.ahoraServidor]);
+  // El hook compartido `useRelojAnclado` (extraído al tercer consumidor, como estaba
+  // declarado aquí): `ahoraServidor` es ancla de INICIO, el avance lo pone
+  // `performance.now()` y el timer despierta en las FRONTERAS de la derivación —
+  // aperturas y cierres futuros (una programada APARECE al cruzar su `abreEn`; una
+  // abierta DESAPARECE al cruzar su `cierraEn`, sin re-query: al cruzar no cambia
+  // ningún documento) más la próxima medianoche MX (la fecha del encabezado cruza
+  // sola). El contrato completo vive en `lib/use-reloj-anclado.ts`.
+  //
+  // Las fronteras se pasan como FUNCIÓN del reloj (contrato del hook): la próxima
+  // medianoche depende del propio `ahora`, así que un arreglo fijo dejaría de tener
+  // fronteras tras el primer cruce.
+  const fronterasDe = useCallback(
+    (t: number) => derivarPanelInstructor(q1, participaciones, t).fronteras,
+    [q1, participaciones],
+  );
+  const ahora = useRelojAnclado(q1.ahoraServidor, fronterasDe);
 
   const derivado = useMemo(
     () => derivarPanelInstructor(q1, participaciones, ahora),
     [q1, participaciones, ahora],
   );
-
-  // ── Timer a la PRÓXIMA frontera ───────────────────────────────────────────
-  // Las fronteras vienen de la derivación: aperturas y cierres FUTUROS (una
-  // programada APARECE al cruzar su `abreEn`; una abierta DESAPARECE al cruzar
-  // su `cierraEn` — sin re-query: al cruzar no cambia ningún documento) y la
-  // próxima medianoche MX (la fecha del encabezado cruza sola). Todo retardo se
-  // calcula contra el ESTIMADO fresco del ancla; deriva >1 s → primero refresca.
-  useEffect(() => {
-    const a = ancla.current;
-    const estimado = a
-      ? Math.floor(a.servidor + (performance.now() - a.perf))
-      : ahora;
-    if (estimado - ahora > 1000) {
-      const t0 = setTimeout(tick, 0);
-      return () => clearTimeout(t0);
-    }
-    const fronteras = derivado.fronteras.filter((f) => f > estimado);
-    if (fronteras.length === 0) return;
-    const retardo = Math.min(
-      Math.max(Math.min(...fronteras) + MARGEN_FRONTERA_MS - estimado, 0),
-      CLAMP_TIMER_MS,
-    );
-    const t = setTimeout(tick, retardo);
-    return () => clearTimeout(t);
-  }, [ahora, derivado.fronteras, q1.ahoraServidor]);
 
   // ── Problemas explícitos (jamás silencio) ─────────────────────────────────
   const nombreDe = useMemo(

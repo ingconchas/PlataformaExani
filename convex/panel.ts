@@ -1,42 +1,62 @@
 import { query } from "./_generated/server";
-import { type Doc } from "./_generated/dataModel";
+import { type Id } from "./_generated/dataModel";
 import { destinoDeFila } from "./asignacionDestino";
 import { requireAdmin } from "./authz";
 import { fechaCortaMx, fechaLargaMx, inicioDeMesMx } from "./fechas";
+import {
+  MAX_INTENTOS_PANEL_POR_ASIGNACION,
+  promedioDeAsignacion,
+} from "./simulacro";
+import { type QueryCtx } from "./_generated/server";
 
 /** Cuántas filas muestra «Últimos exámenes aplicados» (LUI-9). */
 const ULTIMOS = 5;
 
 /**
- * Promedio del PRIMER intento de cada alumna en una asignación.
+ * Los intentos de una asignación que ALIMENTAN la analítica: solo diagnósticos.
  *
- * ⚠️ **CONTRATO PROVISIONAL** — el modelo NO tiene `intentos.numeroIntento` (lo
- * introduce **LUI-104**, dueño de la regla transversal «solo el intento 1 cuenta
- * para la analítica»). Aquí «primer intento» se aproxima con el `iniciadoEn` MÁS
- * ANTIGUO por alumna, en memoria. Cuando LUI-104 agregue el campo, esta función se
- * reemplaza por un filtro `numeroIntento === 1` y este comentario muere con ella.
+ * Cumple el contrato que esta función tenía pendiente desde LUI-9: «cuando LUI-104 agregue
+ * `numeroIntento`, esto se reemplaza por un filtro `numeroIntento === 1`». Y lo hace en el
+ * RANGO del índice, no en memoria: con repasos, una asignación acumula alumnas × intentos y
+ * un `.collect()` de sus intentos (5 asignaciones × 200 alumnas × 30 intentos) rebasaría los
+ * 32,000 documentos por transacción de Convex. Aquí se leen ≤ 2 × (400+1) por asignación.
  *
- * Precisión del proxy: el universo se acota ANTES a los intentos CALIFICADOS
- * (`enviado` y con `puntaje`). Así, una alumna que abandonó su intento #1 y
- * entregó el #2 sí aporta su #2 — de lo contrario un intento fantasma sin puntaje
- * la borraría del promedio en silencio. Una columna que dice «Puntaje promedio»
- * promedia puntajes, no intentos vacíos.
+ * Dos rangos porque hay dos poblaciones: los intentos NUMERADOS (todo lo que nace por
+ * `player.iniciarIntento`) y el LEGADO sin el campo, que en Convex se selecciona con
+ * `eq("numeroIntento", undefined)` — la misma semántica que en otros contextos es una
+ * trampa, aquí es exactamente la herramienta correcta. El promedio los combina en
+ * `simulacro.promedioDeAsignacion`, que aplica el proxy histórico SOLO al legado.
  *
- * Devuelve `null` (no `0`) si no hay ningún intento calificado: la celda muestra
- * «—». Un `0` sería un puntaje imposible en la escala 700–1300.
+ * El centinela (`take(MAX + 1)` lleno) NO se promedia: se propaga como `incompleto`. No
+ * existe frontera de escritura que limite las alumnas de una asignación, así que el
+ * desborde es alcanzable con datos válidos y un promedio sobre las primeras 400 filas sería
+ * preciso y falso a la vez.
  */
-function puntajePromedio(intentos: Doc<"intentos">[]): number | null {
-  const primeros = new Map<string, { iniciadoEn: number; puntaje: number }>();
-  for (const i of intentos) {
-    if (i.estado !== "enviado" || i.puntaje === undefined) continue;
-    const previo = primeros.get(i.alumnoId);
-    if (!previo || i.iniciadoEn < previo.iniciadoEn) {
-      primeros.set(i.alumnoId, { iniciadoEn: i.iniciadoEn, puntaje: i.puntaje });
-    }
-  }
-  const puntajes = [...primeros.values()].map((x) => x.puntaje);
-  if (puntajes.length === 0) return null;
-  return Math.round(puntajes.reduce((s, p) => s + p, 0) / puntajes.length);
+async function intentosParaAnalitica(
+  ctx: QueryCtx,
+  asignacionId: Id<"asignaciones">,
+) {
+  const [diagnosticos, legado] = await Promise.all([
+    ctx.db
+      .query("intentos")
+      .withIndex("by_asignacion_numero", (q) =>
+        q.eq("asignacionId", asignacionId).eq("numeroIntento", 1),
+      )
+      .take(MAX_INTENTOS_PANEL_POR_ASIGNACION + 1),
+    ctx.db
+      .query("intentos")
+      .withIndex("by_asignacion_numero", (q) =>
+        q.eq("asignacionId", asignacionId).eq("numeroIntento", undefined),
+      )
+      .take(MAX_INTENTOS_PANEL_POR_ASIGNACION + 1),
+  ]);
+  return promedioDeAsignacion({
+    diagnosticos,
+    legado,
+    desbordado:
+      diagnosticos.length > MAX_INTENTOS_PANEL_POR_ASIGNACION ||
+      legado.length > MAX_INTENTOS_PANEL_POR_ASIGNACION,
+  });
 }
 
 /**
@@ -109,15 +129,12 @@ export const resumen = query({
         // El destino se interpreta SOLO vía `destinoDeFila` (invariante XOR de LUI-22):
         // «Grupo eliminado» queda reservado a una fila-grupo cuyo doc desapareció.
         const destino = destinoDeFila(a);
-        const [examen, grupo, intentos] = await Promise.all([
+        const [examen, grupo, promedio] = await Promise.all([
           ctx.db.get(a.examenId),
           destino.tipo === "grupo"
             ? ctx.db.get(destino.grupoId)
             : Promise.resolve(null),
-          ctx.db
-            .query("intentos")
-            .withIndex("by_asignacion", (q) => q.eq("asignacionId", a._id))
-            .collect(),
+          intentosParaAnalitica(ctx, a._id),
         ]);
         return {
           id: a._id,
@@ -128,7 +145,10 @@ export const resumen = query({
               : (grupo?.nombre ?? "Grupo eliminado"),
           fecha: fechaCortaMx(a.abreEn),
           fechaMs: a.abreEn,
-          puntajePromedio: puntajePromedio(intentos),
+          puntajePromedio: promedio.valor,
+          // `null` con esto en `true` significa «no pudimos calcularlo», no «sin
+          // intentos»: la tabla los distingue («Datos incompletos» vs «—»).
+          promedioIncompleto: promedio.incompleto,
         };
       }),
     );

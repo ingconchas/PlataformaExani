@@ -4,6 +4,11 @@ import { authTables } from "@convex-dev/auth/server";
 import { materialValidator } from "./material";
 import { estadoExamenValidator, tipoExamenValidator } from "./examenEstado";
 import { seccionDeExamenValidator } from "./constructorExamen";
+import {
+  conteoPorAreaValidator,
+  conteoPorSeccionValidator,
+  formaCierreValidator,
+} from "./simulacro";
 
 /**
  * Modelo de datos inicial — Plataforma Exani II (UNX Simuladores).
@@ -345,10 +350,8 @@ export default defineSchema({
   // lectores acumulativos (`examenes.listar`, `grupos.obtener`), no los acota: ver el
   // docblock de la constante.
   //
-  // ⚠️ Sin índice `by_alumno`: en LUI-22 no tiene un solo consumidor (`cancelar` va por
-  // `ctx.db.get`, la pantalla por `by_examen*`, el panel por `by_abre`) y un índice
-  // estampado sin lector es exactamente lo que este repo no hace. «Mis exámenes» (portal
-  // de la alumna) lo añadirá junto con su primer lector.
+  // El índice por alumna llegó con sus lectores, como estaba anunciado: `by_alumno_cierra`
+  // lo estrenan «Mis exámenes» (LUI-25) y la frontera de vivas por alumna de `asignar`.
   asignaciones: defineTable({
     examenId: v.id("examenes"),
     grupoId: v.optional(v.id("grupos")), // destino grupo (filas legadas: siempre presente)
@@ -368,6 +371,23 @@ export default defineSchema({
     // pre-LUI-19: una fila sin el campo se OMITE del panel con el flag
     // `asignacionesLegadasOmitidas` (prod tenía 0 asignaciones al desplegarse).
     tituloExamen: v.optional(v.string()),
+    // READ-MODELS de «Mis exámenes» (LUI-25), hermanos de `tituloExamen` y con EL MISMO
+    // candado citado arriba: `asignar` los estampa (`reactivoIds.length` y `duracionMin` del
+    // examen) y desde esa fila el examen queda comprometido, así que `examenes.actualizar`
+    // —que exige BORRADOR— ya no puede moverlos. Sin ellos, la pantalla de la alumna haría
+    // hasta 180 `ctx.db.get` de `examenes` (1 MiB/doc de límite duro) solo para pintar
+    // «3 h · 90 preguntas»: presupuesto indefendible, la misma razón por la que nació
+    // `tituloExamen`. Una fila legada sin los tres campos se OMITE de la lista (con flag) y
+    // `player.iniciarIntento` la RECHAZA con mensaje propio — omitirla de la lista no
+    // impediría llamar la mutation con su id.
+    numReactivos: v.optional(v.number()),
+    duracionMin: v.optional(v.number()),
+    // El TIPO del examen (chip «Simulacro general» / «Módulo: X»), mismo candado. Se copia
+    // la unión discriminada CON EL ID de la sección, jamás su nombre: las secciones se
+    // renombran desde el temario (LUI-18) y un nombre copiado haría mentir al chip en
+    // silencio — la razón por la que `tipoExamenValidator` almacena el id. «Mis exámenes»
+    // resuelve el nombre por sección DISTINTA (docs diminutos), no por fila.
+    tipoExamen: v.optional(tipoExamenValidator),
   })
     .index("by_grupo", ["grupoId"])
     // «Asignaciones NO CERRADAS de un grupo» (LUI-19): selección MONÓTONA — una
@@ -378,6 +398,12 @@ export default defineSchema({
     // `panelInstructor.resumen`/`participacionDeGrupo` y la propia sonda de
     // capacidad de `asignar` — nace con sus lectores (regla de la casa, abajo).
     .index("by_grupo_cierra", ["grupoId", "cierraEn"])
+    // El GEMELO por alumna del anterior, para las asignaciones INDIVIDUALES (LUI-22). Nace
+    // con sus DOS lectores (regla de la casa): la frontera de vivas por alumna de `asignar`
+    // (`MAX_ASIGNACIONES_VIVAS_POR_ALUMNA`) y «Mis exámenes», que lee `.order("desc")` y por
+    // eso ve SIEMPRE las vivas primero — su corte solo puede dejar fuera historial cerrado.
+    // Las filas-grupo (`alumnoId` ausente) jamás matchean `eq("alumnoId", <id>)`.
+    .index("by_alumno_cierra", ["alumnoId", "cierraEn"])
     .index("by_examen", ["examenId"])
     // «Asignaciones existentes de este examen» en orden de APERTURA (Diseño 19). Sobre
     // `by_examen` a secas, `.order("desc")` ordenaría por el desempate implícito
@@ -395,6 +421,13 @@ export default defineSchema({
     .index("by_abre", ["abreEn"]),
 
   // Intento / simulacro de una alumna sobre un examen.
+  //
+  // ⚠️ FASE A del paquete player (LUI-25/26/27/104), misma disciplina de superset
+  // forward-only que LUI-17 y LUI-20: los campos nuevos entran OPCIONALES porque el schema
+  // valida los documentos EXISTENTES al desplegarse (dev tiene intentos sembrados sin
+  // ellos), y **las mutations son la autoridad de obligatoriedad**: todo intento que nace
+  // por `player.iniciarIntento` lleva `numeroIntento`, y todo cierre estampa `formaCierre`
+  // y el desglose. La Fase C los endurece cuando el dato sea uniforme.
   intentos: defineTable({
     examenId: v.id("examenes"),
     alumnoId: v.id("users"),
@@ -403,6 +436,30 @@ export default defineSchema({
     iniciadoEn: v.number(),
     enviadoEn: v.optional(v.number()),
     puntaje: v.optional(v.number()), // puntaje EXANI (protagonista de resultados)
+    // Posición 1-based del intento dentro de su SERIE — (asignación, alumna) para los
+    // asignados, (examen, alumna) para los directos. El 1 es el DIAGNÓSTICO y es el ÚNICO
+    // que alimenta la analítica (regla transversal de LUI-104, implementada en
+    // `simulacro.promedioDeAsignacion`). AUSENTE = fila anterior a este ciclo: los lectores
+    // la tratan como legado y le aplican el proxy histórico, jamás la excluyen en silencio.
+    numeroIntento: v.optional(v.number()),
+    // CÓMO se cerró (LUI-27), derivado por el servidor al finalizar. Campo APARTE de
+    // `estado` a propósito: un tercer literal en `estado` obligaría a revisar las dos sondas
+    // del panel del instructor (`participacion.ESTADOS_INTENTO`) y `examenes.listar`.
+    // AUSENTE en un `enviado` = «manual» (único camino que existía) — `normalizarFormaCierre`.
+    formaCierre: v.optional(formaCierreValidator),
+    // Desglose CRUDO del cierre (contrato de datos de LUI-27/LUI-6): conteos, no porcentajes
+    // — el cociente es presentación y perdería el denominador que hace comparables dos
+    // exámenes. Se estampa una sola vez, con los reactivos y respuestas que el cierre ya
+    // tiene en memoria. Consumidor declarado: los resultados del alumno (LUI-28).
+    aciertosPorSeccion: v.optional(v.array(conteoPorSeccionValidator)),
+    aciertosPorArea: v.optional(v.array(conteoPorAreaValidator)),
+    // Job del cierre DURABLE (LUI-27): `iniciarIntento` agenda `player.cerrarVencido` para el
+    // límite del intento y guarda su id aquí para poder CANCELARLO si el límite se mueve
+    // (solo ocurre en dev: re-anclaje del seed y helper `envejecerIntento`). Sin esta
+    // cancelación, cada re-anclaje dejaría un job viejo que dispara antes de tiempo y
+    // re-agenda: una cadena creciente de trabajo pendiente. Con ella la cota es dura:
+    // ≤1 job pendiente por intento vivo.
+    cierreJobId: v.optional(v.id("_scheduled_functions")),
   })
     .index("by_alumno", ["alumnoId"])
     .index("by_examen", ["examenId"])
@@ -417,14 +474,58 @@ export default defineSchema({
     // EXHAUSTIVA de `ESTADOS_INTENTO` (participacion.ts; un tercer estado obliga
     // a revisarlas). ≤2 rangos y ≤2 docs por pareja SIN IMPORTAR reintentos: la
     // regla de arriba se mantiene — el panel jamás colecciona esta tabla.
-    .index("by_asignacion_alumno_estado", ["asignacionId", "alumnoId", "estado"]),
+    .index("by_asignacion_alumno_estado", ["asignacionId", "alumnoId", "estado"])
+    // DIAGNÓSTICOS de una asignación por RANGO (LUI-104). `panel.resumen` promedia solo el
+    // intento 1 de cada alumna: sin este índice tendría que coleccionar todos los intentos
+    // de la asignación y filtrar en memoria — con repasos eso es alumnas × intentos, y
+    // 5 asignaciones × 200 alumnas × 30 intentos rebasa los 32,000 documentos por
+    // transacción de Convex. El segundo rango, `eq("numeroIntento", undefined)`, selecciona
+    // el LEGADO sin campo (semántica de Convex: un `eq` contra `undefined` casa los
+    // documentos que no lo tienen), acotado por el mismo centinela.
+    .index("by_asignacion_numero", ["asignacionId", "numeroIntento"]),
 
-  // Respuesta por reactivo dentro de un intento.
+  // Respuesta por reactivo dentro de un intento (LUI-26).
+  //
+  // Reescritura LIMPIA, no un superset: la tabla nació vacía y sin escritores (verificado en
+  // dev y en producción antes de este ciclo), así que los opcionales solo habrían admitido
+  // estados ilegales —«respuesta sin opción elegida», «respuesta sin calificar»— sin
+  // proteger ninguna fila existente. `segundos` se retiró por lo mismo que nunca se llenó:
+  // cero consumidores; `respondidoEn` (timestamp del guardado, exigido por LUI-26) lo supera
+  // y permite derivar cualquier delta que las estadísticas de tiempo de la V2 quieran.
+  //
+  // `correcta` la estampa el SERVIDOR al recibir la respuesta (`player.responder` compara
+  // contra `reactivos.opcionCorrecta`, que jamás viaja al cliente). El cierre solo suma.
   respuestas: defineTable({
     intentoId: v.id("intentos"),
     reactivoId: v.id("reactivos"),
-    opcionElegida: v.optional(v.string()),
-    correcta: v.optional(v.boolean()),
-    segundos: v.optional(v.number()),
+    opcionElegida: v.string(),
+    correcta: v.boolean(),
+    respondidoEn: v.number(), // epoch ms
+  })
+    // Sirve las DOS lecturas: el prefijo `intentoId` da las respuestas del intento (player y
+    // cierre) y el par completo es la sonda del upsert de `responder`. Un índice de Convex
+    // NO es constraint único: la unicidad (una fila por reactivo) la sostiene la disciplina
+    // sonda+`patch|insert` DENTRO de la misma transacción — dos clics simultáneos leen y
+    // escriben el mismo rango, así que la serialización de Convex hace reintentar a uno y
+    // el reintento encuentra la fila y la parchea.
+    .index("by_intento_reactivo", ["intentoId", "reactivoId"]),
+
+  // CURSOR de navegación del player (LUI-26): en qué pregunta se quedó la alumna.
+  //
+  // ⚠️ Tabla propia y no un campo de `intentos` — es una decisión de RENDIMIENTO, no de
+  // estilo. Convex re-ejecuta las queries que leyeron un documento modificado: escribir el
+  // cursor en la fila del intento invalidaría, en CADA navegación, `player.intento` (que
+  // resuelve hasta 240 reactivos con su HTML), `panel.resumen` y las sondas de participación
+  // del panel del instructor — decenas de reevaluaciones caras por examen, además de
+  // competir por OCC con `responder`, `enviar` y el cierre durable. Aislado aquí, la única
+  // query que se invalida es `player.posicionDe`, que lee un documento.
+  //
+  // El cliente la escribe INMEDIATAMENTE al cambiar de pregunta (sin debounce: el costo ya
+  // es trivial) y expone la confirmación observable; la fila se borra al finalizar el
+  // intento. Es UX, no dato académico: perderla solo devuelve a la alumna a la primera
+  // pregunta sin responder.
+  posiciones: defineTable({
+    intentoId: v.id("intentos"),
+    posicion: v.number(), // índice 0-based en `examenes.reactivoIds` (congelado por el candado)
   }).index("by_intento", ["intentoId"]),
 });

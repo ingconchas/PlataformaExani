@@ -77,12 +77,28 @@ export const MAX_ASIGNACIONES_POR_EXAMEN = 600;
  * cancelar una programada también resta) — sin estados muertos. El fixture real usa ≤4
  * vivas por grupo; 30 son semestres enteros de ventanas solapadas.
  *
- * Las filas-alumno NO llevan esta cota: el panel no las lee (v1 las excluye por
- * construcción del índice) y ya las acotan `MAX_ALUMNOS_DESTINO` por operación y el
- * techo por examen. Dimensiones independientes: 20 grupos/operación × 30 vivas/grupo se
- * cruzan con el acumulado de 600/examen sin contradicción — miden ejes distintos.
+ * Dimensiones independientes: 20 grupos/operación × 30 vivas/grupo se cruzan con el
+ * acumulado de 600/examen sin contradicción — miden ejes distintos.
  */
 export const MAX_ASIGNACIONES_VIVAS_POR_GRUPO = 30;
+
+/**
+ * El GEMELO por ALUMNA de la cota anterior, para las asignaciones INDIVIDUALES (LUI-25).
+ *
+ * Nace por la misma razón y con la misma mecánica: «Mis exámenes» lee las asignaciones de
+ * la alumna por `by_alumno_cierra` en orden DESCENDENTE de cierre y corta en
+ * `MAX_FILAS_MIS_EXAMENES_DIRECTAS`; esta frontera es lo que convierte ese corte en SEGURO
+ * —con ≤30 vivas por alumna, las abiertas siempre caben en la página y lo omitido es
+ * historial ya cerrado—, no en un truncado que podría esconder un examen presentable.
+ *
+ * Hasta LUI-25 las filas-alumno no tenían cota de vivas porque nadie las leía por alumna:
+ * el panel del instructor las excluye por construcción del índice. Con su primer lector
+ * llegan el índice y la frontera, juntos.
+ *
+ * La capacidad se RECUPERA SOLA al cerrar ventanas, igual que la de grupo. Lo individual
+ * son excepciones (regularizaciones): 30 vivas simultáneas es un techo generosísimo.
+ */
+export const MAX_ASIGNACIONES_VIVAS_POR_ALUMNA = 30;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // El destino
@@ -218,6 +234,25 @@ export function validarCapacidadVivas(
     throw new ConvexError(
       `El grupo «${nombreGrupo}» alcanzó el máximo de asignaciones vivas ` +
         `(${MAX_ASIGNACIONES_VIVAS_POR_GRUPO}). La capacidad se libera al cerrar ` +
+        "ventanas o al cancelar programadas.",
+    );
+}
+
+/**
+ * Guarda de la cota de VIVAS por ALUMNA (LUI-25) — el gemelo exacto de la anterior, sobre
+ * `by_alumno_cierra`. `asignar` la aplica por cada alumno de la rama `alumnos`, con el
+ * conteo acotado `take(MAX + 1).length`; cada operación inserta UNA fila por alumno, así que
+ * la pregunta es siempre `existentes + 1`. El mensaje NOMBRA a la alumna: en una operación
+ * de hasta 30 destinatarias, quien asigna necesita saber cuál está llena.
+ */
+export function validarCapacidadVivasAlumna(
+  nombreAlumna: string,
+  existentesVivas: number,
+): void {
+  if (existentesVivas + 1 > MAX_ASIGNACIONES_VIVAS_POR_ALUMNA)
+    throw new ConvexError(
+      `La alumna «${nombreAlumna}» alcanzó el máximo de asignaciones vivas ` +
+        `(${MAX_ASIGNACIONES_VIVAS_POR_ALUMNA}). La capacidad se libera al cerrar ` +
         "ventanas o al cancelar programadas.",
     );
 }

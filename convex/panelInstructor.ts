@@ -219,6 +219,13 @@ export const resumen = query({
  * de límites a mitad de lectura. Concurrencia: `Promise.all` por asignación
  * (≤ roster ≪ 1,000 operaciones concurrentes).
  *
+ * ⚠️ Los REPASOS (LUI-104) no obligaron a tocar estas sondas, y la razón es un invariante,
+ * no una coincidencia: `player.iniciarIntento` numera con `enviados + 1` y jamás crea
+ * mientras haya un intento vivo, así que `numeroIntento > 1 ⟹ ∃ enviado previo` y, por
+ * descenso, **«∃ enviado ⟺ el intento 1 está enviado»**. «Completó» sigue significando lo
+ * mismo con uno o con veinte intentos, y `.first()` en orden de creación ES el
+ * diagnóstico. Cambiar la numeración obliga a releer esta nota.
+ *
  * PRESUPUESTO CONTRACTUAL (peor caso bajo las cotas):
  *  · Rangos: 2 (requireStaff) + 1 (uniones) + 1 (vivas) + 1 (roster paginado) +
  *    2×512 (sondas) = **1,029 ≪ 4,096**.
