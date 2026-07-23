@@ -240,20 +240,17 @@ export const obtener = query({
     );
     alumnos.sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
 
-    // «Exámenes aplicados»: los que ya ABRIERON su ventana. Regla compartida con
-    // el panel de la administradora (LUI-9) — ver `convex/metricas.ts`. Antes esto
-    // contaba `cierraEn <= ahora`, lo que hacía que esta ficha y `/admin`
-    // mostraran la MISMA etiqueta con dos números distintos. Sigue siendo un proxy
-    // hasta que existan resultados reales (LUI-30 — antes decía LUI-20, pero la
-    // biblioteca de exámenes no trae resultados).
+    // «Exámenes aplicados»: los que tienen AL MENOS UN INTENTO ENVIADO — ya no es un
+    // proxy: SON resultados reales (migración LUI-30; regla canónica y su invariante en
+    // `convex/metricas.ts`). El predicado es PURO sobre el read-model
+    // `envioRegistradoEn` de los docs ya leídos: cero lecturas nuevas, cero sondas, y la
+    // MISMA regla que `/admin` (`panel.resumen`) — la etiqueta duplicada con números
+    // distintos no puede volver.
     const asignaciones = await ctx.db
       .query("asignaciones")
       .withIndex("by_grupo", (q) => q.eq("grupoId", id))
       .collect();
-    const ahora = Date.now();
-    const examenesAplicados = asignaciones.filter((a) =>
-      fueAplicada(a, ahora),
-    ).length;
+    const examenesAplicados = asignaciones.filter(fueAplicada).length;
 
     return {
       id: grupo._id,

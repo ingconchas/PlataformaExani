@@ -1,6 +1,6 @@
 import { internalMutation, type MutationCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { camposDestino, destinoDeFila } from "./asignacionDestino";
 import { inicioDeMesMx } from "./fechas";
@@ -2043,11 +2043,26 @@ export const cargarDatosDePrueba = internalMutation({
     );
     const grupoPorId = new Map(gruposFinal.map((g) => [g._id, g.nombre]));
 
+    // «Aplicada» = abrió DENTRO del periodo **y tiene al menos un intento enviado**
+    // (migración LUI-30; regla canónica en `convex/metricas.ts`). El conjunto se
+    // computa con lectura PROPIA de `intentos` — jamás mirando `envioRegistradoEn`:
+    // el oráculo debe poder CAZAR un read-model roto, no heredarlo.
+    const intentosParaAplicadas = await ctx.db.query("intentos").collect();
+    const asignacionesConEnvio = new Set(
+      intentosParaAplicadas
+        .filter((i) => i.estado === "enviado" && i.asignacionId !== undefined)
+        .map((i) => i.asignacionId as string),
+    );
     const aplicadasDelMes = asignacionesFinal.filter(
-      (a) => a.abreEn >= inicioMes && a.abreEn <= ahora,
+      (a) =>
+        a.abreEn >= inicioMes &&
+        a.abreEn <= ahora &&
+        asignacionesConEnvio.has(a._id as string),
     );
     const ultimas = asignacionesFinal
-      .filter((a) => a.abreEn <= ahora)
+      .filter(
+        (a) => a.abreEn <= ahora && asignacionesConEnvio.has(a._id as string),
+      )
       .sort((a, b) => b.abreEn - a.abreEn)
       .slice(0, 5);
 
@@ -2430,9 +2445,10 @@ export const cargarDatosDePrueba = internalMutation({
  * (LUI-19 · §5b del E2E) COMPLETA las asignaciones VIVAS de un grupo HASTA el
  * objetivo — no «inserta N»: el fixture ya trae vivas (p. ej. Vespertino B con
  * SG2 `esteMes` de índice ≥3, siempre abierta) y sembrar de más correría los
- * conteos de la prueba. Las nuevas son FUTURAS (abren en +30 días): una futura
- * jamás cuenta como «aplicada» (`abreEn <= ahora`), así que el oráculo de lui9
- * queda intacto — la prohibición de añadir asignaciones `esteMes` se respeta.
+ * conteos de la prueba. Las nuevas son FUTURAS (abren en +30 días) y SIN intentos:
+ * una fila sin envíos jamás cuenta como «aplicada» (regla LUI-30 en `metricas.ts` —
+ * y tampoco contaba bajo la regla vieja de `abreEn <= ahora`), así que el oráculo de
+ * lui9 queda intacto — la prohibición de añadir asignaciones `esteMes` se respeta.
  * Consumidor único: `scripts/e2e-lui19.mjs`; la pizarra (`limpiarContenidoDemo`)
  * las barre con toda la tabla.
  */
@@ -3315,19 +3331,32 @@ export const limpiarGruposLui30 = internalMutation({
     // el barrido seguro entre lotes: un job ya cancelado o ejecutado NO vuelve a
     // cancelarse (el contrato de `Scheduler.cancel` no promete idempotencia — cada id
     // pendiente se cancela EXACTAMENTE una vez).
+    // ⚠️ UNA sola lectura de cada intento: el presupuesto de 16 MiB aplica TAMBIÉN a
+    // esta mutation, y los intentos con desglose gordo (~40 KiB) leídos dos veces
+    // —captura y borrado— lo reventaban (hallazgo de la propia suite §5d). Las cascadas
+    // se cargan en memoria y la fase de borrado REUTILIZA estos mismos docs.
+    const cascadas: {
+      grupo: (typeof marcados)[number];
+      asignaciones: {
+        fila: Doc<"asignaciones">;
+        intentos: Doc<"intentos">[];
+      }[];
+    }[] = [];
     const intentosMarcados = new Set<string>();
     for (const g of marcados) {
+      const asigs: (typeof cascadas)[number]["asignaciones"] = [];
       for (const a of await ctx.db
         .query("asignaciones")
         .withIndex("by_grupo", (q) => q.eq("grupoId", g._id))
         .collect()) {
-        for (const i of await ctx.db
+        const intentos = await ctx.db
           .query("intentos")
           .withIndex("by_asignacion", (q) => q.eq("asignacionId", a._id))
-          .collect()) {
-          intentosMarcados.add(i._id as string);
-        }
+          .collect();
+        for (const i of intentos) intentosMarcados.add(i._id as string);
+        asigs.push({ fila: a, intentos });
       }
+      cascadas.push({ grupo: g, asignaciones: asigs });
     }
     const esCierrePendienteDe = (
       j: { name: string; state: { kind: string }; args: unknown[] },
@@ -3345,16 +3374,8 @@ export const limpiarGruposLui30 = internalMutation({
       }
     }
 
-    for (const g of marcados) {
-      const suyas = await ctx.db
-        .query("asignaciones")
-        .withIndex("by_grupo", (q) => q.eq("grupoId", g._id))
-        .collect();
-      for (const a of suyas) {
-        const intentos = await ctx.db
-          .query("intentos")
-          .withIndex("by_asignacion", (q) => q.eq("asignacionId", a._id))
-          .collect();
+    for (const { grupo: g, asignaciones: suyas } of cascadas) {
+      for (const { fila: a, intentos } of suyas) {
         for (const i of intentos) {
           if (borradosIntentos >= lote) {
             // Presupuesto del lote agotado: el llamador repite. Nada quedó a medias —

@@ -8,10 +8,9 @@
  * lógica — un falso verde. Aquí se llama el MISMO código que corre en producción, no un
  * duplicado.
  *
- * El invariante de la ventana se prueba contra el `fueAplicada` REAL de `convex/metricas.ts`
- * (importable: ese módulo solo tiene un import de tipo y no define funciones de Convex). Si
- * alguien mueve un criterio sin mover el otro, esta prueba cae — que es exactamente para lo
- * que existe.
+ * La regla de «aplicada» (migrada por LUI-30 a «∃ intento enviado») se prueba contra el
+ * `fueAplicada` REAL de `convex/metricas.ts` (módulo puro, importable). Si alguien mueve
+ * la regla sin mover este testigo, la prueba cae — que es exactamente para lo que existe.
  */
 import {
   CONGELA,
@@ -26,7 +25,6 @@ import {
   type EstadoExamen,
 } from "../convex/examenEstado";
 import { fueAplicada } from "../convex/metricas";
-import type { Doc } from "../convex/_generated/dataModel";
 
 let ok = 0;
 let fallos = 0;
@@ -183,19 +181,28 @@ check(
   "validarVentana las rechaza al escribir (test-asignacion); esta función sigue TOTAL para lo persistido",
 );
 
-// El invariante que ata esta función a `metricas.fueAplicada`, contra el código REAL.
-const asignacion = (abreEn: number, cierraEn: number) =>
-  ({ abreEn, cierraEn }) as Doc<"asignaciones">;
-let invarianteOk = true;
-for (const ahora of [0, 999, 1_000, 1_001, 1_999, 2_000, 2_001, 9_999]) {
-  const aplicada = fueAplicada(asignacion(ABRE, CIERRA), ahora);
-  const noProgramada = estadoDeVentana(ABRE, CIERRA, ahora) !== "programada";
-  if (aplicada !== noProgramada) invarianteOk = false;
-}
+// La regla de «aplicada» MIGRÓ (LUI-30): ∃ intento enviado, materializado en el
+// read-model `envioRegistradoEn` — la vieja EQUIVALENCIA con la ventana murió (una
+// abierta sin envíos ya NO está aplicada; ese es el punto de la migración) y queda una
+// IMPLICACIÓN CUANTIFICADA: `fueAplicada(a) ⟹ envioRegistradoEn ≥ abreEn` (guarda 5 de
+// `iniciarIntento`: todo intento nace con la ventana abierta) y ∀t ≥ envioRegistradoEn,
+// la ventana ya no es «programada». Se prueba contra el código REAL de metricas.ts; el
+// E2E de LUI-30 cubre el extremo escritor↔lector.
+const invarianteDireccional = (envioRegistradoEn: number) => {
+  if (envioRegistradoEn < ABRE) return false; // la desigualdad del guard
+  for (const t of [envioRegistradoEn, envioRegistradoEn + 1, CIERRA, 9_999]) {
+    if (t >= envioRegistradoEn && estadoDeVentana(ABRE, CIERRA, t) === "programada")
+      return false;
+  }
+  return true;
+};
 check(
-  "⭐ invariante: fueAplicada(a,t) ⟺ estadoDeVentana(a,t) !== «programada»",
-  invarianteOk,
-  "si cae, alguien movió el criterio de «aplicada» en metricas.ts sin mover este",
+  "⭐ «aplicada» = ∃ envío (campo presente/ausente) + implicación cuantificada",
+  fueAplicada({ envioRegistradoEn: 1_500 }) &&
+    !fueAplicada({}) &&
+    invarianteDireccional(1_000) && // envío en el instante exacto de apertura
+    invarianteDireccional(1_500),
+  "si cae, alguien movió la regla de «aplicada» en metricas.ts sin mover este testigo",
 );
 
 check("ventanaConcluida solo tras cierraEn", ventanaConcluida(ABRE, CIERRA, CIERRA));

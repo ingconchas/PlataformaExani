@@ -180,10 +180,22 @@ try {
       `recibido: ${t.replace(/\s+/g, " ").trim()}`,
     );
   }
-  // El fixture pone una asignación SIN intentos: su puntaje debe ser «—», no 0.
+  // MIGRACIÓN LUI-30: «aplicada» = tiene intentos enviados. La fila sin intentos del
+  // fixture (Diagnóstico por áreas · Sabatino C) ya NO puede aparecer en «Últimos
+  // aplicados», y como toda fila listada tiene envíos calificados, ninguna celda de
+  // promedio es «—». Los promedios llegan por useQueries (una query por fila): primero
+  // se espera a que ninguna celda siga cargando («…»).
+  await page.waitForFunction(
+    () => !(document.querySelector("tbody")?.textContent ?? "").includes("…"),
+    { timeout: 15_000 },
+  );
+  const filasTexto = await filas.allTextContents();
   check(
-    "una asignación sin intentos muestra «—», no 0",
-    ((await filas.first().textContent()) ?? "").includes("—"),
+    "sin envíos no hay fila: «Diagnóstico por áreas·Sabatino C» ausente y sin «—»",
+    !filasTexto.some(
+      (t) => t.includes("Diagnóstico por áreas") && t.includes("Sabatino C"),
+    ) && !filasTexto.some((t) => t.includes("—")),
+    `filas: ${filasTexto.map((t) => t.replace(/\s+/g, " ").trim()).join(" | ")}`,
   );
   // El examen FUTURO no puede aparecer en «Últimos exámenes APLICADOS».
   const cuerpoTabla = (await page.locator("tbody").textContent()) ?? "";
