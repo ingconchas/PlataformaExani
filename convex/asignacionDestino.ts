@@ -100,6 +100,24 @@ export const MAX_ASIGNACIONES_VIVAS_POR_GRUPO = 30;
  */
 export const MAX_ASIGNACIONES_VIVAS_POR_ALUMNA = 30;
 
+/**
+ * Techo del HISTORIAL COMPLETO (vivas + cerradas) de asignaciones de GRUPO — la cota de
+ * LECTURA del Resumen de exámenes (LUI-32) aplicada en el escritor. A diferencia de las
+ * VIVAS (30, que se recupera al cerrar ventanas), esta cuenta TODO el historial y NO se
+ * recupera: es un tope acumulativo, como `MAX_ASIGNACIONES_POR_EXAMEN` pero POR GRUPO.
+ *
+ * ══ Por qué existe ══ El Resumen lista, por bloque de grupo, sus asignaciones aplicadas
+ * leyendo `asignaciones.by_grupo` con `take(MAX + 1)`. Esta frontera es lo que hace ese
+ * corte DEMOSTRABLE: `cota de lectura (MAX + 1) ≥ dominio de escritura (MAX)` de forma
+ * EXACTA, así que un desborde solo puede ser legado anterior a la cota (o fabricado en un
+ * seed de prueba) y el bloque responde FAIL-CLOSED («Datos incompletos»), jamás un vacío
+ * falso ni un prefijo presentado como historial completo.
+ *
+ * Aprobado por el dueño del producto (2026-07-23). El fixture real usa ≈6-12 aplicaciones
+ * por grupo por semestre; 100 es margen de más de una década, y de ~3× sobre las 30 vivas.
+ */
+export const MAX_HISTORIAL_ASIGNACIONES_GRUPO = 100;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // El destino
 // ─────────────────────────────────────────────────────────────────────────────
@@ -254,5 +272,26 @@ export function validarCapacidadVivasAlumna(
       `La alumna «${nombreAlumna}» alcanzó el máximo de asignaciones vivas ` +
         `(${MAX_ASIGNACIONES_VIVAS_POR_ALUMNA}). La capacidad se libera al cerrar ` +
         "ventanas o al cancelar programadas.",
+    );
+}
+
+/**
+ * Guarda del HISTORIAL COMPLETO por grupo (LUI-32). `asignar` le pasa, por cada grupo
+ * destino (ramas `grupos` Y `todosLosGrupos` — la cota no puede existir solo en la rama
+ * equivalente), el conteo acotado `by_grupo … take(MAX + 1).length` de TODAS sus
+ * asignaciones. Cada operación inserta UNA fila por grupo ⇒ la pregunta es `existentes + 1`.
+ *
+ * A diferencia de las vivas, este historial NO se recupera al cerrar ventanas: el mensaje lo
+ * dice para que la administradora no espere una liberación que no llegará (solo cancelar
+ * programadas resta, y una vez aplicadas ya no se cancelan).
+ */
+export function validarCapacidadHistorialGrupo(
+  nombreGrupo: string,
+  existentes: number,
+): void {
+  if (existentes + 1 > MAX_HISTORIAL_ASIGNACIONES_GRUPO)
+    throw new ConvexError(
+      `El grupo «${nombreGrupo}» alcanzó el máximo de asignaciones históricas ` +
+        `(${MAX_HISTORIAL_ASIGNACIONES_GRUPO}).`,
     );
 }

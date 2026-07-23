@@ -14,6 +14,10 @@ import { Alert } from "@/components/ui/alert";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import { MetricCard } from "@/components/ui/metric-card";
 import { ShortcutCard } from "@/components/ui/shortcut-card";
+import {
+  CeldaPuntaje,
+  type EstadoPromedio,
+} from "@/components/examenes/celda-puntaje";
 import { adminShortcuts } from "@/lib/nav";
 import { MAX_APLICADAS_MES_PANEL, SCAN_ULTIMOS_PANEL } from "@/convex/metricas";
 
@@ -23,53 +27,6 @@ const COLUMNAS: DataTableColumn[] = [
   { key: "fecha", label: "Fecha" },
   { key: "puntaje", label: "Puntaje promedio", align: "right" },
 ];
-
-/** El promedio de una fila tal como lo entrega `useQueries` — los CUATRO estados del
- *  contrato (LUI-19): `undefined` = cargando; `null` = la asignación desapareció entre
- *  snapshots; `Error` = la query falló; resultado = `{valor, incompleto}`. */
-type EstadoPromedio =
-  | { valor: number | null; incompleto: boolean }
-  | null
-  | undefined
-  | Error;
-
-/**
- * Puntaje EXANI en escala 700–1300: protagonista, en cifras condensadas.
- *
- * CINCO estados, no dos (desde LUI-30 el promedio llega por `useQueries`, una query por
- * fila): «…» = cargando; la cifra; «—» = sin intentos calificados; **«Datos
- * incompletos»** = la asignación tiene más intentos de los que el presupuesto permite
- * leer, así que el servidor NO promedió (pintar el promedio del prefijo daría una cifra
- * precisa y falsa); y «Error» si la query falló o la fila desapareció. Nunca 0: sería
- * imposible en la escala.
- */
-function CeldaPuntaje({ estado }: { estado: EstadoPromedio }) {
-  if (estado === undefined) return <span className="text-muted">…</span>;
-  if (estado instanceof Error || estado === null)
-    return (
-      <span
-        className="text-small text-muted"
-        title="No se pudo cargar el promedio de este examen."
-      >
-        Error
-      </span>
-    );
-  if (estado.incompleto)
-    return (
-      <span
-        className="text-small text-muted"
-        title="Este examen tiene demasiados intentos para calcular el promedio aquí."
-      >
-        Datos incompletos
-      </span>
-    );
-  if (estado.valor === null) return <span className="text-muted">—</span>;
-  return (
-    <span className="font-condensed text-[20px] font-semibold tabular-nums text-unx-blue">
-      {estado.valor}
-    </span>
-  );
-}
 
 export function InicioClient() {
   const { isAuthenticated } = useConvexAuth();

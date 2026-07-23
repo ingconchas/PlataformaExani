@@ -2042,6 +2042,9 @@ export const cargarDatosDePrueba = internalMutation({
       (await ctx.db.query("examenes").collect()).map((e) => [e._id, e.titulo]),
     );
     const grupoPorId = new Map(gruposFinal.map((g) => [g._id, g.nombre]));
+    const cicloPorGrupoId = new Map(
+      gruposFinal.map((g) => [g._id as string, g.ciclo ?? null]),
+    );
 
     // «Aplicada» = abrió DENTRO del periodo **y tiene al menos un intento enviado**
     // (migración LUI-30; regla canónica en `convex/metricas.ts`). El conjunto se
@@ -2327,10 +2330,37 @@ export const cargarDatosDePrueba = internalMutation({
           }
         }
 
+        // Agregado por SECCIÓN (LUI-32) — espejo de `resumen.agregadoSeccionesResumen`:
+        // elegibilidad ESTRICTA (ambos arreglos, como `agregarDesgloses`) y `totalComun`
+        // (el total si todos coinciden; null si difieren).
+        const porSeccionAgregado = new Map<
+          string,
+          { aciertos: number; total: number; k: number; totalComun: number | null; dispar: boolean }
+        >();
+        for (const i of enviadosSel) {
+          if (!i.aciertosPorSeccion || !i.aciertosPorArea) continue;
+          for (const c of i.aciertosPorSeccion) {
+            const acc = porSeccionAgregado.get(c.seccionId as string) ?? {
+              aciertos: 0,
+              total: 0,
+              k: 0,
+              totalComun: null as number | null,
+              dispar: false,
+            };
+            acc.aciertos += c.aciertos;
+            acc.total += c.total;
+            acc.k += 1;
+            if (acc.k === 1) acc.totalComun = c.total;
+            else if (acc.totalComun !== c.total) acc.dispar = true;
+            porSeccionAgregado.set(c.seccionId as string, acc);
+          }
+        }
+
         return [
           {
             examen: examenPorId.get(a.examenId) ?? "?",
             grupo: grupoPorId.get(destino.grupoId) ?? "?",
+            ciclo: cicloPorGrupoId.get(grupoIdStr) ?? null,
             abreEn: a.abreEn,
             cierraEn: a.cierraEn,
             rosterActivas: roster
@@ -2382,6 +2412,15 @@ export const cargarDatosDePrueba = internalMutation({
                 total: c.total,
               }))
               .sort((x, y) => x.area.localeCompare(y.area, "es")),
+            porSeccionAgregado: [...porSeccionAgregado.entries()]
+              .map(([seccionId, c]) => ({
+                seccion: nombrePorSeccionId.get(seccionId) ?? "?",
+                aciertos: c.aciertos,
+                total: c.total,
+                k: c.k,
+                totalComun: c.dispar ? null : c.totalComun,
+              }))
+              .sort((x, y) => x.seccion.localeCompare(y.seccion, "es")),
             fuerasDeRoster: enviadosSel.filter(
               (i) => !rosterIds.has(i.alumnoId as string),
             ).length,
@@ -3501,5 +3540,798 @@ export const limpiarClasificacionesMarcadas = internalMutation({
       secciones++;
     }
     return { secciones, areas, subtemas };
+  },
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers del E2E de LUI-32 (Resumen de exámenes aplicados) — SOLO_DEV
+//
+// Namespace ESTRICTO `[E2E LUI-32]` (nombres) / `e2e-lui32-*@invalido.local` (correos).
+// NINGÚN sembrador agenda jobs de cierre (todos los intentos se insertan `enviado` sin
+// `cierreJobId`), así que `limpiarLui32` no necesita barrer la cola. La línea base
+// (`contarLineaBaseLui32`) incluye las tablas del temario porque el examen plano (§9)
+// crea jerarquía y reactivos reales — su cascada las restaura exactamente.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const MARCA_E2E_LUI32 = "[E2E LUI-32]";
+const CORREO_E2E_LUI32_RE = /^e2e-lui32-.+@invalido\.local$/;
+const correoLui32 = (sufijo: string) => `e2e-lui32-${sufijo}@invalido.local`;
+const TITULO_EXAMEN_PLANO_LUI32 = `${MARCA_E2E_LUI32} Examen plano`;
+
+/** Grupo marcado de LUI-32: lo encuentra por nombre o lo crea (idempotente). */
+async function grupoLui32(
+  ctx: MutationCtx,
+  sufijo: string,
+  opts: { activo: boolean; ciclo?: string; turno?: "matutino" | "vespertino" | "sabatino" },
+): Promise<Id<"grupos">> {
+  const nombre = `${MARCA_E2E_LUI32} ${sufijo}`;
+  const existente = (await ctx.db.query("grupos").collect()).find(
+    (g) => g.nombre === nombre,
+  );
+  if (existente) return existente._id;
+  return await ctx.db.insert("grupos", {
+    nombre,
+    activo: opts.activo,
+    ciclo: opts.ciclo,
+    turno: opts.turno,
+  });
+}
+
+/** Alumna sintética marcada (user + perfil en el grupo dado), idempotente por correo. */
+async function alumnaLui32(
+  ctx: MutationCtx,
+  grupoId: Id<"grupos">,
+  sufijo: string,
+): Promise<Id<"users">> {
+  const email = correoLui32(sufijo);
+  const existenteUser = (await ctx.db.query("users").collect()).find(
+    (u) => norm(u.email ?? "") === email,
+  );
+  const userId =
+    existenteUser?._id ?? (await ctx.db.insert("users", { email }));
+  const perfil = await ctx.db
+    .query("perfiles")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .first();
+  if (!perfil) {
+    await ctx.db.insert("perfiles", {
+      userId,
+      rol: "alumno",
+      nombre: `${MARCA_E2E_LUI32} Alumna ${sufijo}`,
+      grupoId,
+      activo: true,
+    });
+  } else if (perfil.grupoId !== grupoId) {
+    await ctx.db.patch(perfil._id, { grupoId });
+  }
+  return userId;
+}
+
+/** Un examen publicado del fixture (para desgloses reales); jamás el legado plano. */
+async function examenPublicadoLui32(ctx: MutationCtx): Promise<Doc<"examenes">> {
+  const examen = (
+    await ctx.db
+      .query("examenes")
+      .withIndex("by_estado", (q) => q.eq("estado", "publicado"))
+      .collect()
+  ).find((e) => e.titulo !== TITULO_EXAMEN_PLANO_LUI32 && e.reactivoIds.length > 0);
+  if (!examen) throw new Error("No hay examen publicado del fixture para el seed de LUI-32.");
+  return examen;
+}
+
+/** Inserta un intento ENVIADO con desglose REAL (`desglosePorClasificacion` sobre los
+ *  reactivos vivos del examen) y estampa `envioRegistradoEn`. Cero jobs. */
+async function crearIntentoEnviadoLui32(
+  ctx: MutationCtx,
+  examen: Doc<"examenes">,
+  asignacionId: Id<"asignaciones">,
+  alumnoId: Id<"users">,
+): Promise<void> {
+  const docs = await Promise.all(examen.reactivoIds.map((id) => ctx.db.get(id)));
+  const vivos = docs.filter(
+    (r): r is Doc<"reactivos"> => r !== null && r.activo,
+  );
+  if (vivos.length === 0) throw new Error("El examen no tiene reactivos vivos.");
+  const aciertos = Math.max(1, Math.floor(vivos.length / 2));
+  const correctas = new Set(vivos.slice(0, aciertos).map((r) => r._id as string));
+  const desglose = desglosePorClasificacion(
+    vivos.map((r) => ({ id: r._id, seccionId: r.seccionId, areaId: r.areaId })),
+    correctas,
+  );
+  const ahora = Date.now();
+  await ctx.db.insert("intentos", {
+    examenId: examen._id,
+    alumnoId,
+    asignacionId,
+    estado: "enviado",
+    iniciadoEn: ahora - 60_000,
+    enviadoEn: ahora,
+    numeroIntento: 1,
+    puntaje: calcularPuntaje(aciertos, vivos.length),
+    formaCierre: "manual",
+    aciertosPorSeccion: desglose.porSeccion,
+    aciertosPorArea: desglose.porArea,
+  });
+  const asig = await ctx.db.get(asignacionId);
+  if (asig && asig.envioRegistradoEn === undefined) {
+    await ctx.db.patch(asignacionId, { envioRegistradoEn: ahora });
+  }
+}
+
+/** Conteos CRUDOS de todas las tablas que los sembradores de LUI-32 tocan — la LÍNEA BASE
+ *  del E2E (§0) y su aserción de restauración (§ final). Incluye el temario por el §9. */
+export const contarLineaBaseLui32 = internalMutation({
+  args: { confirmar: v.literal(CONFIRMACION_SOLO_DEV) },
+  handler: async (ctx) => {
+    exigirDeploymentDeDesarrollo();
+    const cuenta = async (
+      tabla:
+        | "grupos"
+        | "perfiles"
+        | "users"
+        | "asignaciones"
+        | "intentos"
+        | "respuestas"
+        | "posiciones"
+        | "examenes"
+        | "reactivos"
+        | "subtemas"
+        | "areasTematicas"
+        | "secciones",
+    ) => (await ctx.db.query(tabla).collect()).length;
+    return {
+      grupos: await cuenta("grupos"),
+      perfiles: await cuenta("perfiles"),
+      users: await cuenta("users"),
+      asignaciones: await cuenta("asignaciones"),
+      intentos: await cuenta("intentos"),
+      respuestas: await cuenta("respuestas"),
+      posiciones: await cuenta("posiciones"),
+      examenes: await cuenta("examenes"),
+      reactivos: await cuenta("reactivos"),
+      subtemas: await cuenta("subtemas"),
+      areasTematicas: await cuenta("areasTematicas"),
+      secciones: await cuenta("secciones"),
+    };
+  },
+});
+
+/** (§7 del E2E) Un ciclo APARTE «2020-B-E2E» (ordena DEBAJO de «2026-A»: no roba el
+ *  `cicloDefault`) con un grupo activo, 2 alumnas y 1 asignación APLICADA (2 intentos con
+ *  desglose real). Idempotente. */
+export const sembrarCicloLui32 = internalMutation({
+  args: { confirmar: v.literal(CONFIRMACION_SOLO_DEV) },
+  handler: async (ctx) => {
+    exigirDeploymentDeDesarrollo();
+    const ahora = Date.now();
+    const grupoId = await grupoLui32(ctx, "Ciclo viejo", {
+      activo: true,
+      ciclo: "2020-B-E2E",
+      turno: "matutino",
+    });
+    const a1 = await alumnaLui32(ctx, grupoId, "ciclo-1");
+    const a2 = await alumnaLui32(ctx, grupoId, "ciclo-2");
+    const examen = await examenPublicadoLui32(ctx);
+    const admin = await ctx.db
+      .query("perfiles")
+      .withIndex("by_rol", (q) => q.eq("rol", "admin"))
+      .first();
+    if (!admin) throw new Error("No hay administradora para `creadoPor`.");
+
+    let asignacion = (
+      await ctx.db
+        .query("asignaciones")
+        .withIndex("by_grupo", (q) => q.eq("grupoId", grupoId))
+        .collect()
+    )[0];
+    if (!asignacion) {
+      const id = await ctx.db.insert("asignaciones", {
+        examenId: examen._id,
+        ...camposDestino({ grupoId }),
+        abreEn: ahora - 400 * DIA, // MUY antiguo: fuera del top-5 del panel
+        cierraEn: ahora - 399 * DIA,
+        creadoPor: admin.userId,
+        tituloExamen: examen.titulo,
+        numReactivos: examen.reactivoIds.length,
+        duracionMin: examen.duracionMin,
+        tipoExamen: normalizarTipo(examen.tipo),
+      });
+      asignacion = (await ctx.db.get(id))!;
+      await crearIntentoEnviadoLui32(ctx, examen, asignacion._id, a1);
+      await crearIntentoEnviadoLui32(ctx, examen, asignacion._id, a2);
+    }
+    return { grupoId, asignacionId: asignacion._id };
+  },
+});
+
+/** (§3) Un grupo con una asignación APLICADA cuyo único intento enviado es LEGADO SIN
+ *  desglose (sin `aciertosPorSeccion`/`aciertosPorArea` ni `numeroIntento`): la fila debe
+ *  mostrar el caption «sin desglose» y el promedio SÍ contarlo. Idempotente. */
+export const sembrarLegadoSinDesgloseLui32 = internalMutation({
+  args: { confirmar: v.literal(CONFIRMACION_SOLO_DEV) },
+  handler: async (ctx) => {
+    exigirDeploymentDeDesarrollo();
+    const ahora = Date.now();
+    const grupoId = await grupoLui32(ctx, "Legado", {
+      activo: true,
+      ciclo: "2026-A",
+      turno: "vespertino",
+    });
+    const alumna = await alumnaLui32(ctx, grupoId, "legado-1");
+    const examen = await examenPublicadoLui32(ctx);
+    const admin = await ctx.db
+      .query("perfiles")
+      .withIndex("by_rol", (q) => q.eq("rol", "admin"))
+      .first();
+    if (!admin) throw new Error("No hay administradora para `creadoPor`.");
+    const yaTiene = (
+      await ctx.db
+        .query("asignaciones")
+        .withIndex("by_grupo", (q) => q.eq("grupoId", grupoId))
+        .collect()
+    )[0];
+    if (yaTiene) return { grupoId, asignacionId: yaTiene._id };
+    const asigId = await ctx.db.insert("asignaciones", {
+      examenId: examen._id,
+      ...camposDestino({ grupoId }),
+      abreEn: ahora - 250 * DIA,
+      cierraEn: ahora - 249 * DIA,
+      creadoPor: admin.userId,
+      tituloExamen: examen.titulo,
+      numReactivos: examen.reactivoIds.length,
+      duracionMin: examen.duracionMin,
+      tipoExamen: normalizarTipo(examen.tipo),
+      envioRegistradoEn: ahora,
+    });
+    // Intento LEGADO: enviado y calificado, SIN desglose ni `numeroIntento`.
+    await ctx.db.insert("intentos", {
+      examenId: examen._id,
+      alumnoId: alumna,
+      asignacionId: asigId,
+      estado: "enviado",
+      iniciadoEn: ahora - 251 * DIA,
+      enviadoEn: ahora - 250 * DIA,
+      puntaje: 1000,
+      formaCierre: "manual",
+    });
+    return { grupoId, asignacionId: asigId };
+  },
+});
+
+/** (§7/§8) Un grupo activo VACÍO (sin asignaciones) en el ciclo dado (default «2026-A»;
+ *  «2099-A-E2E» prueba el default vacío). Idempotente. */
+export const sembrarGrupoVacioLui32 = internalMutation({
+  args: {
+    confirmar: v.literal(CONFIRMACION_SOLO_DEV),
+    ciclo: v.optional(v.string()),
+    sufijo: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    exigirDeploymentDeDesarrollo();
+    const grupoId = await grupoLui32(ctx, args.sufijo ?? "Vacio", {
+      activo: true,
+      ciclo: args.ciclo ?? "2026-A",
+      turno: "vespertino",
+    });
+    return { grupoId };
+  },
+});
+
+/** (§5, prueba reina) Un ciclo propio «2030-INACT-E2E» con 10 grupos INACTIVOS VACÍOS que
+ *  ordenan ANTES de un grupo activo con resultados: la página 1 muestra los 10 inactivos
+ *  (NO queda vacía) y el activo aparece en la página 2. Idempotente. Devuelve el ciclo. */
+export const sembrarInactivosLui32 = internalMutation({
+  args: { confirmar: v.literal(CONFIRMACION_SOLO_DEV) },
+  handler: async (ctx) => {
+    exigirDeploymentDeDesarrollo();
+    const ciclo = "2030-INACT-E2E";
+    for (let i = 0; i < 10; i++) {
+      await grupoLui32(ctx, `Inact ${String(i).padStart(2, "0")}`, {
+        activo: false,
+        ciclo,
+        turno: "matutino",
+      });
+    }
+    const activoId = await grupoLui32(ctx, "Inact ZZZ activo", {
+      activo: true,
+      ciclo,
+      turno: "matutino",
+    });
+    const alumna = await alumnaLui32(ctx, activoId, "inact-activo");
+    const examen = await examenPublicadoLui32(ctx);
+    const admin = await ctx.db
+      .query("perfiles")
+      .withIndex("by_rol", (q) => q.eq("rol", "admin"))
+      .first();
+    if (!admin) throw new Error("No hay administradora para `creadoPor`.");
+    const yaTiene = (
+      await ctx.db
+        .query("asignaciones")
+        .withIndex("by_grupo", (q) => q.eq("grupoId", activoId))
+        .collect()
+    )[0];
+    if (!yaTiene) {
+      const ahora = Date.now();
+      const asigId = await ctx.db.insert("asignaciones", {
+        examenId: examen._id,
+        ...camposDestino({ grupoId: activoId }),
+        abreEn: ahora - 500 * DIA,
+        cierraEn: ahora - 499 * DIA,
+        creadoPor: admin.userId,
+        tituloExamen: examen.titulo,
+        numReactivos: examen.reactivoIds.length,
+        duracionMin: examen.duracionMin,
+        tipoExamen: normalizarTipo(examen.tipo),
+      });
+      await crearIntentoEnviadoLui32(ctx, examen, asigId, alumna);
+    }
+    return { ciclo };
+  },
+});
+
+/** (§8/§6) Un grupo activo con `objetivo` asignaciones de GRUPO SIN envíos en un ciclo
+ *  propio «2040-DESB-E2E». Con 101 (default) desborda el `take(101)` de `bloquesDe` ⇒ el
+ *  bloque declara «Datos incompletos» (§8). Con 99 y un `sufijo` propio deja el grupo justo
+ *  bajo la frontera para probar 100→101 del escritor real `asignar` (§6). Cerradas y
+ *  baratas (cero intentos). Idempotente (completa HASTA el objetivo). */
+export const sembrarBloqueDesbordadoLui32 = internalMutation({
+  args: {
+    confirmar: v.literal(CONFIRMACION_SOLO_DEV),
+    objetivo: v.optional(v.number()),
+    sufijo: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    exigirDeploymentDeDesarrollo();
+    const objetivo = args.objetivo ?? 101;
+    const ciclo = "2040-DESB-E2E";
+    const grupoId = await grupoLui32(ctx, `Desbordado${args.sufijo ? ` ${args.sufijo}` : ""}`, {
+      activo: true,
+      ciclo,
+      turno: "sabatino",
+    });
+    const examen = await examenPublicadoLui32(ctx);
+    const admin = await ctx.db
+      .query("perfiles")
+      .withIndex("by_rol", (q) => q.eq("rol", "admin"))
+      .first();
+    if (!admin) throw new Error("No hay administradora para `creadoPor`.");
+    const existentes = (
+      await ctx.db
+        .query("asignaciones")
+        .withIndex("by_grupo", (q) => q.eq("grupoId", grupoId))
+        .collect()
+    ).length;
+    const ahora = Date.now();
+    let creadas = 0;
+    for (let k = existentes; k < objetivo; k++) {
+      await ctx.db.insert("asignaciones", {
+        examenId: examen._id,
+        ...camposDestino({ grupoId }),
+        abreEn: ahora - (600 + k) * DIA,
+        cierraEn: ahora - (599 + k) * DIA,
+        creadoPor: admin.userId,
+        tituloExamen: examen.titulo,
+        numReactivos: examen.reactivoIds.length,
+        duracionMin: examen.duracionMin,
+        tipoExamen: normalizarTipo(examen.tipo),
+      });
+      creadas++;
+    }
+    return { ciclo, grupoId, total: existentes + creadas };
+  },
+});
+
+/** (§10) Una asignación DIRECTA (destino-alumna) APLICADA: NO debe aparecer en ningún
+ *  bloque del resumen (agrupado por grupo). Alumna sintética SIN grupo. Idempotente. */
+export const sembrarDirectaLui32 = internalMutation({
+  args: { confirmar: v.literal(CONFIRMACION_SOLO_DEV) },
+  handler: async (ctx) => {
+    exigirDeploymentDeDesarrollo();
+    const ahora = Date.now();
+    const email = correoLui32("directa");
+    const existenteUser = (await ctx.db.query("users").collect()).find(
+      (u) => norm(u.email ?? "") === email,
+    );
+    const userId =
+      existenteUser?._id ?? (await ctx.db.insert("users", { email }));
+    const perfil = await ctx.db
+      .query("perfiles")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .first();
+    if (!perfil) {
+      await ctx.db.insert("perfiles", {
+        userId,
+        rol: "alumno",
+        nombre: `${MARCA_E2E_LUI32} Alumna directa`,
+        activo: true,
+      });
+    }
+    const examen = await examenPublicadoLui32(ctx);
+    const admin = await ctx.db
+      .query("perfiles")
+      .withIndex("by_rol", (q) => q.eq("rol", "admin"))
+      .first();
+    if (!admin) throw new Error("No hay administradora para `creadoPor`.");
+    let asignacion = (await ctx.db.query("asignaciones").collect()).find(
+      (a) => a.alumnoId === userId,
+    );
+    if (!asignacion) {
+      const id = await ctx.db.insert("asignaciones", {
+        examenId: examen._id,
+        ...camposDestino({ alumnoId: userId }),
+        abreEn: ahora - 10 * DIA,
+        cierraEn: ahora - 9 * DIA,
+        creadoPor: admin.userId,
+        tituloExamen: examen.titulo,
+        numReactivos: examen.reactivoIds.length,
+        duracionMin: examen.duracionMin,
+        tipoExamen: normalizarTipo(examen.tipo),
+      });
+      asignacion = (await ctx.db.get(id))!;
+      await crearIntentoEnviadoLui32(ctx, examen, asignacion._id, userId);
+    }
+    return { asignacionId: asignacion._id, userId };
+  },
+});
+
+/** (§6) Un grupo LEGADO SIN ciclo (`undefined`) CON historial (1 asignación aplicada):
+ *  el testigo de la excepción única `undefined → valor` del candado de ciclo. `crear` de la
+ *  API pública exige ciclo no vacío, así que un legado sin ciclo solo se fabrica aquí.
+ *  Idempotente. */
+export const sembrarGrupoSinCicloLui32 = internalMutation({
+  args: {
+    confirmar: v.literal(CONFIRMACION_SOLO_DEV),
+    sufijo: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    exigirDeploymentDeDesarrollo();
+    const nombre = `${MARCA_E2E_LUI32} Sin ciclo${args.sufijo ? ` ${args.sufijo}` : ""}`;
+    const grupo = (await ctx.db.query("grupos").collect()).find(
+      (g) => g.nombre === nombre,
+    );
+    const grupoId: Id<"grupos"> = grupo
+      ? grupo._id
+      : await ctx.db.insert("grupos", { nombre, activo: true }); // SIN ciclo
+    const alumna = await alumnaLui32(
+      ctx,
+      grupoId,
+      `sin-ciclo${args.sufijo ? `-${args.sufijo}` : ""}`,
+    );
+    const examen = await examenPublicadoLui32(ctx);
+    const admin = await ctx.db
+      .query("perfiles")
+      .withIndex("by_rol", (q) => q.eq("rol", "admin"))
+      .first();
+    if (!admin) throw new Error("No hay administradora para `creadoPor`.");
+    const yaTiene = (
+      await ctx.db
+        .query("asignaciones")
+        .withIndex("by_grupo", (q) => q.eq("grupoId", grupoId))
+        .collect()
+    )[0];
+    if (!yaTiene) {
+      const ahora = Date.now();
+      const id = await ctx.db.insert("asignaciones", {
+        examenId: examen._id,
+        ...camposDestino({ grupoId }),
+        abreEn: ahora - 300 * DIA,
+        cierraEn: ahora - 299 * DIA,
+        creadoPor: admin.userId,
+        tituloExamen: examen.titulo,
+        numReactivos: examen.reactivoIds.length,
+        duracionMin: examen.duracionMin,
+        tipoExamen: normalizarTipo(examen.tipo),
+      });
+      await crearIntentoEnviadoLui32(ctx, examen, id, alumna);
+    }
+    return { grupoId };
+  },
+});
+
+/**
+ * (§9) Un examen legado VÁLIDO SIN estructura declarada con 101 SECCIONES distintas —
+ * el testigo de que la cota de secciones de `cifrasDe` (240, derivada de `MAX_REACTIVOS`)
+ * NO rechaza un legado que el instructor SÍ procesaría. Crea 101 rutas completas del
+ * temario (sección → área → subtema) + 101 reactivos reales activos + el examen publicado
+ * SIN `secciones` + su grupo activo + 1 alumna. La ASIGNACIÓN la crea el E2E con el
+ * escritor real `asignar` (que corre `validarPublicable` — la prueba de validez); el
+ * intento lo estampa `sembrarIntentoPlanoLui32`. Idempotente por título del examen.
+ */
+export const sembrarExamenPlanoLui32 = internalMutation({
+  args: { confirmar: v.literal(CONFIRMACION_SOLO_DEV) },
+  handler: async (ctx) => {
+    exigirDeploymentDeDesarrollo();
+    const admin = await ctx.db
+      .query("perfiles")
+      .withIndex("by_rol", (q) => q.eq("rol", "admin"))
+      .first();
+    if (!admin) throw new Error("No hay administradora para el examen plano.");
+    const grupoId = await grupoLui32(ctx, "Plano", {
+      activo: true,
+      ciclo: "2050-PLANO-E2E",
+      turno: "matutino",
+    });
+    await alumnaLui32(ctx, grupoId, "plano-1");
+
+    const existente = (await ctx.db.query("examenes").collect()).find(
+      (e) => e.titulo === TITULO_EXAMEN_PLANO_LUI32,
+    );
+    if (existente) return { examenId: existente._id, grupoId };
+
+    const reactivoIds: Id<"reactivos">[] = [];
+    for (let i = 0; i < 101; i++) {
+      const n = String(i).padStart(3, "0");
+      const seccionId = await ctx.db.insert("secciones", {
+        nombre: `${MARCA_E2E_LUI32} Sec ${n}`,
+        tipo: "nucleo",
+        activo: true,
+        orden: i,
+        reactivosCount: 1,
+      });
+      const areaId = await ctx.db.insert("areasTematicas", {
+        seccionId,
+        nombre: `${MARCA_E2E_LUI32} Area ${n}`,
+        activo: true,
+        orden: 0,
+        reactivosCount: 1,
+      });
+      const subtemaId = await ctx.db.insert("subtemas", {
+        areaId,
+        nombre: `${MARCA_E2E_LUI32} Sub ${n}`,
+        activo: true,
+        orden: 0,
+        reactivosCount: 1,
+      });
+      const reactivoId = await ctx.db.insert("reactivos", {
+        enunciado: `${MARCA_E2E_LUI32} Reactivo ${n}`,
+        opciones: [
+          { id: "a", texto: "Correcta" },
+          { id: "b", texto: "Incorrecta" },
+        ],
+        opcionCorrecta: "a",
+        seccionId,
+        areaId,
+        subtemaId,
+        dificultad: "medio",
+        autorId: admin.userId,
+        activo: true,
+      });
+      reactivoIds.push(reactivoId);
+    }
+
+    const examenId = await ctx.db.insert("examenes", {
+      titulo: TITULO_EXAMEN_PLANO_LUI32,
+      reactivoIds,
+      duracionMin: 60,
+      estado: "publicado",
+      autorId: admin.userId,
+      // SIN `secciones` (legado) y SIN `tipo` (general): el estado que valida la cota.
+    });
+    return { examenId, grupoId };
+  },
+});
+
+/** (§9) Encuentra la asignación del grupo plano (ya creada por `asignar` en el E2E) y su
+ *  alumna, y estampa el intento enviado con el desglose real de las 101 secciones. */
+export const sembrarIntentoPlanoLui32 = internalMutation({
+  args: { confirmar: v.literal(CONFIRMACION_SOLO_DEV) },
+  handler: async (ctx) => {
+    exigirDeploymentDeDesarrollo();
+    const examen = (await ctx.db.query("examenes").collect()).find(
+      (e) => e.titulo === TITULO_EXAMEN_PLANO_LUI32,
+    );
+    if (!examen) throw new Error("Falta el examen plano; corre sembrarExamenPlanoLui32.");
+    const grupo = (await ctx.db.query("grupos").collect()).find(
+      (g) => g.nombre === `${MARCA_E2E_LUI32} Plano`,
+    );
+    if (!grupo) throw new Error("Falta el grupo plano.");
+    const asignacion = (
+      await ctx.db
+        .query("asignaciones")
+        .withIndex("by_grupo", (q) => q.eq("grupoId", grupo._id))
+        .collect()
+    ).find((a) => a.examenId === examen._id);
+    if (!asignacion) {
+      throw new Error("El grupo plano no tiene asignación; llama a asignar primero.");
+    }
+    const alumnaPerfil = (
+      await ctx.db
+        .query("perfiles")
+        .withIndex("by_grupo", (q) => q.eq("grupoId", grupo._id))
+        .collect()
+    ).find((p) => p.rol === "alumno");
+    if (!alumnaPerfil) throw new Error("El grupo plano no tiene alumna.");
+    const yaTiene = await ctx.db
+      .query("intentos")
+      .withIndex("by_asignacion", (q) => q.eq("asignacionId", asignacion._id))
+      .first();
+    if (!yaTiene) {
+      await crearIntentoEnviadoLui32(ctx, examen, asignacion._id, alumnaPerfil.userId);
+    }
+    return { asignacionId: asignacion._id };
+  },
+});
+
+/** Bytes por página de `limpiarLui32`: acotan la LECTURA de cada invocación (≤256 KiB;
+ *  Convex permite UN solo `.paginate()` por función, así que cada llamada procesa UNA
+ *  página de UNA fase y el llamador repite con el `estado` devuelto). */
+const BYTES_PAGINA_LIMPIEZA = 262_144;
+
+/**
+ * (`finally` del E2E) Borra FÍSICAMENTE todo el namespace `[E2E LUI-32]` con cascada
+ * completa, POR CURSOR PERSISTIDO y FASES (el llamador repite pasando `estado` hasta
+ * `quedan === false`). Ni las LECTURAS ni los borrados coleccionan una tabla entera: cada
+ * fase se PAGINA byte-capped (`BYTES_PAGINA_LIMPIEZA`) y cada llamada escanea a lo más
+ * página byte-capped y devuelve su estado — así el presupuesto de 16 MiB se respeta
+ * aunque el dev crezca en cualquiera de las tablas, y jamás hay dos paginate en una
+ * función (límite duro de Convex). El
+ * `estado` que regresa ({faseIdx, cursor}) es el estado REAL de la paginación, así que la
+ * próxima llamada continúa donde quedó (no re-escanea desde el inicio).
+ *
+ * Fases (hojas → raíz): 0 grupos+cascada · 1 perfiles+users+directas · 2 users huérfanos ·
+ * 3 examen plano · 4 reactivos · 5 subtemas · 6 áreas · 7 secciones. Las asignaciones
+ * directas de las alumnas sintéticas se leen por `by_alumno_cierra` (jamás un `collect()`
+ * global por perfil), y NUNCA se muta un documento no marcado (los grupos marcados solo
+ * contienen alumnas sintéticas por construcción). Idempotente y tolerante a parciales.
+ */
+export const limpiarLui32 = internalMutation({
+  args: {
+    confirmar: v.literal(CONFIRMACION_SOLO_DEV),
+    estado: v.optional(
+      v.object({ faseIdx: v.number(), cursor: v.union(v.string(), v.null()) }),
+    ),
+  },
+  handler: async (ctx, args) => {
+    exigirDeploymentDeDesarrollo();
+    const faseIdx = args.estado?.faseIdx ?? 0;
+    const cursor: string | null = args.estado?.cursor ?? null;
+    const conteo = {
+      grupos: 0,
+      uniones: 0,
+      asignaciones: 0,
+      intentos: 0,
+      respuestas: 0,
+      posiciones: 0,
+      perfiles: 0,
+      users: 0,
+      examenes: 0,
+      reactivos: 0,
+      subtemas: 0,
+      areasTematicas: 0,
+      secciones: 0,
+    };
+
+    const borrarIntentoConDeps = async (i: Doc<"intentos">) => {
+      for (const r of await ctx.db
+        .query("respuestas")
+        .withIndex("by_intento_reactivo", (q) => q.eq("intentoId", i._id))
+        .collect()) {
+        await ctx.db.delete(r._id);
+        conteo.respuestas++;
+      }
+      for (const q of await ctx.db
+        .query("posiciones")
+        .withIndex("by_intento", (x) => x.eq("intentoId", i._id))
+        .collect()) {
+        await ctx.db.delete(q._id);
+        conteo.posiciones++;
+      }
+      await ctx.db.delete(i._id);
+      conteo.intentos++;
+    };
+    const borrarAsignacionConDeps = async (a: Doc<"asignaciones">) => {
+      for (const i of await ctx.db
+        .query("intentos")
+        .withIndex("by_asignacion", (q) => q.eq("asignacionId", a._id))
+        .collect()) {
+        await borrarIntentoConDeps(i);
+      }
+      await ctx.db.delete(a._id);
+      conteo.asignaciones++;
+    };
+
+    // Procesa UNA página de la fase actual desde `cursor`; devuelve la paginación.
+    const procesarPagina = async () => {
+      if (faseIdx === 0) {
+        const pag = await ctx.db.query("grupos").paginate({ numItems: 100, cursor, maximumBytesRead: BYTES_PAGINA_LIMPIEZA });
+        for (const g of pag.page) {
+          if (!g.nombre.startsWith(MARCA_E2E_LUI32)) continue;
+          for (const a of await ctx.db.query("asignaciones").withIndex("by_grupo", (q) => q.eq("grupoId", g._id)).collect()) {
+            await borrarAsignacionConDeps(a);
+          }
+          for (const u of await ctx.db.query("grupoInstructores").withIndex("by_grupo", (q) => q.eq("grupoId", g._id)).collect()) {
+            await ctx.db.delete(u._id);
+            conteo.uniones++;
+          }
+          await ctx.db.delete(g._id);
+          conteo.grupos++;
+        }
+        return pag;
+      }
+      if (faseIdx === 1) {
+        const pag = await ctx.db.query("perfiles").paginate({ numItems: 100, cursor, maximumBytesRead: BYTES_PAGINA_LIMPIEZA });
+        for (const p of pag.page) {
+          if (!p.nombre.startsWith(MARCA_E2E_LUI32)) continue;
+          for (const a of await ctx.db.query("asignaciones").withIndex("by_alumno_cierra", (q) => q.eq("alumnoId", p.userId)).collect()) {
+            await borrarAsignacionConDeps(a);
+          }
+          const user = await ctx.db.get(p.userId);
+          await ctx.db.delete(p._id);
+          conteo.perfiles++;
+          if (user && CORREO_E2E_LUI32_RE.test(user.email ?? "")) {
+            await ctx.db.delete(user._id);
+            conteo.users++;
+          }
+        }
+        return pag;
+      }
+      if (faseIdx === 2) {
+        const pag = await ctx.db.query("users").paginate({ numItems: 100, cursor, maximumBytesRead: BYTES_PAGINA_LIMPIEZA });
+        for (const u of pag.page) {
+          if (!CORREO_E2E_LUI32_RE.test(u.email ?? "")) continue;
+          await ctx.db.delete(u._id);
+          conteo.users++;
+        }
+        return pag;
+      }
+      if (faseIdx === 3) {
+        const pag = await ctx.db.query("examenes").paginate({ numItems: 100, cursor, maximumBytesRead: BYTES_PAGINA_LIMPIEZA });
+        for (const e of pag.page) {
+          if (e.titulo !== TITULO_EXAMEN_PLANO_LUI32) continue;
+          await ctx.db.delete(e._id);
+          conteo.examenes++;
+        }
+        return pag;
+      }
+      if (faseIdx === 4) {
+        const pag = await ctx.db.query("reactivos").paginate({ numItems: 100, cursor, maximumBytesRead: BYTES_PAGINA_LIMPIEZA });
+        for (const r of pag.page) {
+          if (!r.enunciado.startsWith(MARCA_E2E_LUI32)) continue;
+          await ctx.db.delete(r._id);
+          conteo.reactivos++;
+        }
+        return pag;
+      }
+      if (faseIdx === 5) {
+        const pag = await ctx.db.query("subtemas").paginate({ numItems: 100, cursor, maximumBytesRead: BYTES_PAGINA_LIMPIEZA });
+        for (const t of pag.page) {
+          if (!t.nombre.startsWith(MARCA_E2E_LUI32)) continue;
+          await ctx.db.delete(t._id);
+          conteo.subtemas++;
+        }
+        return pag;
+      }
+      if (faseIdx === 6) {
+        const pag = await ctx.db.query("areasTematicas").paginate({ numItems: 100, cursor, maximumBytesRead: BYTES_PAGINA_LIMPIEZA });
+        for (const a of pag.page) {
+          if (!a.nombre.startsWith(MARCA_E2E_LUI32)) continue;
+          await ctx.db.delete(a._id);
+          conteo.areasTematicas++;
+        }
+        return pag;
+      }
+      const pag = await ctx.db.query("secciones").paginate({ numItems: 100, cursor, maximumBytesRead: BYTES_PAGINA_LIMPIEZA });
+      for (const s2 of pag.page) {
+        if (!s2.nombre.startsWith(MARCA_E2E_LUI32)) continue;
+        await ctx.db.delete(s2._id);
+        conteo.secciones++;
+      }
+      return pag;
+    };
+
+    // UN solo `.paginate()` por invocación (límite duro de Convex): procesa UNA página de la
+    // fase actual y devuelve el estado REAL; el llamador repite hasta `quedan === false`.
+    if (faseIdx >= 8) {
+      return { ...conteo, quedan: false, estado: { faseIdx: 8, cursor: null } };
+    }
+    const pag = await procesarPagina();
+    const done = pag.isDone;
+    const faseSig = done ? faseIdx + 1 : faseIdx;
+    const cursorSig = done ? null : pag.continueCursor;
+    return {
+      ...conteo,
+      quedan: faseSig < 8,
+      estado: { faseIdx: faseSig, cursor: cursorSig },
+    };
   },
 });

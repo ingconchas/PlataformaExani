@@ -378,6 +378,50 @@ export function agregarDesgloses(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Helpers COMPARTIDOS con el Resumen de exámenes (LUI-32)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * PARTICIPACIÓN «X de Y» a partir de dos CONJUNTOS de ids: `enviadasIds` (las alumnas cuyo
+ * intento-que-cuenta está ENVIADO — rangos ①–④ del selector canónico) y `rosterIds` (el
+ * roster ACTIVO actual). Un solo código de participación en la plataforma: lo consumen
+ * `derivarResultados` (LUI-30, vista del instructor) y `resumen.derivarCifrasFila`
+ * (LUI-32, resumen de la administradora), así que «X de Y» no puede discrepar entre las dos
+ * pantallas del mismo examen.
+ *
+ *  · `completaron` = |enviadas ∩ roster| — el X.
+ *  · `deTotal`     = |roster| — el Y (población del roster vivo).
+ *  · `fuerasDeRoster` = |enviadas − roster| — resultados de alumnas que YA NO están en el
+ *    grupo (cambio de grupo o baja): cuentan en el promedio (ámbito asignación) pero no en
+ *    X/Y; el contador los hace visibles, jamás un dato fabricado.
+ */
+export function participacionDe(
+  enviadasIds: Iterable<AlumnoId>,
+  rosterIds: Iterable<AlumnoId>,
+): { completaron: number; deTotal: number; fuerasDeRoster: number } {
+  const roster = new Set(rosterIds);
+  const enviadas = new Set(enviadasIds);
+  let completaron = 0;
+  let fuerasDeRoster = 0;
+  for (const id of enviadas) {
+    if (roster.has(id)) completaron += 1;
+    else fuerasDeRoster += 1;
+  }
+  return { completaron, deTotal: roster.size, fuerasDeRoster };
+}
+
+/**
+ * Porcentaje ENTERO de aciertos de una fracción ya calculada (`pct` en 0..1). El ÚNICO
+ * formateador de porcentaje de sección/área del sistema: lo llaman el acordeón de Resultados
+ * del examen (LUI-30) y la celda «Aciertos por sección» del Resumen (LUI-32) con `ΣA/ΣT`.
+ * Compartirlo es lo que hace que la equivalencia de cifras entre ambas pantallas no dependa
+ * de que dos `Math.round` sueltos coincidan.
+ */
+export function pctDeFraccion(pct: number): number {
+  return Math.round(pct * 100);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Derivación 3 — la pantalla completa (corre con la asignación YA seleccionada)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -494,21 +538,22 @@ export function derivarResultados(
   const mayorPuntaje = calificados.length ? Math.max(...calificados) : null;
   const menorPuntaje = calificados.length ? Math.min(...calificados) : null;
 
-  // Participación: total = roster activo; X ⊆ Y con el MISMO selector canónico.
-  const roster = new Set(q2.alumnas.map((a) => a.alumnoId));
-  const completaron = q2.alumnas.filter((a) => {
-    const sel = seleccion.get(a.alumnoId);
-    return sel !== undefined && sel.estado === "enviado";
-  }).length;
+  // Participación: total = roster activo; X ⊆ Y con el MISMO selector canónico. La cuenta la
+  // hace `participacionDe` (helper compartido con el Resumen de LUI-32) sobre los conjuntos
+  // de ids; `total` se mantiene en `q2.alumnas.length` (no `deTotal`) para preservar bit a
+  // bit la cifra histórica ante un roster con ids repetidos, imposible por el modelo.
+  const enviadasIds = enviados.map((i) => i.alumnoId);
+  const part = participacionDe(
+    enviadasIds,
+    q2.alumnas.map((a) => a.alumnoId),
+  );
   const participacion = {
-    completaron,
+    completaron: part.completaron,
     total: q2.alumnas.length,
-    tono: tonoParticipacion(completaron, q2.alumnas.length),
+    tono: tonoParticipacion(part.completaron, q2.alumnas.length),
   };
 
-  const presentaronFueraDeRoster = enviados.filter(
-    (i) => !roster.has(i.alumnoId),
-  ).length;
+  const presentaronFueraDeRoster = part.fuerasDeRoster;
 
   const agregado = agregarDesgloses(seleccionados);
 

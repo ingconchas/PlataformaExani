@@ -336,6 +336,28 @@ export const actualizar = mutation({
     }
     await validarNombreCicloUnico(ctx, nombre, ciclo, args.grupoId);
 
+    // Candado de ciclo (LUI-32): el string EXACTO almacenado de `ciclo` es la clave de
+    // agrupación y filtro del Resumen de exámenes. Una vez que el grupo tiene historial de
+    // asignaciones queda CONGELADO, para que ese historial jamás cambie de bucket
+    // retroactivamente (cambiar «2026-A» por «2026-a» movería todo su historial de ciclo).
+    // La comparación es del string CRUDO —no canónica—: el Resumen agrupa por el valor tal
+    // cual. Excepción ÚNICA: `undefined → valor` (completar el ciclo de un grupo legado que
+    // no lo traía) — un acto explícito que el modal advierte, no un drift silencioso; sin
+    // ella un legado sin ciclo y con historial no podría editar ni su nombre ni sus
+    // instructores.
+    if (grupo.ciclo !== undefined && grupo.ciclo !== ciclo) {
+      const tieneHistorial = await ctx.db
+        .query("asignaciones")
+        .withIndex("by_grupo", (q) => q.eq("grupoId", args.grupoId))
+        .first();
+      if (tieneHistorial) {
+        throw new ConvexError(
+          "El ciclo no puede cambiarse: el grupo ya tiene asignaciones de examen y su " +
+            "historial quedaría atribuido a un ciclo distinto.",
+        );
+      }
+    }
+
     // Reconciliar filas de unión (idempotente; no hay índice único). Política
     // TOLERANTE (LUI-13): se valida que estén ACTIVOS solo los instructores
     // NUEVOS; los ya asignados se conservan aunque estén inactivos (p. ej.

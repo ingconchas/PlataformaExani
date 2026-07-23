@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils";
 import {
   derivarResultados,
   derivarSelectorResultados,
+  pctDeFraccion,
   type AsignacionId,
   type ResultadosQ1,
   type ResultadosQ2,
@@ -61,16 +62,23 @@ const COPY_PROBLEMA: Record<ProblemaResultados, string> = {
 export function ResultadosExamenClient({
   examenId,
   variante,
+  asignacionInicial,
 }: {
   examenId: string;
   variante: "instructor" | "admin";
+  /** Preselección OPCIONAL desde el drill-down del Resumen (LUI-32, `?asignacion=`). Solo
+   *  afecta la UI: si el id no es una opción válida, `ResultadosConSelector` cae al default
+   *  (validación existente `opciones.some(...)`); las queries autorizan igual. */
+  asignacionInicial?: string;
 }) {
   const { isAuthenticated } = useConvexAuth();
   const q1 = useQuery(
     api.resultadosExamen.deExamen,
     isAuthenticated ? { examenId } : "skip",
   );
-  const [seleccionManual, setSeleccionManual] = useState<string | null>(null);
+  const [seleccionManual, setSeleccionManual] = useState<string | null>(
+    asignacionInicial ?? null,
+  );
 
   if (q1 === undefined) {
     return <PageHeader title="Resultados" description={SUBTITULO} />;
@@ -501,7 +509,7 @@ function ResultadosCargados({
                   {nombre}
                   {s.pct !== null && (
                     <span className="tabular-nums">
-                      · {Math.round(s.pct * 100)}%
+                      · {pctDeFraccion(s.pct)}%
                     </span>
                   )}
                 </button>
@@ -516,7 +524,7 @@ function ResultadosCargados({
                         highlightTag="reforzar en repaso"
                         data={s.areas.map((a) => ({
                           label: a.nombre ?? "Área eliminada",
-                          value: Math.round(a.pct * 100),
+                          value: pctDeFraccion(a.pct),
                           highlight: a.reforzar,
                         }))}
                       />

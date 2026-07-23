@@ -48,6 +48,8 @@ import type * as pruebasImagenes from "../pruebasImagenes.js";
 import type * as reactivos from "../reactivos.js";
 import type * as resultados from "../resultados.js";
 import type * as resultadosExamen from "../resultadosExamen.js";
+import type * as resumen from "../resumen.js";
+import type * as resumenExamenes from "../resumenExamenes.js";
 import type * as sanitizar from "../sanitizar.js";
 import type * as seed from "../seed.js";
 import type * as seedAuth from "../seedAuth.js";
@@ -105,6 +107,8 @@ declare const fullApi: ApiFromModules<{
   reactivos: typeof reactivos;
   resultados: typeof resultados;
   resultadosExamen: typeof resultadosExamen;
+  resumen: typeof resumen;
+  resumenExamenes: typeof resumenExamenes;
   sanitizar: typeof sanitizar;
   seed: typeof seed;
   seedAuth: typeof seedAuth;
