@@ -7,8 +7,8 @@
  * los detectores de corte, las dos derivaciones (selector de asignaciones y pantalla) y
  * sus fronteras exactas. Instante FIJO — las pruebas puras no leen el reloj.
  *
- * FASE B (llega con el PR de lectores): `fueAplicada` nueva, invariante cuantificado,
- * `contarAplicadasMes` 200/201 y `ultimosAplicados` 30-sin-5.
+ * FASE B (§9, llegó con el PR de lectores): `fueAplicada` nueva, invariante
+ * cuantificado, `contarAplicadasMes` 200/201 y `ultimosAplicados` 30-sin-5.
  *
  * Correr:  npm run test:resultados
  */
@@ -38,6 +38,15 @@ import {
   MSG_NOMBRE_LARGO,
   validarNombreTemario,
 } from "../convex/temarioReglas";
+import {
+  MAX_APLICADAS_MES_PANEL,
+  SCAN_ULTIMOS_PANEL,
+  ULTIMOS_PANEL,
+  contarAplicadasMes,
+  fueAplicada,
+  ultimosAplicados,
+} from "../convex/metricas";
+import { estadoDeVentana } from "../convex/examenEstado";
 
 let ok = 0;
 let fallos = 0;
@@ -453,6 +462,21 @@ const cA = (a: string, aciertos: number, total: number) => ({ areaId: id(a) as n
   check("⭐ el área fantasma cae en la cubeta final (seccionId null)", cubeta.seccionId === null && cubeta.areas.length === 1 && cubeta.areas[0].nombre === null);
 }
 {
+  // ⭐ Media del GO de B: la «mejor sección» de una clasificación cuyo doc fue ELIMINADO
+  // existe con `nombre: null` y su pct — dos ausencias DISTINTAS de «sin datos» (null).
+  const q3 = q3Base({
+    ordenSecciones: null,
+    diagnosticos: [intento("ana", { aciertosPorSeccion: [cS("sX", 3, 4)], aciertosPorArea: [] })],
+    catalogo: { secciones: [], areas: [] },
+  });
+  const r = derivarResultados(q2Base(), q3, AHORA);
+  if (r.estado !== "datos") throw new Error("datos");
+  check(
+    "⭐ mejor sección con doc eliminado: {nombre: null, pct} — jamás el «—» de sin-datos",
+    r.mejorSeccion !== null && r.mejorSeccion.nombre === null && Math.abs(r.mejorSeccion.pct - 0.75) < 1e-9,
+  );
+}
+{
   // Mejor sección: desempate por pct → orden del catálogo → id; sin datos → null.
   const q3 = q3Base({
     diagnosticos: [intento("ana", { aciertosPorSeccion: [cS("s2", 3, 4), cS("s1", 3, 4)], aciertosPorArea: [] })],
@@ -489,6 +513,64 @@ const cA = (a: string, aciertos: number, total: number) => ({ areaId: id(a) as n
   const sinRoster = derivarResultados(q2Base({ alumnas: [] }), q3, AHORA);
   if (sinRoster.estado !== "datos") throw new Error("datos");
   check("roster vacío: 0 de 0 en naranja, sin dividir entre cero", sinRoster.participacion.total === 0 && sinRoster.participacion.tono === "orange");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+console.log("9 · FASE B — metricas.ts migrado: fueAplicada, contarAplicadasMes, ultimosAplicados");
+// ─────────────────────────────────────────────────────────────────────────────
+{
+  // ⭐ La regla nueva: existencia del read-model, jamás el valor.
+  check("⭐ fueAplicada: campo presente → aplicada", fueAplicada({ envioRegistradoEn: 123 }));
+  check("⭐ fueAplicada: campo ausente → NO aplicada (abierta sin envíos ≠ aplicada)", !fueAplicada({}));
+}
+{
+  // ⭐ Invariante CUANTIFICADO (Media 2 del plan): ∀t ≥ envioRegistradoEn, la ventana ya
+  // no es «programada» — y NO es implicación universal sobre t (antes de abrir SÍ era
+  // programada aunque hoy exista envío).
+  const abreEn = AHORA;
+  const cierraEn = AHORA + DIA;
+  const envio = AHORA + HORA; // ≥ abreEn, como garantiza la guarda de iniciarIntento
+  const trasEnvio = [envio, envio + 1, cierraEn, cierraEn + DIA].every(
+    (t) => estadoDeVentana(abreEn, cierraEn, t) !== "programada",
+  );
+  check("⭐ ∀t ≥ envioRegistradoEn: la ventana no es «programada»", trasEnvio);
+  check(
+    "…y ANTES de abrir sí lo era (la implicación no es universal sobre t)",
+    estadoDeVentana(abreEn, cierraEn, abreEn - 1) === "programada",
+  );
+}
+{
+  // ⭐ contarAplicadasMes — frontera EXACTA del centinela 200/201.
+  const fila = (aplicada: boolean) => (aplicada ? { envioRegistradoEn: 1 } : {});
+  const en200 = Array.from({ length: MAX_APLICADAS_MES_PANEL }, (_, i) => fila(i % 2 === 0));
+  const r200 = contarAplicadasMes(en200);
+  check(`⭐ ${MAX_APLICADAS_MES_PANEL} filas: cuenta (100 aplicadas) sin flag`, r200.valor === 100 && !r200.incompleto);
+  const r201 = contarAplicadasMes([...en200, fila(true)]);
+  check("⭐ 201 filas (centinela lleno): {null, incompleto} — JAMÁS el prefijo", r201.valor === null && r201.incompleto);
+  const rVacia = contarAplicadasMes([]);
+  check("mes sin filas: 0 honesto, sin flag", rVacia.valor === 0 && !rVacia.incompleto);
+}
+{
+  // ⭐ ultimosAplicados — la ventana de escaneo dice la verdad.
+  const filaN = (aplicada: boolean, n: number) =>
+    aplicada ? { envioRegistradoEn: n } : {};
+  // 30 escaneadas, solo 3 aplicadas → incompleto (puede haber más antiguas sin ver).
+  const treintaCon3 = Array.from({ length: SCAN_ULTIMOS_PANEL }, (_, i) => filaN(i < 3, i));
+  const r30 = ultimosAplicados(treintaCon3);
+  check("⭐ ventana llena (30) con <5 aplicadas → incompleto", r30.filas.length === 3 && r30.incompleto);
+  // 29 escaneadas con 3 aplicadas → el historial entero ya fue visto: completo.
+  const r29 = ultimosAplicados(treintaCon3.slice(0, SCAN_ULTIMOS_PANEL - 1));
+  check("⭐ ventana NO llena (29) con <5 → completo (de verdad no hay más)", r29.filas.length === 3 && !r29.incompleto);
+  // 30 escaneadas con ≥5 aplicadas → los 5 primeros en el orden dado, completo.
+  const muchas = Array.from({ length: SCAN_ULTIMOS_PANEL }, (_, i) => filaN(true, i));
+  const rMuchas = ultimosAplicados(muchas);
+  check(
+    "con ≥5 aplicadas: los 5 PRIMEROS del orden del índice, sin flag",
+    rMuchas.filas.length === ULTIMOS_PANEL &&
+      rMuchas.filas[0].envioRegistradoEn === 0 &&
+      !rMuchas.incompleto,
+  );
+  check("cero escaneadas: vacío y completo", ultimosAplicados([]).filas.length === 0 && !ultimosAplicados([]).incompleto);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

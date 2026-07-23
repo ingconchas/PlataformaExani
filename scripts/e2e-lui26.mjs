@@ -774,6 +774,14 @@ try {
   await pgAdminPanel.goto(`${BASE}/admin`);
   const convexAdmin = clienteConvex(await tokenDe(pgAdminPanel));
   const panelAntes = await convexAdmin.query("panel:resumen", {});
+  // Desde LUI-30 los promedios salieron de `resumen`: se piden por fila (promedioDe).
+  const promediosDe = async (panel) =>
+    Promise.all(
+      panel.ultimosExamenes.map((e) =>
+        convexAdmin.query("panel:promedioDe", { asignacionId: e.id }),
+      ),
+    );
+  const promediosAntes = await promediosDe(panelAntes);
 
   const lista0 = await convexFer3.query("player:misExamenes", {});
   await pg3.goto(`${BASE}/examenes`);
@@ -892,15 +900,18 @@ try {
     numeros.join(","),
   );
   const panelDespues = await convexAdmin.query("panel:resumen", {});
+  const promediosDespues = await promediosDe(panelDespues);
   check(
     "⭐⭐ varias repeticiones NO mueven el promedio del panel (regla del primer intento)",
-    JSON.stringify(panelDespues.ultimosExamenes.map((e) => e.puntajePromedio)) ===
-      JSON.stringify(panelAntes.ultimosExamenes.map((e) => e.puntajePromedio)),
-    `antes ${JSON.stringify(panelAntes.ultimosExamenes.map((e) => e.puntajePromedio))} · después ${JSON.stringify(panelDespues.ultimosExamenes.map((e) => e.puntajePromedio))}`,
+    promediosAntes.length > 0 &&
+      JSON.stringify(promediosDespues.map((r) => r?.valor)) ===
+        JSON.stringify(promediosAntes.map((r) => r?.valor)),
+    `antes ${JSON.stringify(promediosAntes.map((r) => r?.valor))} · después ${JSON.stringify(promediosDespues.map((r) => r?.valor))}`,
   );
   check(
     "ningún promedio se reporta incompleto con el fixture",
-    panelDespues.ultimosExamenes.every((e) => e.promedioIncompleto === false),
+    promediosDespues.length > 0 &&
+      promediosDespues.every((r) => r?.incompleto === false),
   );
   await pg3.goto(`${BASE}/examenes`);
   await espera3(async () => (await completados(pg3).count()) > 0, 20_000);

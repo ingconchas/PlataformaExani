@@ -65,8 +65,9 @@ function nombreCompleto(p: Doc<"perfiles">): string {
  * que existen respuestas reales sin asignación que las respalde.
  *
  * NO se filtra por `abreEn`: una asignación futura ya compromete el examen, así que
- * basta su EXISTENCIA por `by_examen` (distinto del `metricas.fueAplicada = abreEn <=
- * ahora`, que es «aplicado», no «comprometido»). Cancelarla (LUI-22, solo programadas
+ * basta su EXISTENCIA por `by_examen` (distinto de `metricas.fueAplicada` — «tiene
+ * al menos un intento enviado» desde LUI-30 — que es «aplicado», no «comprometido»).
+ * Cancelarla (LUI-22, solo programadas
  * sin intentos) la ELIMINA y descongela si era el único compromiso — coherente por
  * construcción: la sonda lee filas VIVAS en cada evaluación. Tampoco se filtra el
  * intento por estado: un `en_curso` compromete tanto o más que un `enviado`.

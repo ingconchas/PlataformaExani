@@ -636,12 +636,15 @@ try {
     const m = ((await tarjeta.innerText()) ?? "").match(/\d+/);
     return m ? Number(m[0]) : NaN;
   }
+  // MIGRACIÓN LUI-30: «aplicada» = tiene intentos enviados. SG0·Matutino A es la fila
+  // «asignación sí · intento no» del fixture — el discriminante PERFECTO de la regla
+  // nueva: bajo la vieja («abrió la ventana») contaba y la tarjeta decía 5; ahora NO.
   check(
-    "Matutino A: la TARJETA «Exámenes aplicados» dice 5 (3 previos + SG0 + SG4)",
-    (await metricaExamenesAplicados(pageAdmin, "Matutino A")) === 5,
+    "Matutino A: la TARJETA «Exámenes aplicados» dice 4 (Diag+SG1+SG2+SG4; SG0 sin envíos ya NO cuenta)",
+    (await metricaExamenesAplicados(pageAdmin, "Matutino A")) === 4,
   );
   check(
-    "Vespertino B: la TARJETA «Exámenes aplicados» dice 4 (3 previos + SG4)",
+    "Vespertino B: la TARJETA «Exámenes aplicados» dice 4 (Diag+SG1+SG2+SG4, todas con envíos)",
     (await metricaExamenesAplicados(pageAdmin, "Vespertino B")) === 4,
   );
 

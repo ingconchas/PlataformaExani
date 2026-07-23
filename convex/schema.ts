@@ -462,7 +462,8 @@ export default defineSchema({
     // Desglose CRUDO del cierre (contrato de datos de LUI-27/LUI-6): conteos, no porcentajes
     // — el cociente es presentación y perdería el denominador que hace comparables dos
     // exámenes. Se estampa una sola vez, con los reactivos y respuestas que el cierre ya
-    // tiene en memoria. Consumidor declarado: los resultados del alumno (LUI-28).
+    // tiene en memoria. Consumidores declarados: Resultados del examen del instructor
+    // (LUI-30, vía `resultadosExamen.intentosDe`) y los resultados del alumno (LUI-28).
     aciertosPorSeccion: v.optional(v.array(conteoPorSeccionValidator)),
     aciertosPorArea: v.optional(v.array(conteoPorAreaValidator)),
     // Job del cierre DURABLE (LUI-27): `iniciarIntento` agenda `player.cerrarVencido` para el

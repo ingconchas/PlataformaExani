@@ -592,9 +592,12 @@ try {
     );
     await page.goto(`${BASE}/instructor/examenes/${c2.examenId}/resultados`);
     check(
-      "el placeholder de resultados (LUI-30) renderiza",
+      // Desde LUI-30 la ruta ya no es placeholder: renderiza la pantalla REAL
+      // (encabezado «{examen} — Resultados» + subtítulo del primer intento).
+      "la pantalla de resultados (LUI-30) renderiza",
       await poller(page)(async () =>
-        ((await page.textContent("body")) ?? "").includes("Resultados del examen"),
+        ((await page.textContent("body")) ?? "").includes("— Resultados") &&
+        ((await page.textContent("body")) ?? "").includes("primer intento (diagnóstico)"),
       ),
     );
     await page.goto(`${BASE}/instructor`);
