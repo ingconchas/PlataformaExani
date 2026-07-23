@@ -3223,10 +3223,14 @@ export const borrarEnvioRegistrado = internalMutation({
  * `by_examen_estado`/`tieneResultados` (el hallazgo mayor del 5º dictamen del plan).
  *
  * `lote` acota las eliminaciones de INTENTOS por llamada (el llamador repite hasta
- * `quedan === false` — cursor por lotes); cancela los `cierreJobId` que encuentre (los
- * sembradores de LUI-30 no crean jobs por construcción, pero §5/§5b generan intentos
- * REALES vía player sobre grupos marcados) y ASERTA al final que no queda ningún job de
- * filas marcadas. Idempotente y tolerante a siembras parciales.
+ * `quedan === false` — cursor por lotes). Los JOBS de cierre se cancelan por CONJUNTO
+ * CAPTURADO, no por `cierreJobId`: `finalizarIntento` limpia ese campo sin cancelar el
+ * job, así que un intento real del player (§5/§5b generan intentos vía player sobre
+ * grupos marcados; los sembradores de LUI-30 no crean jobs por construcción) enviado a
+ * mano dejaría un `cerrarVencido` pendiente irrastreable por campo. La pertenencia se
+ * captura ANTES de borrar y la aserción final barre la cola contra ESE conjunto — con
+ * `get(intentoId)` sería vacua: el doc ya no existe (ronda 1 de auditoría de código).
+ * Idempotente y tolerante a siembras parciales.
  */
 export const limpiarGruposLui30 = internalMutation({
   args: {
@@ -3250,6 +3254,46 @@ export const limpiarGruposLui30 = internalMutation({
     const marcados = (await ctx.db.query("grupos").collect()).filter((g) =>
       g.nombre.startsWith(MARCA_E2E_LUI30),
     );
+
+    // ── PRIMERO: capturar la pertenencia y barrer la COLA (ronda 1 de auditoría) ──
+    // `finalizarIntento` limpia `cierreJobId` del intento SIN cancelar el job (el job
+    // vivo hará no-op al disparar): un intento real del player enviado a mano en un
+    // grupo marcado deja un `cerrarVencido` pendiente que el campo ya no referencia.
+    // Por eso la cancelación NO puede depender de `cierreJobId`, y la pertenencia se
+    // captura ANTES de borrar nada — reconstruirla después con `get(intentoId)` es
+    // imposible (el doc ya no existe) y era exactamente el hueco por el que un
+    // huérfano pasaba la aserción. Cancelar un job ya ejecutado/cancelado es no-op ⇒
+    // el barrido es idempotente entre lotes y tolera siembras parciales.
+    const intentosMarcados = new Set<string>();
+    for (const g of marcados) {
+      for (const a of await ctx.db
+        .query("asignaciones")
+        .withIndex("by_grupo", (q) => q.eq("grupoId", g._id))
+        .collect()) {
+        for (const i of await ctx.db
+          .query("intentos")
+          .withIndex("by_asignacion", (q) => q.eq("asignacionId", a._id))
+          .collect()) {
+          intentosMarcados.add(i._id as string);
+        }
+      }
+    }
+    const esCierrePendienteDe = (
+      j: { name: string; state: { kind: string }; args: unknown[] },
+      conjunto: ReadonlySet<string>,
+    ) => {
+      if (!j.name.includes("cerrarVencido") || j.state.kind !== "pending")
+        return false;
+      const arg = j.args[0] as { intentoId?: Id<"intentos"> } | undefined;
+      return arg?.intentoId !== undefined && conjunto.has(arg.intentoId as string);
+    };
+    for (const j of await ctx.db.system.query("_scheduled_functions").collect()) {
+      if (esCierrePendienteDe(j, intentosMarcados)) {
+        await ctx.scheduler.cancel(j._id);
+        conteo.jobsCancelados++;
+      }
+    }
+
     for (const g of marcados) {
       const suyas = await ctx.db
         .query("asignaciones")
@@ -3263,7 +3307,8 @@ export const limpiarGruposLui30 = internalMutation({
         for (const i of intentos) {
           if (borradosIntentos >= lote) {
             // Presupuesto del lote agotado: el llamador repite. Nada quedó a medias —
-            // cada intento se borra con TODAS sus dependencias antes de contar.
+            // cada intento se borra con TODAS sus dependencias antes de contar, y el
+            // barrido de la cola de arriba ya corrió sobre el conjunto COMPLETO.
             return { ...conteo, quedan: true };
           }
           for (const r of await ctx.db
@@ -3280,10 +3325,9 @@ export const limpiarGruposLui30 = internalMutation({
             await ctx.db.delete(p._id);
             conteo.posiciones++;
           }
-          if (i.cierreJobId) {
-            await ctx.scheduler.cancel(i.cierreJobId);
-            conteo.jobsCancelados++;
-          }
+          // Redundante con el barrido (un job aún referenciado por el campo también
+          // está en `intentosMarcados`) — se conserva porque es gratis y explícito.
+          if (i.cierreJobId) await ctx.scheduler.cancel(i.cierreJobId);
           await ctx.db.delete(i._id);
           conteo.intentos++;
           borradosIntentos++;
@@ -3309,24 +3353,14 @@ export const limpiarGruposLui30 = internalMutation({
       conteo.grupos++;
     }
 
-    // Aserción de cierre: ningún job pendiente apunta a un intento de grupo marcado
-    // (todos los intentos marcados ya no existen ⇒ un job suyo sería huérfano nuestro).
-    const jobs = await ctx.db.system.query("_scheduled_functions").collect();
-    for (const j of jobs) {
-      if (!j.name.includes("cerrarVencido") || j.state.kind !== "pending")
-        continue;
-      const arg = j.args[0] as { intentoId?: Id<"intentos"> } | undefined;
-      const intento = arg?.intentoId ? await ctx.db.get(arg.intentoId) : null;
-      if (intento && intento.asignacionId) {
-        const a = await ctx.db.get(intento.asignacionId);
-        if (a?.grupoId) {
-          const g = await ctx.db.get(a.grupoId);
-          if (g?.nombre.startsWith(MARCA_E2E_LUI30)) {
-            throw new Error(
-              "Limpieza incompleta: queda un cierre durable de un grupo marcado.",
-            );
-          }
-        }
+    // Aserción de cierre sobre el CONJUNTO CAPTURADO (no sobre `get(intentoId)`, que a
+    // estas alturas siempre es null): tras cancelar y borrar, ningún `cerrarVencido`
+    // pendiente puede seguir apuntando a un intento que fue de un grupo marcado.
+    for (const j of await ctx.db.system.query("_scheduled_functions").collect()) {
+      if (esCierrePendienteDe(j, intentosMarcados)) {
+        throw new Error(
+          "Limpieza incompleta: queda un cierre durable de un intento marcado.",
+        );
       }
     }
     return { ...conteo, quedan: false };

@@ -427,6 +427,19 @@ const cA = (a: string, aciertos: number, total: number) => ({ areaId: id(a) as n
   check("…pero el promedio SÍ lo cuenta (proxy del selector)", r.promedio.valor === 881);
 }
 {
+  // ⭐ Cierre legítimo con N===0 (enviado SIN puntaje, desglose vacío como lo estampa el
+  // player): fila «Completado» con «—», cuenta en participación, jamás en el promedio ni
+  // en max/min — el discriminante completo (baja de la ronda 1 de auditoría de código).
+  const q3 = q3Base({
+    diagnosticos: [intento("ana", { puntaje: undefined, aciertosPorSeccion: [], aciertosPorArea: [] })],
+  });
+  const r = derivarResultados(q2Base(), q3, AHORA);
+  if (r.estado !== "datos") throw new Error("datos");
+  check("⭐ enviado sin puntaje: fila «Completado» con puntaje null", r.filas[0].estado === "completado" && r.filas[0].puntaje === null);
+  check("⭐ …cuenta como completó en X, no en el promedio", r.participacion.completaron === 1 && r.promedio.valor === null && !r.promedio.incompleto);
+  check("…ni en mayor/menor puntaje", r.mayorPuntaje === null && r.menorPuntaje === null);
+}
+{
   // ⭐ Cubeta «Sin clasificación vigente»: área cuyo doc no resolvió.
   const q3 = q3Base({
     diagnosticos: [
