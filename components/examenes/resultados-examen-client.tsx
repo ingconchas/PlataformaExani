@@ -440,8 +440,14 @@ function ResultadosCargados({
           />
         </Card>
         <Card>
+          {/* DOS ausencias distintas (media del GO de B): `null` = sin datos agregados
+              («—»); `nombre: null` = la sección EXISTE en la analítica pero su doc fue
+              eliminado — se dice igual que en el acordeón y la tabla, jamás se colapsa
+              a «sin datos». */}
           <span className="text-h3 text-ink" data-mejor-seccion>
-            {r.mejorSeccion?.nombre ?? "—"}
+            {r.mejorSeccion === null
+              ? "—"
+              : (r.mejorSeccion.nombre ?? "Sección eliminada")}
           </span>
           <p className="mt-1 text-small text-muted">Mejor sección del grupo</p>
         </Card>

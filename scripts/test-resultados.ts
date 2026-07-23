@@ -462,6 +462,21 @@ const cA = (a: string, aciertos: number, total: number) => ({ areaId: id(a) as n
   check("⭐ el área fantasma cae en la cubeta final (seccionId null)", cubeta.seccionId === null && cubeta.areas.length === 1 && cubeta.areas[0].nombre === null);
 }
 {
+  // ⭐ Media del GO de B: la «mejor sección» de una clasificación cuyo doc fue ELIMINADO
+  // existe con `nombre: null` y su pct — dos ausencias DISTINTAS de «sin datos» (null).
+  const q3 = q3Base({
+    ordenSecciones: null,
+    diagnosticos: [intento("ana", { aciertosPorSeccion: [cS("sX", 3, 4)], aciertosPorArea: [] })],
+    catalogo: { secciones: [], areas: [] },
+  });
+  const r = derivarResultados(q2Base(), q3, AHORA);
+  if (r.estado !== "datos") throw new Error("datos");
+  check(
+    "⭐ mejor sección con doc eliminado: {nombre: null, pct} — jamás el «—» de sin-datos",
+    r.mejorSeccion !== null && r.mejorSeccion.nombre === null && Math.abs(r.mejorSeccion.pct - 0.75) < 1e-9,
+  );
+}
+{
   // Mejor sección: desempate por pct → orden del catálogo → id; sin datos → null.
   const q3 = q3Base({
     diagnosticos: [intento("ana", { aciertosPorSeccion: [cS("s2", 3, 4), cS("s1", 3, 4)], aciertosPorArea: [] })],

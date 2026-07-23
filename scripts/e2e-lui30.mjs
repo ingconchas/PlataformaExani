@@ -767,7 +767,8 @@ try {
   );
   check(
     "⭐⭐ el payload de Q3 no trae _id de intentos, formaCierre, cierreJobId ni respuestas",
-    !q3Payload.includes("formaCierre") &&
+    !q3Payload.includes('"_id"') &&
+      !q3Payload.includes("formaCierre") &&
       !q3Payload.includes("cierreJobId") &&
       !q3Payload.includes("opcionElegida") &&
       !q3Payload.includes("respuestas"),
