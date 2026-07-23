@@ -3273,11 +3273,12 @@ export const borrarEnvioRegistrado = internalMutation({
  * `lote` acota las eliminaciones de INTENTOS por llamada (el llamador repite hasta
  * `quedan === false` — cursor por lotes). Los JOBS de cierre se cancelan por CONJUNTO
  * CAPTURADO, no por `cierreJobId`: `finalizarIntento` limpia ese campo sin cancelar el
- * job, así que un intento real del player (§5/§5b generan intentos vía player sobre
- * grupos marcados; los sembradores de LUI-30 no crean jobs por construcción) enviado a
- * mano dejaría un `cerrarVencido` pendiente irrastreable por campo. La pertenencia se
- * captura ANTES de borrar y la aserción final barre la cola contra ESE conjunto — con
- * `get(intentoId)` sería vacua: el doc ya no existe (ronda 1 de auditoría de código).
+ * job, así que un intento con job pendiente que se envía «a mano» —los producen §5/§5b
+ * vía player sobre grupos marcados y `sembrarIntentosParaCota` en modo
+ * `conJobHuerfano`; el resto de los sembradores de LUI-30 no agenda jobs— deja un
+ * `cerrarVencido` irrastreable por campo. La pertenencia se captura ANTES de borrar y
+ * la aserción final barre la cola contra ESE conjunto — con `get(intentoId)` sería
+ * vacua: el doc ya no existe (ronda 1 de auditoría de código).
  * Idempotente y tolerante a siembras parciales.
  */
 export const limpiarGruposLui30 = internalMutation({
@@ -3310,8 +3311,10 @@ export const limpiarGruposLui30 = internalMutation({
     // Por eso la cancelación NO puede depender de `cierreJobId`, y la pertenencia se
     // captura ANTES de borrar nada — reconstruirla después con `get(intentoId)` es
     // imposible (el doc ya no existe) y era exactamente el hueco por el que un
-    // huérfano pasaba la aserción. Cancelar un job ya ejecutado/cancelado es no-op ⇒
-    // el barrido es idempotente entre lotes y tolera siembras parciales.
+    // huérfano pasaba la aserción. El filtro `state.kind === "pending"` es lo que hace
+    // el barrido seguro entre lotes: un job ya cancelado o ejecutado NO vuelve a
+    // cancelarse (el contrato de `Scheduler.cancel` no promete idempotencia — cada id
+    // pendiente se cancela EXACTAMENTE una vez).
     const intentosMarcados = new Set<string>();
     for (const g of marcados) {
       for (const a of await ctx.db
