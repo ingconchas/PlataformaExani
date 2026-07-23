@@ -1,4 +1,4 @@
-import { ConvexError, v } from "convex/values";
+import { ConvexError, getConvexSize, v } from "convex/values";
 import {
   internalMutation,
   mutation,
@@ -15,6 +15,13 @@ import { MAX_REACTIVOS } from "./constructorExamen";
 import { lecturaParaEnlace, resolverLectura } from "./lecturaCompat";
 import { sanearMaterial } from "./material";
 import { sanear, textoPlanoAHtml } from "./sanitizar";
+import { proyectarIntento } from "./lecturasAnalitica";
+import {
+  clasificacionesDistintas,
+  derivarResultadoIntento,
+  excedePresupuestoDeCatalogo,
+  type CatalogoClasificaciones,
+} from "./resultados";
 import {
   CODIGO_TIEMPO_AGOTADO,
   MAX_FILAS_MIS_EXAMENES_DIRECTAS,
@@ -897,13 +904,32 @@ export const resultado = query({
     }
 
     const asignacion = i.asignacionId ? await ctx.db.get(i.asignacionId) : null;
-    const titulo =
-      asignacion?.tituloExamen ??
-      (await ctx.db.get(i.examenId))?.titulo ??
-      "Simulacro";
+    const examen = await ctx.db.get(i.examenId);
+    const titulo = asignacion?.tituloExamen ?? examen?.titulo ?? "Simulacro";
+    // Orden DECLARADO de secciones (LUI-21). Examen borrado ⇒ null: las secciones caen al
+    // orden del catálogo, jamás se inventa uno.
+    const ordenSecciones = examen?.secciones?.map((s) => s.seccionId) ?? null;
 
-    return {
-      problema: null,
+    // ¿Hay un repaso VIVO de esta serie? Espejo EXACTO de `CardCompletado.repasoEnCurso` de
+    // «Mis exámenes»: misma sonda, mismo índice. Es un HECHO (existe o no), no un estado de
+    // reloj — quién puede repetir lo decide el cliente con su reloj anclado a `ahoraServidor`
+    // y las fronteras crudas de abajo. Solo aplica a intentos ASIGNADOS: uno directo no tiene
+    // ventana y por tanto no ofrece repaso.
+    const repasoEnCurso = i.asignacionId
+      ? ((
+          await ctx.db
+            .query("intentos")
+            .withIndex("by_asignacion_alumno_estado", (q) =>
+              q
+                .eq("asignacionId", i.asignacionId)
+                .eq("alumnoId", userId)
+                .eq("estado", "en_curso"),
+            )
+            .first()
+        )?._id ?? null)
+      : null;
+
+    const base = {
       intentoId: i._id,
       titulo,
       puntaje: i.puntaje ?? null,
@@ -913,7 +939,59 @@ export const resultado = query({
       asignacionId: i.asignacionId ?? null,
       abreEn: asignacion?.abreEn ?? null,
       cierraEn: asignacion?.cierraEn ?? null,
+      repasoEnCurso,
       ahoraServidor,
+    };
+
+    // ══ DESGLOSE (LUI-28) ══ Mismo procedimiento que `resultadosExamen.intentosDe`, con la
+    // población reducida a un intento: proyección canónica → conjunto distinto de
+    // clasificaciones → catálogo con PARO TEMPRANO por bytes → derivación compartida.
+    //
+    // PRESUPUESTO: 2 docs (sesión) + 1 (intento) + ≤1 (asignación) + 1 (examen) + 1 rango
+    // (sonda de repaso) + gets del catálogo, acotados por la forma del examen: ≤20 secciones
+    // (`MAX_SECCIONES`) + ≤240 áreas (`MAX_REACTIVOS`) = ≤260 ≪ 500
+    // (`MAX_CLASIFICACIONES_RESULTADOS`) y ≪ 4,096 rangos / 32,000 docs. Bytes: sesión ~2 MiB
+    // + intento ≤1 MiB (su desglose ~40 KiB) + catálogo ≤1.5 MiB (paro temprano) ≪ 16 MiB.
+    const proyeccion = proyectarIntento(i);
+    const clas = clasificacionesDistintas([proyeccion], [], ordenSecciones);
+    if (clas.desbordado) {
+      return { ...base, problema: "clasificaciones" as const, desglose: null };
+    }
+
+    let acumulado = 0;
+    const catalogo: CatalogoClasificaciones = { secciones: [], areas: [] };
+    for (const seccionId of clas.seccionIds) {
+      const doc = await ctx.db.get(seccionId);
+      acumulado += doc ? getConvexSize(doc) : 0;
+      if (excedePresupuestoDeCatalogo(acumulado)) {
+        return { ...base, problema: "clasificaciones" as const, desglose: null };
+      }
+      // Un get nulo produce `nombre: null` — fantasma HONESTO: la cubeta «Sin clasificación
+      // vigente» del cliente, jamás «Módulo: undefined».
+      catalogo.secciones.push({
+        seccionId,
+        nombre: doc?.nombre ?? null,
+        orden: doc?.orden ?? null,
+      });
+    }
+    for (const areaId of clas.areaIds) {
+      const doc = await ctx.db.get(areaId);
+      acumulado += doc ? getConvexSize(doc) : 0;
+      if (excedePresupuestoDeCatalogo(acumulado)) {
+        return { ...base, problema: "clasificaciones" as const, desglose: null };
+      }
+      catalogo.areas.push({
+        areaId,
+        nombre: doc?.nombre ?? null,
+        orden: doc?.orden ?? null,
+        seccionId: doc?.seccionId ?? null,
+      });
+    }
+
+    return {
+      ...base,
+      problema: null,
+      desglose: derivarResultadoIntento(proyeccion, catalogo, ordenSecciones),
     };
   },
 });

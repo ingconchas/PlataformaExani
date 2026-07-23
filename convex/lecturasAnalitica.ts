@@ -1,7 +1,39 @@
 import { type QueryCtx } from "./_generated/server";
 import { type Doc, type Id } from "./_generated/dataModel";
 import { MAX_INTENTOS_PANEL_POR_ASIGNACION } from "./simulacro";
-import { corteDePagina, INTENTOS_BYTES_RESULTADOS } from "./resultados";
+import {
+  corteDePagina,
+  INTENTOS_BYTES_RESULTADOS,
+  type IntentoCrudoResultados,
+} from "./resultados";
+
+/**
+ * Proyección de un intento hacia el cliente — SOLO los campos del contrato
+ * `IntentoCrudoResultados`; los opcionales ausentes se OMITEN (no viajan `null`s, que
+ * `metaDe`-style tendrían que distinguirse de «ausente»).
+ *
+ * Vive aquí, junto al lector canónico, porque la usan DOS pantallas con poblaciones
+ * distintas: `resultadosExamen.intentosDe` (la asignación completa, LUI-30) y
+ * `player.resultado` (UN intento, LUI-28). Si cada una proyectara por su cuenta, bastaría
+ * con que una olvidara `aciertosPorArea` para que el acordeón de la alumna y el de su
+ * instructor dejaran de coincidir sin que nada fallara.
+ */
+export function proyectarIntento(d: Doc<"intentos">): IntentoCrudoResultados {
+  return {
+    alumnoId: d.alumnoId,
+    estado: d.estado,
+    ...(d.numeroIntento !== undefined ? { numeroIntento: d.numeroIntento } : {}),
+    iniciadoEn: d.iniciadoEn,
+    ...(d.enviadoEn !== undefined ? { enviadoEn: d.enviadoEn } : {}),
+    ...(d.puntaje !== undefined ? { puntaje: d.puntaje } : {}),
+    ...(d.aciertosPorSeccion !== undefined
+      ? { aciertosPorSeccion: d.aciertosPorSeccion }
+      : {}),
+    ...(d.aciertosPorArea !== undefined
+      ? { aciertosPorArea: d.aciertosPorArea }
+      : {}),
+  };
+}
 
 /**
  * Lectura CANÓNICA de los intentos-para-analítica de una asignación (LUI-30, plan v5-M1).

@@ -17,12 +17,11 @@ import {
   excedePresupuestoDeCatalogo,
   type AsignacionDeResultados,
   type CatalogoClasificaciones,
-  type IntentoCrudoResultados,
   type ResultadosQ1,
   type ResultadosQ2,
   type ResultadosQ3,
 } from "./resultados";
-import { leerIntentosParaAnalitica } from "./lecturasAnalitica";
+import { leerIntentosParaAnalitica, proyectarIntento } from "./lecturasAnalitica";
 import { fechaCortaConAnioMx } from "./fechas";
 
 /**
@@ -93,24 +92,6 @@ async function autorizarAsignacionDeGrupo(
   return { esAdmin, asignacion, grupo };
 }
 
-/** Proyección de un intento hacia el cliente — SOLO los campos del contrato
- *  `IntentoCrudoResultados`; los opcionales ausentes se OMITEN (no viajan `null`s). */
-function proyectarIntento(d: Doc<"intentos">): IntentoCrudoResultados {
-  return {
-    alumnoId: d.alumnoId,
-    estado: d.estado,
-    ...(d.numeroIntento !== undefined ? { numeroIntento: d.numeroIntento } : {}),
-    iniciadoEn: d.iniciadoEn,
-    ...(d.enviadoEn !== undefined ? { enviadoEn: d.enviadoEn } : {}),
-    ...(d.puntaje !== undefined ? { puntaje: d.puntaje } : {}),
-    ...(d.aciertosPorSeccion !== undefined
-      ? { aciertosPorSeccion: d.aciertosPorSeccion }
-      : {}),
-    ...(d.aciertosPorArea !== undefined
-      ? { aciertosPorArea: d.aciertosPorArea }
-      : {}),
-  };
-}
 
 /**
  * Q1 — encabezado + selector: el examen y TODAS sus asignaciones de grupo, CRUDAS

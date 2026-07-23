@@ -463,6 +463,180 @@ export type SeccionDeAcordeon = {
   areas: AreaDeAcordeon[];
 };
 
+/** Comparador de strings estable (ids y claves). Módulo-nivel para que lo compartan
+ *  `derivarResultados` y `construirAcordeon`. */
+const cmpStr = (x: string, y: string) => (x < y ? -1 : x > y ? 1 : 0);
+
+/** Lo que `construirAcordeon` necesita de `agregarDesgloses` (y nada más). */
+export type AgregadoDeDesgloses = {
+  porSeccion: ReadonlyMap<SeccionId, { aciertos: number; total: number }>;
+  porArea: ReadonlyMap<AreaId, { aciertos: number; total: number }>;
+};
+
+/**
+ * El acordeón «sección → áreas» a partir de un agregado ya calculado.
+ *
+ * ══ POR QUÉ ES UNA FUNCIÓN Y NO CÓDIGO DENTRO DE `derivarResultados` ══
+ *
+ * Lo consumen DOS pantallas que muestran las mismas cifras a personas distintas:
+ * Resultados del examen del instructor (LUI-30, agregado de toda la asignación) y
+ * Resultados del simulacro de la alumna (LUI-28, UN intento). Si cada una construyera su
+ * acordeón, un día el porcentaje del área «Álgebra» diría 58 % en la pantalla de Fernanda y
+ * 59 % en la de su instructor, y ninguno de los dos podría saber cuál mentía. Con una sola
+ * implementación esa divergencia es inexpresable.
+ *
+ * Reglas que conserva intactas (eran de `derivarResultados`): secciones en el orden de
+ * columnas; áreas agrupadas por el `seccionId` de su doc de catálogo; un área cuyo doc no
+ * resolvió, o cuya sección no está entre las columnas, cae en la CUBETA final «Sin
+ * clasificación vigente» (`seccionId: null`) — honesto, jamás heredando una sección
+ * inventada. Órdenes TOTALES: áreas por `orden` (null al final) → `areaId`.
+ */
+export function construirAcordeon(
+  agregado: AgregadoDeDesgloses,
+  catalogo: CatalogoClasificaciones,
+  ordenColumnas: readonly SeccionId[],
+): SeccionDeAcordeon[] {
+  const seccionPorId = new Map(catalogo.secciones.map((s) => [s.seccionId, s]));
+  const areaPorId = new Map(catalogo.areas.map((a) => [a.areaId, a]));
+
+  const areasAgregadas = [...agregado.porArea.entries()].map(
+    ([areaId, conteo]) => {
+      const cat = areaPorId.get(areaId);
+      return {
+        areaId,
+        nombre: cat?.nombre ?? null,
+        seccionId: cat?.seccionId ?? null,
+        orden: cat?.orden ?? null,
+        aciertos: conteo.aciertos,
+        total: conteo.total,
+        pct: conteo.total > 0 ? conteo.aciertos / conteo.total : 0,
+      };
+    },
+  );
+  const areaDeAcordeon = (a: (typeof areasAgregadas)[number]): AreaDeAcordeon => ({
+    areaId: a.areaId,
+    nombre: a.nombre,
+    aciertos: a.aciertos,
+    total: a.total,
+    pct: a.pct,
+    reforzar: a.pct < UMBRAL_REFUERZO_AREA,
+  });
+  const ordenAreas = (
+    x: (typeof areasAgregadas)[number],
+    y: (typeof areasAgregadas)[number],
+  ) => {
+    const ox = x.orden ?? Number.POSITIVE_INFINITY;
+    const oy = y.orden ?? Number.POSITIVE_INFINITY;
+    return ox !== oy ? ox - oy : cmpStr(x.areaId, y.areaId);
+  };
+
+  const enColumnas = new Set(ordenColumnas);
+  const acordeon: SeccionDeAcordeon[] = ordenColumnas.map((seccionId) => {
+    const conteo = agregado.porSeccion.get(seccionId);
+    return {
+      seccionId,
+      nombre: seccionPorId.get(seccionId)?.nombre ?? null,
+      pct: conteo && conteo.total > 0 ? conteo.aciertos / conteo.total : null,
+      areas: areasAgregadas
+        .filter((a) => a.seccionId !== null && a.seccionId === seccionId)
+        .sort(ordenAreas)
+        .map(areaDeAcordeon),
+    };
+  });
+  const huerfanas = areasAgregadas
+    .filter((a) => a.seccionId === null || !enColumnas.has(a.seccionId))
+    .sort(ordenAreas)
+    .map(areaDeAcordeon);
+  if (huerfanas.length > 0) {
+    acordeon.push({ seccionId: null, nombre: null, pct: null, areas: huerfanas });
+  }
+  return acordeon;
+}
+
+/**
+ * Orden TOTAL de las secciones: las DECLARADAS por el examen (LUI-21) primero y en su orden,
+ * luego las demás que aparecieron en los desgloses, por `orden` del catálogo (null al final)
+ * → id.
+ *
+ * Compartido por las dos pantallas por la misma razón que `construirAcordeon`: si la alumna
+ * viera «Comprensión lectora» antes que «Pensamiento matemático» y su instructor al revés,
+ * comparar las dos pantallas de un mismo examen sería un ejercicio de traducción.
+ */
+export function ordenDeColumnas(
+  agregado: AgregadoDeDesgloses,
+  catalogo: CatalogoClasificaciones,
+  ordenSecciones: readonly SeccionId[] | null,
+): SeccionId[] {
+  const seccionPorId = new Map(catalogo.secciones.map((s) => [s.seccionId, s]));
+  const declaradas = ordenSecciones ?? [];
+  const restantes = [...agregado.porSeccion.keys()]
+    .filter((id) => !declaradas.includes(id))
+    .sort((x, y) => {
+      const ox = seccionPorId.get(x)?.orden ?? Number.POSITIVE_INFINITY;
+      const oy = seccionPorId.get(y)?.orden ?? Number.POSITIVE_INFINITY;
+      return ox !== oy ? ox - oy : cmpStr(x, y);
+    });
+  return [...new Set([...declaradas, ...restantes])];
+}
+
+/** Fila de «Aciertos por sección» (LUI-28): conteos CRUDOS + su fracción. El cociente no
+ *  sustituye al par — «22 de 30» y «73 %» dicen cosas distintas y la pantalla muestra ambas. */
+export type SeccionDeResultado = {
+  seccionId: SeccionId;
+  nombre: string | null;
+  aciertos: number;
+  total: number;
+  /** Fracción 0..1; `null` cuando la sección no aportó reactivos (denominador 0). */
+  pct: number | null;
+};
+
+export type ResultadoIntentoDerivado = {
+  secciones: SeccionDeResultado[];
+  acordeon: SeccionDeAcordeon[];
+  /** El intento se envió ANTES de que existiera el estampado (LUI-27): no hay desglose que
+   *  mostrar y la pantalla lo DICE, en vez de pintar ceros que parecerían un examen reprobado. */
+  sinDesglose: boolean;
+};
+
+/**
+ * La pantalla de Resultados de la ALUMNA (LUI-28) a partir de UN intento ya enviado.
+ *
+ * Es la misma derivación que hace `derivarResultados` para toda una asignación, con la
+ * población reducida a un solo intento: reusa `agregarDesgloses`, `ordenDeColumnas` y
+ * `construirAcordeon` sin variantes. Esa reutilización literal es la garantía de que el
+ * porcentaje del área «Álgebra» que ve Fernanda es exactamente el que ve su instructor.
+ *
+ * NO recibe el reloj: nada de esta pantalla depende del tiempo (la ventana del repaso se
+ * deriva aparte, en el cliente, con el reloj anclado).
+ */
+export function derivarResultadoIntento(
+  intento: IntentoCrudoResultados,
+  catalogo: CatalogoClasificaciones,
+  ordenSecciones: readonly SeccionId[] | null,
+): ResultadoIntentoDerivado {
+  const agregado = agregarDesgloses([intento]);
+  if (agregado.sinDesglose > 0) {
+    return { secciones: [], acordeon: [], sinDesglose: true };
+  }
+  const ordenColumnas = ordenDeColumnas(agregado, catalogo, ordenSecciones);
+  const seccionPorId = new Map(catalogo.secciones.map((s) => [s.seccionId, s]));
+  const secciones: SeccionDeResultado[] = ordenColumnas.map((seccionId) => {
+    const conteo = agregado.porSeccion.get(seccionId) ?? { aciertos: 0, total: 0 };
+    return {
+      seccionId,
+      nombre: seccionPorId.get(seccionId)?.nombre ?? null,
+      aciertos: conteo.aciertos,
+      total: conteo.total,
+      pct: conteo.total > 0 ? conteo.aciertos / conteo.total : null,
+    };
+  });
+  return {
+    secciones,
+    acordeon: construirAcordeon(agregado, catalogo, ordenColumnas),
+    sinDesglose: false,
+  };
+}
+
 export type ProblemaResultados = "roster" | "intentos" | "clasificaciones";
 
 export type ResultadosDerivados =
@@ -557,24 +731,14 @@ export function derivarResultados(
 
   const agregado = agregarDesgloses(seleccionados);
 
-  // Catálogo indexado.
+  // Catálogo indexado (las áreas las indexa `construirAcordeon`, que es quien las agrupa).
   const seccionPorId = new Map(
     q3.catalogo.secciones.map((s) => [s.seccionId, s]),
   );
-  const areaPorId = new Map(q3.catalogo.areas.map((a) => [a.areaId, a]));
 
   // Columnas: `ordenSecciones` declarado primero, luego el resto de las agregadas por
   // `orden` del catálogo (null al final) → id. Orden TOTAL y estable.
-  const cmpStr = (x: string, y: string) => (x < y ? -1 : x > y ? 1 : 0);
-  const declaradas = q3.ordenSecciones ?? [];
-  const restantes = [...agregado.porSeccion.keys()]
-    .filter((id) => !declaradas.includes(id))
-    .sort((x, y) => {
-      const ox = seccionPorId.get(x)?.orden ?? Number.POSITIVE_INFINITY;
-      const oy = seccionPorId.get(y)?.orden ?? Number.POSITIVE_INFINITY;
-      return ox !== oy ? ox - oy : cmpStr(x, y);
-    });
-  const ordenColumnas = [...new Set([...declaradas, ...restantes])];
+  const ordenColumnas = ordenDeColumnas(agregado, q3.catalogo, q3.ordenSecciones);
   const columnas: ColumnaSeccion[] = ordenColumnas.map((seccionId) => ({
     seccionId,
     nombre: seccionPorId.get(seccionId)?.nombre ?? null,
@@ -626,60 +790,8 @@ export function derivarResultados(
       };
     });
 
-  // Acordeón: secciones en el orden de columnas; áreas agrupadas por el `seccionId` de su
-  // doc de catálogo. Un área cuyo doc no resolvió (`nombre === null` sin `seccionId`) o
-  // cuya sección no está entre las columnas cae en la CUBETA final «Sin clasificación
-  // vigente» — honesto, jamás heredando una sección inventada.
-  const areasAgregadas = [...agregado.porArea.entries()].map(
-    ([areaId, conteo]) => {
-      const cat = areaPorId.get(areaId);
-      return {
-        areaId,
-        nombre: cat?.nombre ?? null,
-        seccionId: cat?.seccionId ?? null,
-        orden: cat?.orden ?? null,
-        aciertos: conteo.aciertos,
-        total: conteo.total,
-        pct: conteo.total > 0 ? conteo.aciertos / conteo.total : 0,
-      };
-    },
-  );
-  const areaDeAcordeon = (a: (typeof areasAgregadas)[number]): AreaDeAcordeon => ({
-    areaId: a.areaId,
-    nombre: a.nombre,
-    aciertos: a.aciertos,
-    total: a.total,
-    pct: a.pct,
-    reforzar: a.pct < UMBRAL_REFUERZO_AREA,
-  });
-  const ordenAreas = (
-    x: (typeof areasAgregadas)[number],
-    y: (typeof areasAgregadas)[number],
-  ) => {
-    const ox = x.orden ?? Number.POSITIVE_INFINITY;
-    const oy = y.orden ?? Number.POSITIVE_INFINITY;
-    return ox !== oy ? ox - oy : cmpStr(x.areaId, y.areaId);
-  };
-  const enColumnas = new Set(ordenColumnas);
-  const acordeon: SeccionDeAcordeon[] = ordenColumnas.map((seccionId) => {
-    const conteo = agregado.porSeccion.get(seccionId);
-    return {
-      seccionId,
-      nombre: seccionPorId.get(seccionId)?.nombre ?? null,
-      pct: conteo && conteo.total > 0 ? conteo.aciertos / conteo.total : null,
-      areas: areasAgregadas
-        .filter((a) => a.seccionId !== null && a.seccionId === seccionId)
-        .sort(ordenAreas)
-        .map(areaDeAcordeon),
-    };
-  });
-  const huerfanas = areasAgregadas
-    .filter((a) => a.seccionId === null || !enColumnas.has(a.seccionId))
-    .sort(ordenAreas)
-    .map(areaDeAcordeon);
-  if (huerfanas.length > 0) {
-    acordeon.push({ seccionId: null, nombre: null, pct: null, areas: huerfanas });
-  }
+  // Acordeón: MISMA construcción que la de la alumna (LUI-28) — ver `construirAcordeon`.
+  const acordeon = construirAcordeon(agregado, q3.catalogo, ordenColumnas);
 
   // Mejor sección: max pct agregado; desempate pct desc → `orden` asc (null al final) → id.
   let mejorSeccion: { seccionId: SeccionId; nombre: string | null; pct: number } | null =
