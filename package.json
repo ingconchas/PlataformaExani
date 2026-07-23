@@ -18,6 +18,7 @@
     "test:simulacro": "tsx scripts/test-simulacro.ts",
     "test:mis-examenes": "tsx scripts/test-mis-examenes.ts",
     "test:resultados": "tsx scripts/test-resultados.ts",
+    "test:resumen": "tsx scripts/test-resumen.ts",
     "test:imagenes": "node scripts/test-imagenes.mjs",
     "e2e:lui9": "node scripts/e2e-lui9.mjs",
     "e2e:lui14": "node scripts/e2e-lui14.mjs",
@@ -31,6 +32,7 @@
     "e2e:lui22": "node scripts/e2e-lui22.mjs",
     "e2e:lui26": "node scripts/e2e-lui26.mjs",
     "e2e:lui30": "node scripts/e2e-lui30.mjs",
+    "e2e:lui32": "node scripts/e2e-lui32.mjs",
     "e2e:lui103": "node scripts/e2e-lui103.mjs"
   },
   "engines": {

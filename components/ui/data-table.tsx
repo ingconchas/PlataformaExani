@@ -1,4 +1,7 @@
-import { type Key, type ReactNode } from "react";
+"use client";
+
+import { type Key, type MouseEvent, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
 import { ChevronUp, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -32,6 +35,13 @@ type DataTableProps = {
   emptyTitle?: string;
   emptyText?: string;
   emptyAction?: ReactNode;
+  /**
+   * Navegación de fila (LUI-32): si devuelve una URL, la fila entera se vuelve accionable
+   * como MEJORA PROGRESIVA sobre el enlace canónico que ya vive en una celda (un `<Link>`
+   * real). El onClick IGNORA los clics originados en un `<a>`/`<button>` interno (sin doble
+   * navegación). Ausente ⇒ comportamiento idéntico.
+   */
+  rowHref?: (row: DataTableRow) => string | undefined;
 };
 
 export function DataTable({
@@ -47,7 +57,9 @@ export function DataTable({
   emptyTitle = "Sin resultados",
   emptyText,
   emptyAction,
+  rowHref,
 }: DataTableProps) {
+  const router = useRouter();
   if (rows.length === 0) {
     return (
       <div className="rounded-card border border-border bg-surface p-10 text-center shadow-card">
@@ -104,22 +116,42 @@ export function DataTable({
             </tr>
           </thead>
           <tbody>
-            {rows.map((row, i) => (
-              <tr key={getRowKey(row, i)} className="transition-colors hover:bg-bg">
-                {columns.map((c) => (
-                  <td
-                    key={c.key}
-                    className={cn(
-                      "px-4 py-3.5 align-middle text-body",
-                      i === rows.length - 1 ? "" : "border-b border-border",
-                      align(c),
-                    )}
-                  >
-                    {row[c.key]}
-                  </td>
-                ))}
-              </tr>
-            ))}
+            {rows.map((row, i) => {
+              const href = rowHref?.(row);
+              return (
+                <tr
+                  key={getRowKey(row, i)}
+                  className={cn(
+                    "transition-colors hover:bg-bg",
+                    href && "cursor-pointer",
+                  )}
+                  {...(href
+                    ? {
+                        onClick: (e: MouseEvent<HTMLTableRowElement>) => {
+                          // Mejora progresiva: si el clic salió de un enlace/botón interno
+                          // (el <Link> canónico de la celda), ese enlace ya navega — no
+                          // dupliques la navegación.
+                          if ((e.target as HTMLElement).closest("a,button")) return;
+                          router.push(href);
+                        },
+                      }
+                    : {})}
+                >
+                  {columns.map((c) => (
+                    <td
+                      key={c.key}
+                      className={cn(
+                        "px-4 py-3.5 align-middle text-body",
+                        i === rows.length - 1 ? "" : "border-b border-border",
+                        align(c),
+                      )}
+                    >
+                      {row[c.key]}
+                    </td>
+                  ))}
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

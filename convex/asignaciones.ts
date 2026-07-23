@@ -8,10 +8,12 @@ import {
   MAX_ASIGNACIONES_POR_EXAMEN,
   MAX_ASIGNACIONES_VIVAS_POR_ALUMNA,
   MAX_ASIGNACIONES_VIVAS_POR_GRUPO,
+  MAX_HISTORIAL_ASIGNACIONES_GRUPO,
   camposDestino,
   destinoDeFila,
   destinoValidator,
   validarCapacidad,
+  validarCapacidadHistorialGrupo,
   validarCapacidadVivas,
   validarCapacidadVivasAlumna,
   validarDestinoCrudo,
@@ -98,6 +100,16 @@ const MAX_PAGINA = 50;
  *
  * Devuelve lo que el toast necesita, formateado en el SERVIDOR (la zona MX es regla de
  * negocio, precedente `panel.resumen`): `{ asignaciones, alumnos, rango }`.
+ *
+ * ══ PRESUPUESTO INCREMENTAL de la sonda histórica (LUI-32) ══ La cota de historial (paso
+ * 5b-bis) AÑADE, sobre la máxima rama válida (`todosLosGrupos`, ≤20 grupos), a lo más 20
+ * rangos y ≤20 × (100 + 1) = 2,020 documentos de asignación bajo la forma acotada por
+ * escritura (`tituloExamen ≤160` es el único string; ~1.5 KiB/doc ⇒ ~1.4 MiB). Esto es
+ * solo el DELTA nuevo: la mutation conserva lecturas SIN frontera contractual —
+ * `todosLosGrupos` colecciona la tabla de grupos, cada roster usa `.collect()`
+ * (`alumnos.ts`) y `validarPublicable` colecciona el temario (`examenGuardado.ts`)—, la
+ * misma deuda de lecturas acumulativas declarada en `MAX_ASIGNACIONES_POR_EXAMEN`. El
+ * refactor de esas lecturas es deuda aparte; aquí solo se acota lo que se añade.
  */
 export const asignar = mutation({
   args: {
@@ -208,6 +220,12 @@ export const asignar = mutation({
     // `grupos` (la cota no puede existir solo en la rama equivalente). Sonda
     // acotada sobre `by_grupo_cierra` (`cierraEn > ahora` = no cerradas); esta
     // frontera es la que hace DEMOSTRABLE la lectura del panel del instructor.
+    //
+    // 5b-bis. COTA DE HISTORIAL por grupo (LUI-32): además de las vivas, el conteo
+    // acotado de TODO el historial (`by_grupo … take(MAX + 1)`), en AMBAS ramas.
+    // Es la frontera que hace demostrable la lectura por bloque del Resumen de
+    // exámenes: con ≤100 aplicaciones por grupo, su `take(101)` ve el historial
+    // completo o declara «Datos incompletos», jamás un prefijo silencioso.
     for (const g of gruposDestino) {
       const vivas = await ctx.db
         .query("asignaciones")
@@ -216,6 +234,12 @@ export const asignar = mutation({
         )
         .take(MAX_ASIGNACIONES_VIVAS_POR_GRUPO + 1);
       validarCapacidadVivas(g.nombre, vivas.length);
+
+      const historial = await ctx.db
+        .query("asignaciones")
+        .withIndex("by_grupo", (q) => q.eq("grupoId", g._id))
+        .take(MAX_HISTORIAL_ASIGNACIONES_GRUPO + 1);
+      validarCapacidadHistorialGrupo(g.nombre, historial.length);
     }
 
     // 5c. COTA DE VIVAS por ALUMNA (LUI-25), gemela de la anterior sobre

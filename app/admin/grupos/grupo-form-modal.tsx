@@ -146,6 +146,15 @@ export function GrupoFormModal({
               placeholder="2026-B"
               autoComplete="off"
             />
+            {/* Aviso de la reparación única `undefined → ciclo` (LUI-32): al fijar el ciclo
+                de un grupo legado que no lo traía, su historial queda atribuido a ese ciclo
+                y el valor ya no podrá cambiarse. */}
+            {grupo !== null && grupo.ciclo === null && (
+              <p className="mt-1.5 text-caption text-muted">
+                Al guardar, el historial de este grupo quedará atribuido a este
+                ciclo y el ciclo ya no podrá cambiarse.
+              </p>
+            )}
           </div>
           <Select
             label="Turno"
