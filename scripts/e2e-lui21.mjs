@@ -935,7 +935,12 @@ try {
     pgA.url() === urlAdmin,
     pgA.url(),
   );
-  const actuales = await pgA.locator("[aria-current='page']").count();
+  // Alcance: el ASIDE de escritorio. Desde LUI-19 la navegación vive DOS veces en el DOM
+  // (aside + drawer <dialog> móvil — un dialog CERRADO conserva sus hijos en el DOM), así
+  // que contar `[aria-current]` en toda la página da siempre 2: el check quedó roto en
+  // `main` (verificado con A/B contra main puro, ciclo de LUI-30). La intención —una sola
+  // entrada activa POR COPIA de la navegación— se conserva; el conteo de la suite no cambia.
+  const actuales = await pgA.locator("aside [aria-current='page']").count();
   check("un solo `aria-current` en la navegación admin", actuales === 1, `hay ${actuales}`);
   await ctxAdmin.close();
 } catch (e) {

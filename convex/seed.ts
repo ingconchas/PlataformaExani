@@ -1,4 +1,4 @@
-import { internalMutation } from "./_generated/server";
+import { internalMutation, type MutationCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { v } from "convex/values";
@@ -13,7 +13,13 @@ import {
   type EstadoExamen,
   type TipoExamen,
 } from "./examenEstado";
-import { limiteDe } from "./simulacro";
+import {
+  calcularPuntaje,
+  desglosePorClasificacion,
+  limiteDe,
+  type ConteoPorArea,
+  type ConteoPorSeccion,
+} from "./simulacro";
 
 /**
  * Datos de PRUEBA (ficticios) para desarrollo local.
@@ -64,6 +70,15 @@ const MARGEN_ENCURSO_MS = 15 * 60_000;
 /** Namespace de los grupos TEMPORALES del E2E del player (§14, «solo futuras»). Igual que
  *  `MARCA_COTA_LUI19`: la limpieza solo toca lo que empieza así. */
 const MARCA_E2E_PLAYER = "[E2E LUI-26]";
+
+/** Namespace de TODO lo temporal del E2E de LUI-30 (grupos, perfiles, clasificaciones).
+ *  Sus limpiezas (`limpiarGruposLui30` / `limpiarPerfilesLui30` /
+ *  `limpiarClasificacionesMarcadas`) borran FÍSICAMENTE y solo dentro de este namespace. */
+const MARCA_E2E_LUI30 = "[E2E LUI-30]";
+/** Correos de los users SINTÉTICOS de `sembrarPerfilesParaCota`: UNO nuevo por perfil,
+ *  jamás un userId real ni compartido. `@invalido.local` no puede pertenecer a nadie. */
+const CORREO_E2E_LUI30 = (n: number) => `e2e-lui30-${n}@invalido.local`;
+const CORREO_E2E_LUI30_RE = /^e2e-lui30-\d+@invalido\.local$/;
 const nombreCompleto = (nombre: string, apellidos: string) =>
   [nombre, apellidos].filter(Boolean).join(" ");
 
@@ -724,10 +739,15 @@ const ASIGNACIONES: {
   cuando: Cuando;
   /** "activasDelGrupo" = todas las alumnas activas del grupo; [] = nadie la presentó. */
   presentan: "activasDelGrupo" | string[];
-  /** Correo de quien REINTENTÓ: 2º intento con +150 pts (caza promediar todos). */
+  /** Correo de quien REINTENTÓ: 2º intento estrictamente MEJOR (caza promediar todos). */
   reintenta?: string;
   /** Correo de quien tiene un intento `en_curso` SIN puntaje (caza el NaN). */
   enCurso?: string;
+  /** Correo cuyo enviado se siembra como LEGADO pre-LUI-104/27 (`numeroIntento` ausente,
+   *  SIN desglose, CON puntaje alcanzable): el discriminante del proxy del selector
+   *  canónico y del flag `desgloseIncompleto` de LUI-30. Solo en asignaciones CERRADAS
+   *  (no toca los oráculos de lui9/lui19/lui26). */
+  legado?: string;
 }[] = [
   // Mes pasado (2): historia. NO cuentan en «este mes» — si falta el filtro de
   // mes, la métrica sale 9 en vez de 7.
@@ -757,22 +777,45 @@ const ASIGNACIONES: {
   { examen: "Simulacro General 0", grupo: "Matutino A", cuando: "cerrada", presentan: [] },
   // SG4 CON intentos: tras archivarlo en el E2E es «archivado con resultados».
   { examen: "Simulacro General 4", grupo: "Matutino A", cuando: "cerrada", presentan: "activasDelGrupo" },
-  { examen: "Simulacro General 4", grupo: "Vespertino B", cuando: "cerrada", presentan: "activasDelGrupo" },
+  { examen: "Simulacro General 4", grupo: "Vespertino B", cuando: "cerrada", presentan: "activasDelGrupo", legado: "regina.avila@correo.com" },
 ];
 
-/**
- * Puntaje EXANI ficticio pero ESTABLE: hash determinista de (examen, grupo,
- * alumna) en la escala 700–1300. Nada de `Math.random()`: reescribiría puntajes
- * distintos en cada corrida y volvería ruidoso el demo — este archivo CONVERGE,
- * no aleatoriza.
- *
- * ⚠️ NO implementa la fórmula real del PRD (`700 + aciertos × 600 ÷ N`): eso es de
- * la Fase 5 (LUI-26/27/28). Aquí solo hacen falta números plausibles en rango.
- */
-function puntajeDemo(clave: string): number {
+/** El hash 31 determinista del seed (nada de `Math.random()`: este archivo CONVERGE). */
+function hashDemo(clave: string): number {
   let h = 0;
   for (let i = 0; i < clave.length; i++) h = (h * 31 + clave.charCodeAt(i)) >>> 0;
-  return 700 + (h % 601);
+  return h;
+}
+
+/**
+ * ACIERTOS ficticios pero ESTABLES de un intento: hash determinista de (examen, grupo,
+ * alumna) en `[0..n]`. Sustituye al viejo `puntajeDemo` (LUI-30): aquel elegía un puntaje
+ * arbitrario en 700–1300 que con N reactivos podía ser INALCANZABLE (solo existen N+1
+ * puntajes posibles) — el CA «las cifras coinciden con las del alumno» y la réplica del
+ * promedio lo habrían delatado. Ahora el fixture elige ACIERTOS y el puntaje sale de la
+ * fórmula real (`calcularPuntaje`), exactamente como en producción.
+ */
+function aciertosDemo(clave: string, n: number): number {
+  return n <= 0 ? 0 : hashDemo(clave) % (n + 1);
+}
+
+/**
+ * El SUBCONJUNTO de reactivos correctos de un intento sembrado: ventana CIRCULAR estable
+ * sobre el orden de los vivos (`inicio = hash % n`, `aciertos` consecutivos con wrap).
+ * Determinista mientras la membresía del examen no cambie — así el desglose por
+ * sección/área que produce `desglosePorClasificacion` converge entre corridas.
+ */
+function correctasDemo(
+  vivos: readonly { id: Id<"reactivos"> }[],
+  aciertos: number,
+  clave: string,
+): Set<string> {
+  const correctas = new Set<string>();
+  const n = vivos.length;
+  if (n === 0 || aciertos <= 0) return correctas;
+  const inicio = hashDemo(clave) % n;
+  for (let k = 0; k < aciertos; k++) correctas.add(vivos[(inicio + k) % n].id);
+  return correctas;
 }
 
 /**
@@ -1519,6 +1562,28 @@ export const cargarDatosDePrueba = internalMutation({
       cierraEn: number | null;
     }[] = [];
 
+    // Reactivos VIVOS con su clasificación, por examen (cache de una pasada): el insumo de
+    // `desglosePorClasificacion` y del `n` de `calcularPuntaje` — EXACTAMENTE el mismo
+    // recorte que hace `finalizarIntento` (los fantasmas no cuentan como pregunta).
+    const vivosPorExamen = new Map<
+      string,
+      { id: Id<"reactivos">; seccionId: Id<"secciones">; areaId: Id<"areasTematicas"> }[]
+    >();
+    const vivosDe = async (
+      exId: Id<"examenes">,
+      reactivoIds: Id<"reactivos">[],
+    ) => {
+      const clave = exId as string;
+      const cacheado = vivosPorExamen.get(clave);
+      if (cacheado) return cacheado;
+      const docs = await Promise.all(reactivoIds.map((rid) => ctx.db.get(rid)));
+      const vivos = docs
+        .filter((r): r is NonNullable<typeof r> => r !== null)
+        .map((r) => ({ id: r._id, seccionId: r.seccionId, areaId: r.areaId }));
+      vivosPorExamen.set(clave, vivos);
+      return vivos;
+    };
+
     for (const asig of ASIGNACIONES) {
       const examenId = examenIdPorTitulo.get(asig.examen);
       const grupoId = grupoIdPorNombre.get(asig.grupo);
@@ -1587,7 +1652,16 @@ export const cargarDatosDePrueba = internalMutation({
         const finVentana = Math.min(ahora, datos.cierraEn);
         const enVentana = (f: number) =>
           Math.round(abreEn + (finVentana - abreEn) * f);
-        const base = puntajeDemo(`${asig.examen}|${asig.grupo}|${correo}`);
+
+        // ACIERTOS reales sobre los reactivos VIVOS del examen (LUI-30): el puntaje sale
+        // de `calcularPuntaje` y el desglose de `desglosePorClasificacion` — la MISMA
+        // matemática que el cierre real del player, así que las cifras del fixture son
+        // alcanzables y coherentes por construcción (Σ aciertos por sección = aciertos).
+        const vivos = await vivosDe(examenId, examenDoc.reactivoIds);
+        const n = vivos.length;
+        const claveBase = `${asig.examen}|${asig.grupo}|${correo}`;
+        const desgloseDe = (aciertos: number, clave: string) =>
+          desglosePorClasificacion(vivos, correctasDemo(vivos, aciertos, clave));
 
         // ⚠️ `enviadoEn` y `puntaje` son claves OBLIGADAS (valor `number |
         // undefined`), no opcionales: el spread solo esparce claves PRESENTES, y
@@ -1597,17 +1671,21 @@ export const cargarDatosDePrueba = internalMutation({
         // «en curso» con calificación. (El comentario que había junto al patch
         // AFIRMABA que mandaba `undefined`; no lo hacía.)
         //
-        // `numeroIntento` y `formaCierre` (paquete player) son claves OBLIGADAS por lo
-        // mismo. El número sigue la POSICIÓN cronológica del fixture, que es como
-        // reconcilia el bucle de abajo — así el 1 es siempre el diagnóstico y el
-        // invariante «un repaso es posterior a su diagnóstico» se respeta.
+        // `numeroIntento`, `formaCierre` y el DESGLOSE (paquete player + LUI-30) son
+        // claves OBLIGADAS por lo mismo. El número sigue la POSICIÓN cronológica del
+        // fixture, que es como reconcilia el bucle de abajo — así el 1 es siempre el
+        // diagnóstico y el invariante «un repaso es posterior a su diagnóstico» se
+        // respeta. `numeroIntento` admite `undefined` SOLO para el fixture LEGADO
+        // (`asig.legado`): una fila pre-LUI-104/27, sin número y sin desglose.
         type FixtureIntento = {
           estado: "en_curso" | "enviado";
           iniciadoEn: number;
           enviadoEn: number | undefined;
           puntaje: number | undefined;
-          numeroIntento: number;
+          numeroIntento: number | undefined;
           formaCierre: "manual" | undefined;
+          aciertosPorSeccion: ConteoPorSeccion[] | undefined;
+          aciertosPorArea: ConteoPorArea[] | undefined;
         };
         const fixture: FixtureIntento[] = [];
 
@@ -1625,28 +1703,60 @@ export const cargarDatosDePrueba = internalMutation({
             puntaje: undefined,
             numeroIntento: 1,
             formaCierre: undefined,
+            aciertosPorSeccion: undefined,
+            aciertosPorArea: undefined,
           });
-        } else {
+        } else if (asig.legado === correo) {
+          // FIXTURE LEGADO (LUI-30): enviado pre-LUI-104/27 — sin `numeroIntento`, sin
+          // `formaCierre` (ausente ≡ «manual») y SIN desglose, pero con puntaje
+          // ALCANZABLE: ejercita el proxy del selector canónico (el promedio SÍ lo
+          // cuenta) y el flag `desgloseIncompleto` (sus celdas por sección van «—»).
           fixture.push({
             estado: "enviado",
             iniciadoEn: enVentana(0.2),
             enviadoEn: enVentana(0.3),
-            puntaje: base,
+            puntaje: n === 0 ? undefined : calcularPuntaje(aciertosDemo(claveBase, n), n),
+            numeroIntento: undefined,
+            formaCierre: undefined,
+            aciertosPorSeccion: undefined,
+            aciertosPorArea: undefined,
+          });
+        } else {
+          const aciertos1 =
+            asig.reintenta === correo
+              ? Math.min(aciertosDemo(claveBase, n), Math.max(0, n - 1))
+              : aciertosDemo(claveBase, n);
+          const desglose1 = desgloseDe(aciertos1, claveBase);
+          fixture.push({
+            estado: "enviado",
+            iniciadoEn: enVentana(0.2),
+            enviadoEn: enVentana(0.3),
+            puntaje: n === 0 ? undefined : calcularPuntaje(aciertos1, n),
             numeroIntento: 1,
             formaCierre: "manual",
+            aciertosPorSeccion: desglose1.porSeccion,
+            aciertosPorArea: desglose1.porArea,
           });
           if (asig.reintenta === correo) {
-            // 2º intento MEJOR (+150): si se promedian todos los intentos, o se
-            // toma el último, el número SUBE de forma detectable. Con `numeroIntento: 2`
-            // es además el discriminante de la regla de LUI-104 (este puntaje NO entra al
-            // promedio del panel).
+            // 2º intento estrictamente MEJOR (≈+150 pts: +max(1, n/4) aciertos): si se
+            // promedian todos los intentos, o se toma el último, el número SUBE de forma
+            // detectable. Con `numeroIntento: 2` es además el discriminante de la regla
+            // de LUI-104 (este puntaje NO entra al promedio del panel ni a LUI-30). El
+            // clamp de `aciertos1` a `n−1` garantiza el margen de mejora.
+            const aciertos2 = Math.min(
+              n,
+              aciertos1 + Math.max(1, Math.round(n / 4)),
+            );
+            const desglose2 = desgloseDe(aciertos2, `${claveBase}|r2`);
             fixture.push({
               estado: "enviado",
               iniciadoEn: enVentana(0.6),
               enviadoEn: enVentana(0.7),
-              puntaje: Math.min(1300, base + 150),
+              puntaje: n === 0 ? undefined : calcularPuntaje(aciertos2, n),
               numeroIntento: 2,
               formaCierre: "manual",
+              aciertosPorSeccion: desglose2.porSeccion,
+              aciertosPorArea: desglose2.porArea,
             });
           }
         }
@@ -1749,14 +1859,23 @@ export const cargarDatosDePrueba = internalMutation({
         const examenDirecto = await ctx.db.get(examenId);
         if (!examenDirecto)
           throw new Error(`Intento directo: examen «${d.examen}» ilegible.`);
+        const vivosDirecto = await vivosDe(examenId, examenDirecto.reactivoIds);
+        const nDirecto = vivosDirecto.length;
 
         for (let k = 0; k < d.fixture.length; k++) {
           const f = d.fixture[k];
           const iniciadoEn = ahora - f.hace;
-          // Las CUATRO claves variables SIEMPRE presentes (`asignacionId`
-          // incluida): el patch limpia cualquier residuo — un intento que fue
+          const claveDirecta = `${d.examen}|directo|${d.alumna}|${k}`;
+          const aciertosDirecto = aciertosDemo(claveDirecta, nDirecto);
+          const desgloseDirecto = desglosePorClasificacion(
+            vivosDirecto,
+            correctasDemo(vivosDirecto, aciertosDirecto, claveDirecta),
+          );
+          // Las claves variables SIEMPRE presentes (`asignacionId` y el desglose
+          // incluidos): el patch limpia cualquier residuo — un intento que fue
           // «enviado» o que alguien ligó a una asignación a mano converge al
-          // fixture, no lo preserva.
+          // fixture, no lo preserva. Puntaje y desglose con la MISMA matemática
+          // real del cierre (ver paso 9).
           const datosIntento = {
             examenId,
             alumnoId,
@@ -1766,13 +1885,17 @@ export const cargarDatosDePrueba = internalMutation({
             enviadoEn:
               f.estado === "enviado" ? iniciadoEn + 40 * 60_000 : undefined,
             puntaje:
-              f.estado === "enviado"
-                ? puntajeDemo(`${d.examen}|directo|${d.alumna}`)
+              f.estado === "enviado" && nDirecto > 0
+                ? calcularPuntaje(aciertosDirecto, nDirecto)
                 : undefined,
             // Serie (examen, alumna) para los directos: la posición cronológica es el
             // número, igual que en el paso 9.
             numeroIntento: k + 1,
             formaCierre: f.estado === "enviado" ? ("manual" as const) : undefined,
+            aciertosPorSeccion:
+              f.estado === "enviado" ? desgloseDirecto.porSeccion : undefined,
+            aciertosPorArea:
+              f.estado === "enviado" ? desgloseDirecto.porArea : undefined,
           };
           const previo = previos[k];
           let intentoId: Id<"intentos">;
@@ -1861,6 +1984,42 @@ export const cargarDatosDePrueba = internalMutation({
         { intentoId: e.intentoId },
       );
       await ctx.db.patch(e.intentoId, { cierreJobId });
+    }
+
+    // ── 9d. READ-MODEL `envioRegistradoEn` (LUI-30) + ASERCIÓN ─────────────
+    // El seed es un escritor más del read-model: estampa el MIN `enviadoEn` por
+    // asignación con enviados (converge: repara valores y LIMPIA residuos —una fila
+    // que perdió sus envíos en la reconciliación pierde también el campo). Después,
+    // aserción que LANZA: `presente ⟺ ∃ enviado` contra la BD real — el fixture
+    // jamás degrada el contrato del campo en silencio (docblock en schema.ts).
+    {
+      const asignacionesRM = await ctx.db.query("asignaciones").collect();
+      const intentosRM = await ctx.db.query("intentos").collect();
+      const primerEnvioPorAsignacion = new Map<string, number>();
+      for (const i of intentosRM) {
+        if (i.estado !== "enviado" || !i.asignacionId) continue;
+        const t = i.enviadoEn ?? i.iniciadoEn;
+        const clave = i.asignacionId as string;
+        const previo = primerEnvioPorAsignacion.get(clave);
+        if (previo === undefined || t < previo) {
+          primerEnvioPorAsignacion.set(clave, t);
+        }
+      }
+      for (const a of asignacionesRM) {
+        const esperado = primerEnvioPorAsignacion.get(a._id as string);
+        if (a.envioRegistradoEn !== esperado) {
+          await ctx.db.patch(a._id, { envioRegistradoEn: esperado });
+        }
+      }
+      for (const a of await ctx.db.query("asignaciones").collect()) {
+        const tieneEnvio = primerEnvioPorAsignacion.has(a._id as string);
+        if ((a.envioRegistradoEn !== undefined) !== tieneEnvio) {
+          throw new Error(
+            `Read-model roto: «envioRegistradoEn» de la asignación ${a._id} ` +
+              "no refleja la existencia de sus envíos.",
+          );
+        }
+      }
     }
 
     // ── Oráculo del panel (LUI-9) ──────────────────────────────────────────
@@ -2093,9 +2252,133 @@ export const cargarDatosDePrueba = internalMutation({
       };
     };
 
+    // ── Oráculo de RESULTADOS del examen (LUI-30) ──────────────────────────
+    // Mismo principio que sus hermanos: el retorno se ENSANCHA (jamás se añaden
+    // fixtures), el conteo es PROPIO contra la BD REAL —una réplica independiente de la
+    // tabla de precedencia ①–⑥ del selector canónico, escrita aquí a mano para que un
+    // error en `resultados.ts`/`simulacro.ts` se cace igual (JAMÁS los importa)— y los
+    // estados de reloj NO se congelan: el spec E2E re-deriva pendiente/«No contestó» con
+    // su propio `Date.now()` al asertar. Los repasos (`numeroIntento ≥ 2`) NO cuentan; los
+    // desgloses viajan con NOMBRES resueltos para que la réplica del spec no dependa de
+    // ids de dev.
+    const nombrePorSeccionId = new Map(
+      seccionesFinal.map((s) => [s._id as string, s.nombre]),
+    );
+    const nombrePorAreaId = new Map(
+      areasFinal.map((a) => [a._id as string, a.nombre]),
+    );
+    const resultadosEsperado = {
+      porAsignacion: asignacionesFinal.flatMap((a) => {
+        const destino = destinoDeFila(a);
+        if (destino.tipo !== "grupo") return [];
+        const grupoIdStr = destino.grupoId as string;
+        const roster = alumnasActivasPorGrupoId.get(grupoIdStr) ?? [];
+        const deEsta = intentosPorAsignacion.get(a._id as string) ?? [];
+
+        // Selección PROPIA del intento-que-cuenta (tabla ①–⑥, reimplementada).
+        const rangoDe = (i: (typeof deEsta)[number]) => {
+          const diag = i.numeroIntento === 1;
+          if (i.estado === "enviado" && i.puntaje !== undefined) return diag ? 1 : 2;
+          if (i.estado === "enviado") return diag ? 3 : 4;
+          return diag ? 5 : 6;
+        };
+        const porAlumnaId = new Map<string, (typeof deEsta)[number]>();
+        for (const i of deEsta) {
+          if (i.numeroIntento !== undefined && i.numeroIntento !== 1) continue;
+          const previo = porAlumnaId.get(i.alumnoId as string);
+          if (
+            !previo ||
+            rangoDe(i) < rangoDe(previo) ||
+            (rangoDe(i) === rangoDe(previo) && i.iniciadoEn < previo.iniciadoEn)
+          ) {
+            porAlumnaId.set(i.alumnoId as string, i);
+          }
+        }
+        const seleccionados = [...porAlumnaId.values()];
+        const enviadosSel = seleccionados.filter((i) => i.estado === "enviado");
+        const calificadosSel = enviadosSel.filter((i) => i.puntaje !== undefined);
+        const rosterIds = new Set(roster.map((r) => r.userId as string));
+
+        const porAreaAgregado = new Map<string, { aciertos: number; total: number }>();
+        for (const i of enviadosSel) {
+          for (const c of i.aciertosPorArea ?? []) {
+            const acc = porAreaAgregado.get(c.areaId as string) ?? {
+              aciertos: 0,
+              total: 0,
+            };
+            acc.aciertos += c.aciertos;
+            acc.total += c.total;
+            porAreaAgregado.set(c.areaId as string, acc);
+          }
+        }
+
+        return [
+          {
+            examen: examenPorId.get(a.examenId) ?? "?",
+            grupo: grupoPorId.get(destino.grupoId) ?? "?",
+            abreEn: a.abreEn,
+            cierraEn: a.cierraEn,
+            rosterActivas: roster
+              .map((r) => r.nombre)
+              .sort((x, y) => x.localeCompare(y, "es")),
+            porAlumna: roster
+              .filter((r) => porAlumnaId.has(r.userId as string))
+              .map((r) => {
+                const i = porAlumnaId.get(r.userId as string)!;
+                return {
+                  nombre: r.nombre,
+                  estado: i.estado,
+                  numeroIntento: i.numeroIntento ?? null,
+                  iniciadoEn: i.iniciadoEn,
+                  enviadoEn: i.enviadoEn ?? null,
+                  // SIN redondear: la réplica del spec redondea con su propio
+                  // `Math.round` — así también caza un doble redondeo en la query.
+                  puntajeExacto: i.puntaje ?? null,
+                  porSeccion: (i.aciertosPorSeccion ?? []).map((c) => ({
+                    seccion: nombrePorSeccionId.get(c.seccionId as string) ?? "?",
+                    aciertos: c.aciertos,
+                    total: c.total,
+                  })),
+                  porArea: (i.aciertosPorArea ?? []).map((c) => ({
+                    area: nombrePorAreaId.get(c.areaId as string) ?? "?",
+                    aciertos: c.aciertos,
+                    total: c.total,
+                  })),
+                };
+              })
+              .sort((x, y) => x.nombre.localeCompare(y.nombre, "es")),
+            promedio: calificadosSel.length
+              ? Math.round(
+                  calificadosSel.reduce((s, i) => s + (i.puntaje as number), 0) /
+                    calificadosSel.length,
+                )
+              : null,
+            participacion: {
+              completaron: roster.filter((r) => {
+                const i = porAlumnaId.get(r.userId as string);
+                return i !== undefined && i.estado === "enviado";
+              }).length,
+              deTotal: roster.length,
+            },
+            porAreaAgregado: [...porAreaAgregado.entries()]
+              .map(([areaId, c]) => ({
+                area: nombrePorAreaId.get(areaId) ?? "?",
+                aciertos: c.aciertos,
+                total: c.total,
+              }))
+              .sort((x, y) => x.area.localeCompare(y.area, "es")),
+            fuerasDeRoster: enviadosSel.filter(
+              (i) => !rosterIds.has(i.alumnoId as string),
+            ).length,
+          },
+        ];
+      }),
+    };
+
     return {
       insertado,
       reparado,
+      resultadosEsperado,
       misExamenesEsperado: {
         "fernanda.alumna@demo.unx.mx": oraculoAlumna(
           "fernanda.alumna@demo.unx.mx",
@@ -2508,5 +2791,694 @@ export const limpiarMembresiasParaCota = internalMutation({
       await ctx.db.delete(g._id);
     }
     return { grupos: marcados.length, uniones };
+  },
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers del E2E de LUI-30 (Resultados del examen) — SOLO_DEV
+//
+// Disciplina común: namespace ESTRICTO `[E2E LUI-30]` / `e2e-lui30-*@invalido.local`;
+// sembradores idempotentes (completan hasta el objetivo, no «insertan N»); limpiezas
+// FÍSICAS con cascada académica completa (Convex no tiene borrado en cascada) en el
+// ORDEN del limpiador integral: posiciones → respuestas → intentos → asignaciones →
+// uniones → grupos. El E2E toma línea base con `contarLineaBase` ANTES de sembrar y
+// aserta el regreso EXACTO en el `finally` — las corridas ×2 NO dependen de la pizarra
+// global para estos rastros.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Conteos CRUDOS de las tablas que los sembradores de LUI-30 tocan — la LÍNEA BASE del
+ *  E2E (§0) y su aserción de restauración (§ final). Filas totales, sin filtrar. */
+export const contarLineaBase = internalMutation({
+  args: { confirmar: v.literal(CONFIRMACION_SOLO_DEV) },
+  handler: async (ctx) => {
+    exigirDeploymentDeDesarrollo();
+    const cuenta = async (
+      tabla:
+        | "grupos"
+        | "perfiles"
+        | "users"
+        | "asignaciones"
+        | "intentos"
+        | "respuestas"
+        | "posiciones"
+        | "secciones"
+        | "areasTematicas",
+    ) => (await ctx.db.query(tabla).collect()).length;
+    return {
+      grupos: await cuenta("grupos"),
+      perfiles: await cuenta("perfiles"),
+      users: await cuenta("users"),
+      asignaciones: await cuenta("asignaciones"),
+      intentos: await cuenta("intentos"),
+      respuestas: await cuenta("respuestas"),
+      posiciones: await cuenta("posiciones"),
+      secciones: await cuenta("secciones"),
+      areasTematicas: await cuenta("areasTematicas"),
+    };
+  },
+});
+
+/** Grupo marcado de LUI-30: lo encuentra o lo crea (idempotente). */
+async function grupoLui30(
+  ctx: MutationCtx,
+  sufijo: string,
+  activo: boolean,
+): Promise<Id<"grupos">> {
+  const nombre = `${MARCA_E2E_LUI30} ${sufijo}`;
+  const existente = (await ctx.db.query("grupos").collect()).find(
+    (g) => g.nombre === nombre,
+  );
+  if (existente) return existente._id;
+  return await ctx.db.insert("grupos", { nombre, activo });
+}
+
+/**
+ * (§5d del E2E) Siembra `objetivo` intentos ENVIADOS mínimos sobre UNA asignación de un
+ * grupo marcado — el instrumento de la frontera 400/401 del centinela de
+ * `leerIntentosParaAnalitica` y, en modo `conDesglose`, de su corte por BYTES (cada
+ * intento carga un desglose de 240 entradas ≈ 40 KiB: ~160 filas superan los 6 MiB del
+ * paginate ANTES de las 401 — el testigo específico de la rama `!isDone`).
+ *
+ * ⚠️ Por defecto fabrica EXCLUSIVAMENTE `enviado` SIN `cierreJobId` — jamás `en_curso`:
+ * CERO jobs pendientes por construcción (la limpieza lo aserta). Reutiliza UNA alumna
+ * real repetida (el corte cuenta FILAS del rango, no alumnas distintas; el selector
+ * deduplica y eso no afecta la frontera). Estampa `envioRegistradoEn` en la asignación:
+ * el contrato del read-model se respeta también en el andamiaje. `seccionId`/`areaId`
+ * opcionales apuntan el desglose a clasificaciones específicas (p. ej. las infladas de
+ * §5e); sin ellas usa las primeras del temario.
+ *
+ * `conJobHuerfano` (testigo de la ronda 2 de auditoría y del §12b del E2E): fabrica UN
+ * intento con un `cerrarVencido` REAL agendado y luego lo deja «enviado a mano»
+ * reproduciendo EXACTAMENTE lo que hace `finalizarIntento` — limpia `cierreJobId` SIN
+ * cancelar el job. El resultado es la fila-trampa de la limpieza: un job pendiente que
+ * ningún campo referencia y que solo el barrido por conjunto capturado puede cancelar.
+ */
+export const sembrarIntentosParaCota = internalMutation({
+  args: {
+    confirmar: v.literal(CONFIRMACION_SOLO_DEV),
+    objetivo: v.number(),
+    conDesglose: v.optional(v.boolean()),
+    conJobHuerfano: v.optional(v.boolean()),
+    seccionId: v.optional(v.id("secciones")),
+    areaId: v.optional(v.id("areasTematicas")),
+    instructorCorreo: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    exigirDeploymentDeDesarrollo();
+    const ahora = Date.now();
+
+    const grupoId = await grupoLui30(ctx, "Cota intentos", true);
+
+    if (args.instructorCorreo) {
+      const user = (await ctx.db.query("users").collect()).find(
+        (u) => norm(u.email ?? "") === norm(args.instructorCorreo ?? ""),
+      );
+      if (!user) throw new Error(`No existe «${args.instructorCorreo}».`);
+      const uniones = await ctx.db
+        .query("grupoInstructores")
+        .withIndex("by_grupo", (q) => q.eq("grupoId", grupoId))
+        .collect();
+      if (!uniones.some((u) => u.instructorId === user._id)) {
+        await ctx.db.insert("grupoInstructores", {
+          grupoId,
+          instructorId: user._id,
+        });
+      }
+    }
+
+    const examen = await ctx.db
+      .query("examenes")
+      .withIndex("by_estado", (q) => q.eq("estado", "publicado"))
+      .first();
+    if (!examen) throw new Error("No hay examen publicado para la cota.");
+    const admin = await ctx.db
+      .query("perfiles")
+      .withIndex("by_rol", (q) => q.eq("rol", "admin"))
+      .first();
+    if (!admin) throw new Error("No hay administradora para `creadoPor`.");
+    const alumna = await ctx.db
+      .query("perfiles")
+      .withIndex("by_rol", (q) => q.eq("rol", "alumno"))
+      .first();
+    if (!alumna) throw new Error("No hay alumna para los intentos de cota.");
+
+    let asignacion = (
+      await ctx.db
+        .query("asignaciones")
+        .withIndex("by_grupo", (q) => q.eq("grupoId", grupoId))
+        .collect()
+    )[0];
+    if (!asignacion) {
+      const abreEn = ahora - 60_000;
+      const id = await ctx.db.insert("asignaciones", {
+        examenId: examen._id,
+        ...camposDestino({ grupoId }),
+        abreEn,
+        cierraEn: ahora + 30 * DIA,
+        creadoPor: admin.userId,
+        tituloExamen: examen.titulo,
+        numReactivos: examen.reactivoIds.length,
+        duracionMin: examen.duracionMin,
+        tipoExamen: normalizarTipo(examen.tipo),
+      });
+      asignacion = (await ctx.db.get(id))!;
+    }
+
+    // ── Testigo del job huérfano (ronda 2 · §12b) ─────────────────────────
+    // Job REAL agendado + «envío a mano» que limpia el campo SIN cancelar — la
+    // reproducción exacta del hueco: queda un `cerrarVencido` pendiente que ningún
+    // campo referencia (al disparar en 1 h haría no-op, pero es trabajo residual que
+    // la limpieza DEBE cancelar por conjunto capturado).
+    if (args.conJobHuerfano) {
+      const intentoId = await ctx.db.insert("intentos", {
+        examenId: examen._id,
+        alumnoId: alumna.userId,
+        asignacionId: asignacion._id,
+        estado: "en_curso",
+        iniciadoEn: ahora,
+        numeroIntento: 1,
+      });
+      // Anotación EXPLÍCITA: devolver este id hace que TS intente resolver el tipo del
+      // handler a través del grafo de `internal` (que incluye a esta misma función) y
+      // reporte una circularidad TS7022 sin ella.
+      const jobId: Id<"_scheduled_functions"> = await ctx.scheduler.runAt(
+        ahora + 60 * 60_000,
+        internal.player.cerrarVencido,
+        { intentoId },
+      );
+      await ctx.db.patch(intentoId, {
+        estado: "enviado",
+        enviadoEn: ahora,
+        puntaje: 1000,
+        formaCierre: "manual",
+        cierreJobId: undefined, // como `finalizarIntento`: limpia sin cancelar
+      });
+      if (asignacion.envioRegistradoEn === undefined) {
+        await ctx.db.patch(asignacion._id, { envioRegistradoEn: ahora });
+      }
+      return {
+        grupoId,
+        asignacionId: asignacion._id,
+        creados: 1,
+        intentoConJobHuerfano: intentoId,
+        jobId,
+      };
+    }
+
+    // Desglose GORDO opcional: 240 entradas por arreglo (la cota real del constructor),
+    // repitiendo la clasificación indicada — el tamaño contractual de un cierre real.
+    const seccionRef =
+      args.seccionId ??
+      (await ctx.db.query("secciones").collect())[0]?._id;
+    const areaRef =
+      args.areaId ?? (await ctx.db.query("areasTematicas").collect())[0]?._id;
+    if (args.conDesglose && (!seccionRef || !areaRef)) {
+      throw new Error("No hay temario para fabricar el desglose gordo.");
+    }
+    const desgloseGordo = args.conDesglose
+      ? {
+          aciertosPorSeccion: Array.from({ length: 240 }, (_, i) => ({
+            seccionId: seccionRef!,
+            aciertos: i % 2,
+            total: 1,
+          })),
+          aciertosPorArea: Array.from({ length: 240 }, (_, i) => ({
+            areaId: areaRef!,
+            aciertos: i % 2,
+            total: 1,
+          })),
+        }
+      : {};
+
+    const existentes = (
+      await ctx.db
+        .query("intentos")
+        .withIndex("by_asignacion", (q) => q.eq("asignacionId", asignacion._id))
+        .collect()
+    ).length;
+    let creados = 0;
+    for (let k = existentes; k < args.objetivo; k++) {
+      await ctx.db.insert("intentos", {
+        examenId: examen._id,
+        alumnoId: alumna.userId,
+        asignacionId: asignacion._id,
+        estado: "enviado",
+        iniciadoEn: asignacion.abreEn + k,
+        enviadoEn: asignacion.abreEn + k + 1,
+        puntaje: 1000,
+        numeroIntento: 1,
+        formaCierre: "manual",
+        ...desgloseGordo,
+      });
+      creados++;
+    }
+    if (asignacion.envioRegistradoEn === undefined && args.objetivo > 0) {
+      await ctx.db.patch(asignacion._id, {
+        envioRegistradoEn: asignacion.abreEn + 1,
+      });
+    }
+    return { grupoId, asignacionId: asignacion._id, creados };
+  },
+});
+
+/**
+ * (§11 del E2E) Enciende los flags del panel admin migrado:
+ *  · `sinEnvios: false` (default) — asignaciones del MES con UN intento enviado cada una
+ *    (y `envioRegistradoEn` estampado: el contrato del read-model se respeta): con
+ *    objetivo 201 la métrica del mes desborda `MAX_APLICADAS_MES_PANEL` → «—» + Alert.
+ *  · `sinEnvios: true` — asignaciones RECIENTES sin ningún envío: llenan la ventana de
+ *    escaneo de «Últimos aplicados» (30) sin aportar aplicadas → nota de incompletitud.
+ * Idempotente: completa hasta el objetivo contando las existentes del grupo marcado.
+ */
+export const sembrarAplicadasParaCota = internalMutation({
+  args: {
+    confirmar: v.literal(CONFIRMACION_SOLO_DEV),
+    objetivo: v.number(),
+    sinEnvios: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    exigirDeploymentDeDesarrollo();
+    const ahora = Date.now();
+    const inicioMes = inicioDeMesMx(ahora);
+    const sufijo = args.sinEnvios ? "Sin envíos" : "Aplicadas";
+    const grupoId = await grupoLui30(ctx, sufijo, true);
+
+    const examen = await ctx.db
+      .query("examenes")
+      .withIndex("by_estado", (q) => q.eq("estado", "publicado"))
+      .first();
+    if (!examen) throw new Error("No hay examen publicado para la cota.");
+    const admin = await ctx.db
+      .query("perfiles")
+      .withIndex("by_rol", (q) => q.eq("rol", "admin"))
+      .first();
+    if (!admin) throw new Error("No hay administradora para `creadoPor`.");
+    const alumna = await ctx.db
+      .query("perfiles")
+      .withIndex("by_rol", (q) => q.eq("rol", "alumno"))
+      .first();
+    if (!alumna) throw new Error("No hay alumna para los envíos de cota.");
+
+    const existentes = (
+      await ctx.db
+        .query("asignaciones")
+        .withIndex("by_grupo", (q) => q.eq("grupoId", grupoId))
+        .collect()
+    ).length;
+    let creadas = 0;
+    for (let k = existentes; k < args.objetivo; k++) {
+      // Dentro del mes SIEMPRE (a minutos de `ahora`, con piso en el inicio de mes MX).
+      const abreEn = Math.max(inicioMes, ahora - (k + 1) * 60_000);
+      const asignacionId = await ctx.db.insert("asignaciones", {
+        examenId: examen._id,
+        ...camposDestino({ grupoId }),
+        abreEn,
+        cierraEn: ahora + 30 * DIA,
+        creadoPor: admin.userId,
+        tituloExamen: examen.titulo,
+        numReactivos: examen.reactivoIds.length,
+        duracionMin: examen.duracionMin,
+        tipoExamen: normalizarTipo(examen.tipo),
+        ...(args.sinEnvios ? {} : { envioRegistradoEn: abreEn + 1 }),
+      });
+      if (!args.sinEnvios) {
+        await ctx.db.insert("intentos", {
+          examenId: examen._id,
+          alumnoId: alumna.userId,
+          asignacionId,
+          estado: "enviado",
+          iniciadoEn: abreEn,
+          enviadoEn: abreEn + 1,
+          puntaje: 1000,
+          numeroIntento: 1,
+          formaCierre: "manual",
+        });
+      }
+      creadas++;
+    }
+    return { grupoId, creadas, totales: existentes + creadas };
+  },
+});
+
+/**
+ * (§5e del E2E) Crea una sección y un área NUEVAS marcadas con nombres de ~280 KB cada
+ * una (Σ > `CATALOGO_CLASIF_BYTES`): el testigo del PARO TEMPRANO por bytes del catálogo
+ * de Q3. NINGÚN doc real del temario se toca — cero riesgo colateral; la restauración es
+ * `limpiarClasificacionesMarcadas`, independiente en el `finally`.
+ *
+ * ⚠️ Inserta DIRECTO en la BD (bypass consciente de `MAX_NOMBRE_TEMARIO`): simula el
+ * LEGADO anterior a esa frontera de escritura, que es exactamente lo que el paro por
+ * bytes protege. Mientras estas filas existan, `panelInstructor.material` reporta su
+ * corte por bytes (256 KiB) — por eso §5e siembra, prueba y limpia en la misma sección.
+ * `activo: false` para minimizar su visibilidad en formularios.
+ */
+export const sembrarClasificacionInflada = internalMutation({
+  args: { confirmar: v.literal(CONFIRMACION_SOLO_DEV) },
+  handler: async (ctx) => {
+    exigirDeploymentDeDesarrollo();
+    const relleno = "x".repeat(280_000);
+    const nombreSeccion = `${MARCA_E2E_LUI30} Sección inflada ${relleno}`;
+    const nombreArea = `${MARCA_E2E_LUI30} Área inflada ${relleno}`;
+
+    let seccion = (await ctx.db.query("secciones").collect()).find((s) =>
+      s.nombre.startsWith(`${MARCA_E2E_LUI30} Sección inflada`),
+    );
+    if (!seccion) {
+      const id = await ctx.db.insert("secciones", {
+        nombre: nombreSeccion,
+        tipo: "modulo",
+        activo: false,
+        orden: 99_999,
+        reactivosCount: 0,
+      });
+      seccion = (await ctx.db.get(id))!;
+    }
+    let area = (await ctx.db.query("areasTematicas").collect()).find((a) =>
+      a.nombre.startsWith(`${MARCA_E2E_LUI30} Área inflada`),
+    );
+    if (!area) {
+      const id = await ctx.db.insert("areasTematicas", {
+        seccionId: seccion._id,
+        nombre: nombreArea,
+        activo: false,
+        orden: 99_999,
+        reactivosCount: 0,
+      });
+      area = (await ctx.db.get(id))!;
+    }
+    return { seccionId: seccion._id, areaId: area._id };
+  },
+});
+
+/** (§11) Grupos marcados hasta el objetivo — desbordan el paginate de `panel.grupos`
+ *  (el corte cuenta FILAS leídas de la tabla, activos o no; `activo: false` los oculta de
+ *  formularios y del panel del instructor mientras existen). Idempotente. */
+export const sembrarGruposParaCota = internalMutation({
+  args: { confirmar: v.literal(CONFIRMACION_SOLO_DEV), objetivo: v.number() },
+  handler: async (ctx, args) => {
+    exigirDeploymentDeDesarrollo();
+    const existentes = (await ctx.db.query("grupos").collect()).filter((g) =>
+      g.nombre.startsWith(`${MARCA_E2E_LUI30} Grupo`),
+    ).length;
+    let creados = 0;
+    for (let k = existentes; k < args.objetivo; k++) {
+      await ctx.db.insert("grupos", {
+        nombre: `${MARCA_E2E_LUI30} Grupo ${String(k).padStart(4, "0")}`,
+        activo: false,
+      });
+      creados++;
+    }
+    return { creados, totalMarcados: existentes + creados };
+  },
+});
+
+/**
+ * (§11) Perfiles de alumna SINTÉTICOS hasta el objetivo, por LOTES de 200 por llamada
+ * (el llamador repite hasta `faltan === 0` — igual que un cursor): desbordan el paginate
+ * de `panel.alumnos`. **UN user sintético NUEVO por perfil** (`e2e-lui30-N@invalido.local`),
+ * jamás un userId real ni uno compartido: la limpieza borra el PAR completo sin tocar a
+ * nadie más.
+ */
+export const sembrarPerfilesParaCota = internalMutation({
+  args: { confirmar: v.literal(CONFIRMACION_SOLO_DEV), objetivo: v.number() },
+  handler: async (ctx, args) => {
+    exigirDeploymentDeDesarrollo();
+    const LOTE = 200;
+    const marcados = (await ctx.db.query("perfiles").collect()).filter((p) =>
+      p.nombre.startsWith(`${MARCA_E2E_LUI30} Alumna`),
+    ).length;
+    const faltanAntes = Math.max(0, args.objetivo - marcados);
+    const crear = Math.min(LOTE, faltanAntes);
+    for (let j = 0; j < crear; j++) {
+      const idx = marcados + j;
+      const userId = await ctx.db.insert("users", {
+        email: CORREO_E2E_LUI30(idx),
+      });
+      await ctx.db.insert("perfiles", {
+        userId,
+        rol: "alumno",
+        nombre: `${MARCA_E2E_LUI30} Alumna ${String(idx).padStart(4, "0")}`,
+        activo: true,
+      });
+    }
+    return {
+      creados: crear,
+      totalMarcados: marcados + crear,
+      faltan: faltanAntes - crear,
+    };
+  },
+});
+
+/** (§5f) Quita `envioRegistradoEn` de la asignación (examen, grupo) del fixture: fabrica
+ *  la fila «con envíos y sin campo» que el fasado de la migración impide en prod — el
+ *  escenario ROJO que la reconciliación repara. */
+export const borrarEnvioRegistrado = internalMutation({
+  args: {
+    confirmar: v.literal(CONFIRMACION_SOLO_DEV),
+    examen: v.string(),
+    grupo: v.string(),
+  },
+  handler: async (ctx, args) => {
+    exigirDeploymentDeDesarrollo();
+    const grupo = (await ctx.db.query("grupos").collect()).find(
+      (g) => g.nombre === args.grupo,
+    );
+    if (!grupo) throw new Error(`No existe el grupo «${args.grupo}».`);
+    const examen = (await ctx.db.query("examenes").collect()).find(
+      (e) => e.titulo === args.examen,
+    );
+    if (!examen) throw new Error(`No existe el examen «${args.examen}».`);
+    const asignacion = (
+      await ctx.db
+        .query("asignaciones")
+        .withIndex("by_grupo", (q) => q.eq("grupoId", grupo._id))
+        .collect()
+    ).find((a) => a.examenId === examen._id);
+    if (!asignacion) {
+      throw new Error(`No hay asignación «${args.examen}·${args.grupo}».`);
+    }
+    const tenia = asignacion.envioRegistradoEn !== undefined;
+    await ctx.db.patch(asignacion._id, { envioRegistradoEn: undefined });
+    return { asignacionId: asignacion._id, tenia };
+  },
+});
+
+/**
+ * (`finally` del E2E) Borra FÍSICAMENTE los grupos marcados de LUI-30 con su CASCADA
+ * ACADÉMICA COMPLETA, en el orden del limpiador integral (`limpiarContenidoDemo`):
+ * posiciones → respuestas → intentos → asignaciones → uniones → grupo. Convex no tiene
+ * borrado en cascada: sin esto quedarían intentos huérfanos alimentando
+ * `by_examen_estado`/`tieneResultados` (el hallazgo mayor del 5º dictamen del plan).
+ *
+ * `lote` acota las eliminaciones de INTENTOS por llamada (el llamador repite hasta
+ * `quedan === false` — cursor por lotes). Los JOBS de cierre se cancelan por CONJUNTO
+ * CAPTURADO, no por `cierreJobId`: `finalizarIntento` limpia ese campo sin cancelar el
+ * job, así que un intento con job pendiente que se envía «a mano» —los producen §5/§5b
+ * vía player sobre grupos marcados y `sembrarIntentosParaCota` en modo
+ * `conJobHuerfano`; el resto de los sembradores de LUI-30 no agenda jobs— deja un
+ * `cerrarVencido` irrastreable por campo. La pertenencia se captura ANTES de borrar y
+ * la aserción final barre la cola contra ESE conjunto — con `get(intentoId)` sería
+ * vacua: el doc ya no existe (ronda 1 de auditoría de código).
+ * Idempotente y tolerante a siembras parciales.
+ */
+export const limpiarGruposLui30 = internalMutation({
+  args: {
+    confirmar: v.literal(CONFIRMACION_SOLO_DEV),
+    lote: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    exigirDeploymentDeDesarrollo();
+    const lote = args.lote ?? 500;
+    const conteo = {
+      grupos: 0,
+      uniones: 0,
+      asignaciones: 0,
+      intentos: 0,
+      respuestas: 0,
+      posiciones: 0,
+      jobsCancelados: 0,
+    };
+    let borradosIntentos = 0;
+
+    const marcados = (await ctx.db.query("grupos").collect()).filter((g) =>
+      g.nombre.startsWith(MARCA_E2E_LUI30),
+    );
+
+    // ── PRIMERO: capturar la pertenencia y barrer la COLA (ronda 1 de auditoría) ──
+    // `finalizarIntento` limpia `cierreJobId` del intento SIN cancelar el job (el job
+    // vivo hará no-op al disparar): un intento real del player enviado a mano en un
+    // grupo marcado deja un `cerrarVencido` pendiente que el campo ya no referencia.
+    // Por eso la cancelación NO puede depender de `cierreJobId`, y la pertenencia se
+    // captura ANTES de borrar nada — reconstruirla después con `get(intentoId)` es
+    // imposible (el doc ya no existe) y era exactamente el hueco por el que un
+    // huérfano pasaba la aserción. El filtro `state.kind === "pending"` es lo que hace
+    // el barrido seguro entre lotes: un job ya cancelado o ejecutado NO vuelve a
+    // cancelarse (el contrato de `Scheduler.cancel` no promete idempotencia — cada id
+    // pendiente se cancela EXACTAMENTE una vez).
+    const intentosMarcados = new Set<string>();
+    for (const g of marcados) {
+      for (const a of await ctx.db
+        .query("asignaciones")
+        .withIndex("by_grupo", (q) => q.eq("grupoId", g._id))
+        .collect()) {
+        for (const i of await ctx.db
+          .query("intentos")
+          .withIndex("by_asignacion", (q) => q.eq("asignacionId", a._id))
+          .collect()) {
+          intentosMarcados.add(i._id as string);
+        }
+      }
+    }
+    const esCierrePendienteDe = (
+      j: { name: string; state: { kind: string }; args: unknown[] },
+      conjunto: ReadonlySet<string>,
+    ) => {
+      if (!j.name.includes("cerrarVencido") || j.state.kind !== "pending")
+        return false;
+      const arg = j.args[0] as { intentoId?: Id<"intentos"> } | undefined;
+      return arg?.intentoId !== undefined && conjunto.has(arg.intentoId as string);
+    };
+    for (const j of await ctx.db.system.query("_scheduled_functions").collect()) {
+      if (esCierrePendienteDe(j, intentosMarcados)) {
+        await ctx.scheduler.cancel(j._id);
+        conteo.jobsCancelados++;
+      }
+    }
+
+    for (const g of marcados) {
+      const suyas = await ctx.db
+        .query("asignaciones")
+        .withIndex("by_grupo", (q) => q.eq("grupoId", g._id))
+        .collect();
+      for (const a of suyas) {
+        const intentos = await ctx.db
+          .query("intentos")
+          .withIndex("by_asignacion", (q) => q.eq("asignacionId", a._id))
+          .collect();
+        for (const i of intentos) {
+          if (borradosIntentos >= lote) {
+            // Presupuesto del lote agotado: el llamador repite. Nada quedó a medias —
+            // cada intento se borra con TODAS sus dependencias antes de contar, y el
+            // barrido de la cola de arriba ya corrió sobre el conjunto COMPLETO.
+            return { ...conteo, quedan: true };
+          }
+          for (const r of await ctx.db
+            .query("respuestas")
+            .withIndex("by_intento_reactivo", (q) => q.eq("intentoId", i._id))
+            .collect()) {
+            await ctx.db.delete(r._id);
+            conteo.respuestas++;
+          }
+          for (const p of await ctx.db
+            .query("posiciones")
+            .withIndex("by_intento", (q) => q.eq("intentoId", i._id))
+            .collect()) {
+            await ctx.db.delete(p._id);
+            conteo.posiciones++;
+          }
+          // SIN cancelación por `cierreJobId` aquí (ronda 2 de auditoría): el barrido
+          // canónico de arriba ya canceló CADA job pendiente del conjunto — un job
+          // referenciado por el campo también está en `intentosMarcados` — y el
+          // contrato de `Scheduler.cancel` no documenta idempotencia: una segunda
+          // cancelación del mismo id podría lanzar y hacer rollback de TODA la
+          // limpieza. Cada id pendiente se cancela EXACTAMENTE una vez.
+          await ctx.db.delete(i._id);
+          conteo.intentos++;
+          borradosIntentos++;
+        }
+        await ctx.db.delete(a._id);
+        conteo.asignaciones++;
+      }
+      for (const u of await ctx.db
+        .query("grupoInstructores")
+        .withIndex("by_grupo", (q) => q.eq("grupoId", g._id))
+        .collect()) {
+        await ctx.db.delete(u._id);
+        conteo.uniones++;
+      }
+      // Una alumna real que quedó dentro volvería a un grupo inexistente: se desliga.
+      for (const p of await ctx.db
+        .query("perfiles")
+        .withIndex("by_grupo", (q) => q.eq("grupoId", g._id))
+        .collect()) {
+        await ctx.db.patch(p._id, { grupoId: undefined });
+      }
+      await ctx.db.delete(g._id);
+      conteo.grupos++;
+    }
+
+    // Aserción de cierre sobre el CONJUNTO CAPTURADO (no sobre `get(intentoId)`, que a
+    // estas alturas siempre es null): tras cancelar y borrar, ningún `cerrarVencido`
+    // pendiente puede seguir apuntando a un intento que fue de un grupo marcado.
+    for (const j of await ctx.db.system.query("_scheduled_functions").collect()) {
+      if (esCierrePendienteDe(j, intentosMarcados)) {
+        throw new Error(
+          "Limpieza incompleta: queda un cierre durable de un intento marcado.",
+        );
+      }
+    }
+    return { ...conteo, quedan: false };
+  },
+});
+
+/** (`finally` del E2E) Borra FÍSICAMENTE cada perfil sintético marcado Y su user, por
+ *  LOTES (el llamador repite hasta `quedan === false`). Al terminar, barre users
+ *  huérfanos del namespace de correo (residuos de una siembra interrumpida). */
+export const limpiarPerfilesLui30 = internalMutation({
+  args: { confirmar: v.literal(CONFIRMACION_SOLO_DEV) },
+  handler: async (ctx) => {
+    exigirDeploymentDeDesarrollo();
+    const LOTE = 400;
+    const marcados = (await ctx.db.query("perfiles").collect()).filter((p) =>
+      p.nombre.startsWith(`${MARCA_E2E_LUI30} Alumna`),
+    );
+    const tanda = marcados.slice(0, LOTE);
+    let users = 0;
+    for (const p of tanda) {
+      const user = await ctx.db.get(p.userId);
+      await ctx.db.delete(p._id);
+      if (user && CORREO_E2E_LUI30_RE.test(user.email ?? "")) {
+        await ctx.db.delete(user._id);
+        users++;
+      }
+    }
+    const quedan = marcados.length > tanda.length;
+    let usersHuerfanos = 0;
+    if (!quedan) {
+      for (const u of await ctx.db.query("users").collect()) {
+        if (!CORREO_E2E_LUI30_RE.test(u.email ?? "")) continue;
+        await ctx.db.delete(u._id);
+        usersHuerfanos++;
+      }
+    }
+    return { perfiles: tanda.length, users, usersHuerfanos, quedan };
+  },
+});
+
+/** (`finally` del E2E) Borra las clasificaciones INFLADAS marcadas (§5e). Independiente
+ *  de las otras limpiezas: si §5e falló a medias, esta restaura su parte igual. */
+export const limpiarClasificacionesMarcadas = internalMutation({
+  args: { confirmar: v.literal(CONFIRMACION_SOLO_DEV) },
+  handler: async (ctx) => {
+    exigirDeploymentDeDesarrollo();
+    let subtemas = 0;
+    let areas = 0;
+    let secciones = 0;
+    for (const s of await ctx.db.query("subtemas").collect()) {
+      if (!s.nombre.startsWith(MARCA_E2E_LUI30)) continue;
+      await ctx.db.delete(s._id);
+      subtemas++;
+    }
+    for (const a of await ctx.db.query("areasTematicas").collect()) {
+      if (!a.nombre.startsWith(MARCA_E2E_LUI30)) continue;
+      await ctx.db.delete(a._id);
+      areas++;
+    }
+    for (const s of await ctx.db.query("secciones").collect()) {
+      if (!s.nombre.startsWith(MARCA_E2E_LUI30)) continue;
+      await ctx.db.delete(s._id);
+      secciones++;
+    }
+    return { secciones, areas, subtemas };
   },
 });

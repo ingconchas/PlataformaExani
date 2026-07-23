@@ -388,6 +388,18 @@ export default defineSchema({
     // silencio — la razón por la que `tipoExamenValidator` almacena el id. «Mis exámenes»
     // resuelve el nombre por sección DISTINTA (docs diminutos), no por fila.
     tipoExamen: v.optional(tipoExamenValidator),
+    // READ-MODEL de «aplicada» (LUI-30): instante de ALGÚN cierre registrado de esta
+    // asignación. ⚠️ Contrato de LECTURA: SOLO existencia — `presente ⟺ ∃ intento
+    // enviado`; el valor exacto NO alimenta ninguna cifra (un repaso que auto-repare una
+    // fila estampa SU fecha, y por eso el nombre no promete «primer»). Escritores:
+    // `player.finalizarIntento` (estampa si ausente en CADA cierre — auto-reparación) y
+    // `migracionesMetricas.reconciliarEnvioRegistrado` (backfill idempotente por cursor,
+    // corrido y VERIFICADO en dev y prod antes de que el PR B migre los lectores de
+    // `metricas.fueAplicada` a este campo). La carrera de dos primeras alumnas la
+    // serializa OCC: el reintento ve el campo puesto y no escribe. Invariante temporal
+    // (testigo en el verificador; garantizado por la guarda 5 de `iniciarIntento`):
+    // `envioRegistradoEn ≥ abreEn`.
+    envioRegistradoEn: v.optional(v.number()),
   })
     .index("by_grupo", ["grupoId"])
     // «Asignaciones NO CERRADAS de un grupo» (LUI-19): selección MONÓTONA — una
@@ -482,7 +494,14 @@ export default defineSchema({
     // transacción de Convex. El segundo rango, `eq("numeroIntento", undefined)`, selecciona
     // el LEGADO sin campo (semántica de Convex: un `eq` contra `undefined` casa los
     // documentos que no lo tienen), acotado por el mismo centinela.
-    .index("by_asignacion_numero", ["asignacionId", "numeroIntento"]),
+    .index("by_asignacion_numero", ["asignacionId", "numeroIntento"])
+    // «¿Esta asignación tiene ALGÚN enviado?» en una sonda `.first()` O(1) (LUI-30).
+    // Lector: la reconciliación/verificación del read-model `asignaciones.envioRegistradoEn`
+    // (`migracionesMetricas.ts`) — nace con su lector, regla de la casa. Cualquier enviado
+    // sirve (no necesita `numeroIntento`): por el invariante `numeroIntento > 1 ⟹ ∃ enviado
+    // previo`, «∃ enviado» ⟺ «el intento 1 está enviado». Las queries de pantalla de LUI-30
+    // NO lo usan (sus rangos son `by_asignacion_numero` y `by_grupo`).
+    .index("by_asignacion_estado", ["asignacionId", "estado"]),
 
   // Respuesta por reactivo dentro de un intento (LUI-26).
   //

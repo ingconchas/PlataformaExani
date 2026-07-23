@@ -369,17 +369,69 @@ export type IntentoAnalitico = {
 };
 
 /**
+ * SELECTOR CANÓNICO del «intento-que-cuenta» de cada alumna (LUI-104 · LUI-30). Es LA
+ * respuesta única a «¿qué intento representa a esta alumna en la analítica?»: lo consumen
+ * `promedioDeAsignacion` (abajo), la tabla por alumna y la participación de Resultados del
+ * examen (LUI-30) y la agregación de desgloses — si cada consumidor eligiera por su cuenta,
+ * la fila podría mostrar «En curso» mientras el promedio cuenta un legado enviado de la
+ * misma alumna: la clase de incoherencia que la auditoría del plan (v4→v5) prohibió.
+ *
+ * Recibe los DOS conjuntos que los lectores seleccionan por RANGO sobre
+ * `intentos.by_asignacion_numero`: `diagnosticos` (`numeroIntento === 1`) y `legado`
+ * (filas SIN el campo, pre-LUI-104; el proxy muere en la Fase C).
+ *
+ * TABLA DE PRECEDENCIA (cerrada en el plan v5; CALIFICADO-primero, y por eso el promedio
+ * reimplementado encima es EQUIVALENTE al histórico — `test:simulacro` lo certifica):
+ *   ① diagnóstico enviado CALIFICADO   ② legado enviado CALIFICADO (el más antiguo)
+ *   ③ diagnóstico enviado SIN puntaje  ④ legado enviado SIN puntaje (el más antiguo)
+ *   ⑤ diagnóstico `en_curso`           ⑥ legado `en_curso` (el más antiguo)
+ * Dentro de un mismo rango gana el `iniciadoEn` más antiguo (empate imposible por
+ * construcción en ①/③/⑤ — una alumna tiene UN intento 1 por serie—; el desempate mantiene
+ * la función TOTAL ante datos manipulados a mano). Un enviado sin puntaje existe legalmente
+ * (`N === 0` cierra sin calificar): cuenta como «Completado» para fila y participación,
+ * pero JAMÁS aporta al promedio.
+ *
+ * Genérica sobre `T`: `panel` la usa con `IntentoAnalitico` pelado y LUI-30 con la
+ * proyección completa (que trae el desglose) — misma selección, un solo código.
+ */
+export function primerIntentoPorAlumna<T extends IntentoAnalitico>(
+  diagnosticos: readonly T[],
+  legado: readonly T[],
+): Map<AlumnoId, T> {
+  const rango = (esDiagnostico: boolean, i: IntentoAnalitico): number => {
+    if (i.estado === "enviado" && i.puntaje !== undefined)
+      return esDiagnostico ? 1 : 2;
+    if (i.estado === "enviado") return esDiagnostico ? 3 : 4;
+    return esDiagnostico ? 5 : 6;
+  };
+  const eleccion = new Map<AlumnoId, { rango: number; intento: T }>();
+  const considerar = (esDiagnostico: boolean, i: T) => {
+    const r = rango(esDiagnostico, i);
+    const previo = eleccion.get(i.alumnoId);
+    if (
+      !previo ||
+      r < previo.rango ||
+      (r === previo.rango && i.iniciadoEn < previo.intento.iniciadoEn)
+    ) {
+      eleccion.set(i.alumnoId, { rango: r, intento: i });
+    }
+  };
+  for (const i of diagnosticos) considerar(true, i);
+  for (const i of legado) considerar(false, i);
+  return new Map([...eleccion].map(([alumna, e]) => [alumna, e.intento]));
+}
+
+/**
  * Promedio del DIAGNÓSTICO (intento 1) de cada alumna en una asignación — la regla
  * transversal de LUI-104: «solo el primer intento alimenta la analítica». Los repasos no
  * mueven un número, sin importar cuántos sean.
  *
- * Recibe los dos conjuntos que `panel.resumen` selecciona por RANGO sobre
- * `intentos.by_asignacion_numero` (jamás un `.collect()` de la tabla grande):
- *  · `diagnosticos` — `numeroIntento === 1`, la fuente normal;
- *  · `legado` — filas SIN el campo, anteriores a este ciclo. Para ellas se conserva el
- *    proxy histórico («el `iniciadoEn` más antiguo por alumna entre los calificados»)
- *    y SOLO se aplica a alumnas que no aparecen ya numeradas. El proxy muere con la
- *    Fase C, cuando `numeroIntento` sea requerido.
+ * REIMPLEMENTADO sobre `primerIntentoPorAlumna` (LUI-30, plan v5): la media corre sobre los
+ * seleccionados de rango ①–② —enviados Y calificados—, que es EXACTAMENTE la población del
+ * promedio histórico (diagnóstico calificado primero; si no existe, el legado calificado
+ * más antiguo como proxy; los rangos ③–⑥ nunca son calificados, así que el filtro los
+ * excluye igual que antes). La equivalencia no es un deseo: `test:simulacro` conserva sus
+ * 53 checks IDÉNTICOS sobre esta función.
  *
  * ⚠️ `desbordado` (el centinela `take(MAX + 1)` se llenó) devuelve `{valor: null,
  * incompleto: true}` y **jamás promedia el prefijo**: un promedio calculado sobre las
@@ -394,35 +446,10 @@ export function promedioDeAsignacion(entrada: {
 }): { valor: number | null; incompleto: boolean } {
   if (entrada.desbordado) return { valor: null, incompleto: true };
 
-  const calificado = (i: IntentoAnalitico) =>
-    i.estado === "enviado" && i.puntaje !== undefined;
-
-  const porAlumna = new Map<string, { iniciadoEn: number; puntaje: number }>();
-  for (const i of entrada.diagnosticos) {
-    if (!calificado(i)) continue;
-    const previo = porAlumna.get(i.alumnoId);
-    // Empate imposible por construcción (una alumna tiene UN intento 1 por serie); el
-    // desempate por `iniciadoEn` mantiene la función TOTAL ante datos manipulados a mano.
-    if (!previo || i.iniciadoEn < previo.iniciadoEn) {
-      porAlumna.set(i.alumnoId, {
-        iniciadoEn: i.iniciadoEn,
-        puntaje: i.puntaje as number,
-      });
-    }
-  }
-  const numeradas = new Set(porAlumna.keys());
-  for (const i of entrada.legado) {
-    if (!calificado(i) || numeradas.has(i.alumnoId)) continue;
-    const previo = porAlumna.get(i.alumnoId);
-    if (!previo || i.iniciadoEn < previo.iniciadoEn) {
-      porAlumna.set(i.alumnoId, {
-        iniciadoEn: i.iniciadoEn,
-        puntaje: i.puntaje as number,
-      });
-    }
-  }
-
-  const puntajes = [...porAlumna.values()].map((x) => x.puntaje);
+  const seleccion = primerIntentoPorAlumna(entrada.diagnosticos, entrada.legado);
+  const puntajes = [...seleccion.values()]
+    .filter((i) => i.estado === "enviado" && i.puntaje !== undefined)
+    .map((i) => i.puntaje as number);
   if (puntajes.length === 0) return { valor: null, incompleto: false };
   return {
     valor: redondearPuntaje(
