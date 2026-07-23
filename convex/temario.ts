@@ -9,6 +9,7 @@ import { type Doc, type Id } from "./_generated/dataModel";
 import { v, ConvexError } from "convex/values";
 import { requireAdmin, requireStaff } from "./authz";
 import { canonizar } from "./texto";
+import { validarNombreTemario } from "./temarioReglas";
 import { CONFIRMACION_SOLO_DEV, exigirDeploymentDeDesarrollo } from "./entorno";
 
 /**
@@ -363,11 +364,11 @@ const nivelValidator = v.union(
   v.literal("subtema"),
 );
 
-/** `nombre` de un elemento: sin espacios extremos, no vacío. */
+/** `nombre` de un elemento: sin espacios extremos, no vacío, ≤`MAX_NOMBRE_TEMARIO`
+ *  caracteres (frontera de escritura de LUI-30). La regla y su copy viven en el módulo
+ *  PURO `temarioReglas.ts`, donde `scripts/test-resultados.ts` puede importarlos. */
 function nombreLimpio(bruto: string): string {
-  const nombre = bruto.trim();
-  if (!nombre) throw new ConvexError("El nombre es obligatorio.");
-  return nombre;
+  return validarNombreTemario(bruto);
 }
 
 // ── Unicidad: TRES alcances distintos ───────────────────────────────────────

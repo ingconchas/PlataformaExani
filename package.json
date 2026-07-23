@@ -17,6 +17,7 @@
     "test:panel-instructor": "tsx scripts/test-panel-instructor.ts",
     "test:simulacro": "tsx scripts/test-simulacro.ts",
     "test:mis-examenes": "tsx scripts/test-mis-examenes.ts",
+    "test:resultados": "tsx scripts/test-resultados.ts",
     "test:imagenes": "node scripts/test-imagenes.mjs",
     "e2e:lui9": "node scripts/e2e-lui9.mjs",
     "e2e:lui14": "node scripts/e2e-lui14.mjs",

@@ -105,6 +105,14 @@ export function fechaCortaMx(ts: number): string {
   return `${d.getUTCDate()} ${MESES_CORTOS[d.getUTCMonth()]}`;
 }
 
+/** «28 jun 2026» — el «Aplicado el {fecha}» de Resultados del examen (LUI-30, mock 20).
+ *  CON año a propósito: el selector mezcla aplicaciones de ciclos distintos y la fecha
+ *  corta sola sería ambigua entre años. */
+export function fechaCortaConAnioMx(ts: number): string {
+  const d = new Date(ts - OFFSET_MX_MS);
+  return `${d.getUTCDate()} ${MESES_CORTOS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+}
+
 /**
  * «12 de julio, 23:59» — el badge «Cierra el {fecha, hora}» del panel del
  * instructor (LUI-19, mock 13). Horas y minutos con cero a la izquierda («09:05»)

@@ -452,6 +452,20 @@ async function finalizarIntento(
     cierreJobId: undefined, // el job ya no tiene nada que hacer
   });
 
+  // READ-MODEL de «aplicada» (LUI-30): el primer cierre de la asignación estampa
+  // `envioRegistradoEn` UNA sola vez (los envíos siguientes ven el campo y no tocan el
+  // doc — sin tormenta reactiva sobre las queries que leen `asignaciones`). Se estampa en
+  // CADA cierre si está ausente —no solo en el intento 1— a propósito: es la
+  // AUTO-REPARACIÓN del fasado de la migración (un repaso sobre una asignación anterior
+  // al deploy A la repara; las que no tengan actividad nueva las cubre el backfill de
+  // `migracionesMetricas`). Contrato del campo: SOLO existencia — docblock en schema.ts.
+  if (intento.asignacionId !== undefined) {
+    const asignacion = await ctx.db.get(intento.asignacionId);
+    if (asignacion && asignacion.envioRegistradoEn === undefined) {
+      await ctx.db.patch(intento.asignacionId, { envioRegistradoEn: ahora });
+    }
+  }
+
   // El cursor es UX de un intento vivo; cerrado, es basura.
   const posicion = await ctx.db
     .query("posiciones")
