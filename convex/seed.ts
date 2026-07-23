@@ -2859,19 +2859,26 @@ async function grupoLui30(
  * intento carga un desglose de 240 entradas ≈ 40 KiB: ~160 filas superan los 6 MiB del
  * paginate ANTES de las 401 — el testigo específico de la rama `!isDone`).
  *
- * ⚠️ Fabrica EXCLUSIVAMENTE `enviado` SIN `cierreJobId` — jamás `en_curso`: CERO jobs
- * pendientes por construcción (la limpieza lo aserta). Reutiliza UNA alumna real repetida
- * (el corte cuenta FILAS del rango, no alumnas distintas; el selector deduplica y eso no
- * afecta la frontera). Estampa `envioRegistradoEn` en la asignación: el contrato del
- * read-model se respeta también en el andamiaje. `seccionId`/`areaId` opcionales apuntan
- * el desglose a clasificaciones específicas (p. ej. las infladas de §5e); sin ellas usa
- * las primeras del temario.
+ * ⚠️ Por defecto fabrica EXCLUSIVAMENTE `enviado` SIN `cierreJobId` — jamás `en_curso`:
+ * CERO jobs pendientes por construcción (la limpieza lo aserta). Reutiliza UNA alumna
+ * real repetida (el corte cuenta FILAS del rango, no alumnas distintas; el selector
+ * deduplica y eso no afecta la frontera). Estampa `envioRegistradoEn` en la asignación:
+ * el contrato del read-model se respeta también en el andamiaje. `seccionId`/`areaId`
+ * opcionales apuntan el desglose a clasificaciones específicas (p. ej. las infladas de
+ * §5e); sin ellas usa las primeras del temario.
+ *
+ * `conJobHuerfano` (testigo de la ronda 2 de auditoría y del §12b del E2E): fabrica UN
+ * intento con un `cerrarVencido` REAL agendado y luego lo deja «enviado a mano»
+ * reproduciendo EXACTAMENTE lo que hace `finalizarIntento` — limpia `cierreJobId` SIN
+ * cancelar el job. El resultado es la fila-trampa de la limpieza: un job pendiente que
+ * ningún campo referencia y que solo el barrido por conjunto capturado puede cancelar.
  */
 export const sembrarIntentosParaCota = internalMutation({
   args: {
     confirmar: v.literal(CONFIRMACION_SOLO_DEV),
     objetivo: v.number(),
     conDesglose: v.optional(v.boolean()),
+    conJobHuerfano: v.optional(v.boolean()),
     seccionId: v.optional(v.id("secciones")),
     areaId: v.optional(v.id("areasTematicas")),
     instructorCorreo: v.optional(v.string()),
@@ -2935,6 +2942,47 @@ export const sembrarIntentosParaCota = internalMutation({
         tipoExamen: normalizarTipo(examen.tipo),
       });
       asignacion = (await ctx.db.get(id))!;
+    }
+
+    // ── Testigo del job huérfano (ronda 2 · §12b) ─────────────────────────
+    // Job REAL agendado + «envío a mano» que limpia el campo SIN cancelar — la
+    // reproducción exacta del hueco: queda un `cerrarVencido` pendiente que ningún
+    // campo referencia (al disparar en 1 h haría no-op, pero es trabajo residual que
+    // la limpieza DEBE cancelar por conjunto capturado).
+    if (args.conJobHuerfano) {
+      const intentoId = await ctx.db.insert("intentos", {
+        examenId: examen._id,
+        alumnoId: alumna.userId,
+        asignacionId: asignacion._id,
+        estado: "en_curso",
+        iniciadoEn: ahora,
+        numeroIntento: 1,
+      });
+      // Anotación EXPLÍCITA: devolver este id hace que TS intente resolver el tipo del
+      // handler a través del grafo de `internal` (que incluye a esta misma función) y
+      // reporte una circularidad TS7022 sin ella.
+      const jobId: Id<"_scheduled_functions"> = await ctx.scheduler.runAt(
+        ahora + 60 * 60_000,
+        internal.player.cerrarVencido,
+        { intentoId },
+      );
+      await ctx.db.patch(intentoId, {
+        estado: "enviado",
+        enviadoEn: ahora,
+        puntaje: 1000,
+        formaCierre: "manual",
+        cierreJobId: undefined, // como `finalizarIntento`: limpia sin cancelar
+      });
+      if (asignacion.envioRegistradoEn === undefined) {
+        await ctx.db.patch(asignacion._id, { envioRegistradoEn: ahora });
+      }
+      return {
+        grupoId,
+        asignacionId: asignacion._id,
+        creados: 1,
+        intentoConJobHuerfano: intentoId,
+        jobId,
+      };
     }
 
     // Desglose GORDO opcional: 240 entradas por arreglo (la cota real del constructor),
@@ -3325,9 +3373,12 @@ export const limpiarGruposLui30 = internalMutation({
             await ctx.db.delete(p._id);
             conteo.posiciones++;
           }
-          // Redundante con el barrido (un job aún referenciado por el campo también
-          // está en `intentosMarcados`) — se conserva porque es gratis y explícito.
-          if (i.cierreJobId) await ctx.scheduler.cancel(i.cierreJobId);
+          // SIN cancelación por `cierreJobId` aquí (ronda 2 de auditoría): el barrido
+          // canónico de arriba ya canceló CADA job pendiente del conjunto — un job
+          // referenciado por el campo también está en `intentosMarcados` — y el
+          // contrato de `Scheduler.cancel` no documenta idempotencia: una segunda
+          // cancelación del mismo id podría lanzar y hacer rollback de TODA la
+          // limpieza. Cada id pendiente se cancela EXACTAMENTE una vez.
           await ctx.db.delete(i._id);
           conteo.intentos++;
           borradosIntentos++;
