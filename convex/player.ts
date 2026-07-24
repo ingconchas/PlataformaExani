@@ -880,14 +880,21 @@ export const posicionDe = query({
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// resultado — pantalla mínima de post-envío (interina; LUI-28 la reemplaza)
+// resultado — Resultados del simulacro (LUI-28)
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * El resultado de UN intento enviado: puntaje, cuándo se entregó y qué clase de intento fue.
+ * El resultado de UN intento enviado: puntaje, cuándo se entregó, qué clase de intento fue
+ * y su DESGLOSE por sección y área temática.
  *
- * El desglose por sección/área SÍ está persistido (lo estampa el cierre) pero NO viaja
- * todavía: pintarlo es LUI-28, y una query no devuelve datos sin consumidor.
+ * El desglose lo estampa el cierre (LUI-27) y aquí se resuelve a nombres y porcentajes con
+ * las MISMAS funciones que la pantalla del instructor (`resultados.derivarResultadoIntento`,
+ * que reusa `agregarDesgloses`, `ordenDeColumnas` y `construirAcordeon`): es lo que impide
+ * que la alumna y su instructor vean cifras distintas del mismo intento.
+ *
+ * La META no viaja aquí: vive en `perfilAlumna.mio` y la pantalla combina ambas queries con
+ * `useQueries`. Así, editar la meta invalida solo la query de la meta y no obliga a releer
+ * el intento con su desglose.
  *
  * El aviso «esto es un repaso, tu resultado oficial es el del primer intento» lo deriva el
  * CLIENTE de `numeroIntento` y de la ventana cruda — aquí no se estampa nada del reloj.

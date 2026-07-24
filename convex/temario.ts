@@ -384,19 +384,24 @@ async function leerModulosActivos(
 }
 
 /**
- * Frontera de ESCRITURA del dominio «módulos activos». La exigen los TRES escritores:
- * `crear` (un módulo nace activo), `cambiarEstado` (reactivación) y el seed (que inserta
- * secciones saltándose el CRUD). Exportada justo para que el seed no pueda tener su propia
- * versión de la regla.
+ * Frontera de ESCRITURA del dominio «módulos activos», para los escritores que agregan DE
+ * UNO EN UNO: `crear` (un módulo nace activo) y `cambiarEstado` (reactivación). Responde
+ * «¿cabe uno más?»: se llama ANTES de escribir y rechaza cuando ya hay
+ * `MAX_MODULOS_ACTIVOS`, de modo que el módulo 30 entra y el 31 no.
  *
- * Se llama ANTES de escribir y con el cupo YA descontado del que va a ocuparse: rechaza
- * cuando ya hay `MAX_MODULOS_ACTIVOS`, de modo que el módulo 30 entra y el 31 no.
+ * ⚠️ El TERCER escritor —el seed, que inserta secciones saltándose el CRUD— NO usa esta
+ * función, y no es un olvido: siembra VARIOS módulos en una pasada, así que su pregunta es
+ * otra («¿el estado FINAL respeta el techo?») y la comprueba tras insertar, dentro de la
+ * misma transacción, contra la MISMA constante `MAX_MODULOS_ACTIVOS`. Lo compartido entre
+ * los tres es la constante, que vive en el módulo neutral `temarioReglas.ts`; esta función
+ * es solo la forma que toma la regla para el alta unitaria. Por eso NO se exporta: fuera de
+ * este archivo no hay ningún escritor unitario al que sirva.
  *
  * Dos escrituras simultáneas leen y escriben el mismo rango del índice, así que la
  * serialización de Convex hace reintentar a una y el reintento vuelve a contar: el estado
  * final nunca excede el techo aunque dos administradores actúen a la vez.
  */
-export async function exigirCupoDeModulos(ctx: MutationCtx): Promise<void> {
+async function exigirCupoDeModulos(ctx: MutationCtx): Promise<void> {
   const { filas, desbordado } = await leerModulosActivos(ctx);
   if (desbordado || filas.length >= MAX_MODULOS_ACTIVOS) {
     throw new ConvexError(MSG_MODULOS_LLENO);
