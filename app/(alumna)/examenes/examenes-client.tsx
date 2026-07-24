@@ -1,38 +1,17 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useCallback, useMemo } from "react";
 import Link from "next/link";
-import { useConvexAuth, useMutation, useQuery } from "convex/react";
-import { ConvexError } from "convex/values";
+import { useConvexAuth, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import {
-  derivarMisExamenes,
-  type AsignacionId,
-  type IntentoId,
-} from "@/convex/misExamenes";
-import { fechaCortaMx, fechaHoraMx } from "@/convex/fechas";
+import { CardPendiente } from "@/components/alumna/card-pendiente";
+import { derivarMisExamenes, type IntentoId } from "@/convex/misExamenes";
+import { fechaCortaMx } from "@/convex/fechas";
 import { useRelojAnclado } from "@/lib/use-reloj-anclado";
-
-/** «3 h · 90 preguntas» / «45 min · 24 preguntas» (Diseño 24). */
-function meta(duracionMin: number, numReactivos: number): string {
-  const h = Math.floor(duracionMin / 60);
-  const m = duracionMin % 60;
-  const tiempo = h === 0 ? `${m} min` : m === 0 ? `${h} h` : `${h} h ${m} min`;
-  return `${tiempo} · ${numReactivos} ${numReactivos === 1 ? "pregunta" : "preguntas"}`;
-}
-
-function mensajeDeError(e: unknown): string {
-  if (e instanceof ConvexError) {
-    const d = e.data as { message?: string } | string;
-    return typeof d === "string" ? d : (d?.message ?? "Ocurrió un error.");
-  }
-  return "Ocurrió un error. Intenta de nuevo.";
-}
+import { useComenzarSimulacro } from "@/lib/use-comenzar-simulacro";
 
 /**
  * «Mis exámenes» (LUI-25 · Diseño 24) en DOS capas, por las reglas de Hooks: el wrapper
@@ -43,6 +22,9 @@ function mensajeDeError(e: unknown): string {
  * el orden y la urgencia «¡Cierra hoy!» las deriva `derivarMisExamenes` con el reloj
  * anclado — así una asignación futura APARECE sola al abrirse y una abierta pasa a
  * vencida al cerrarse, sin re-query (al cruzar no cambia ningún documento).
+ *
+ * La card del pendiente y el flujo «Comenzar/Continuar» se comparten con Inicio (LUI-24) vía
+ * `CardPendiente` y `useComenzarSimulacro` — misma card, mismo manejo del rechazo.
  */
 export function MisExamenesClient() {
   const { isAuthenticated } = useConvexAuth();
@@ -61,10 +43,7 @@ export function MisExamenesClient() {
 type Datos = NonNullable<ReturnType<typeof useQuery<typeof api.player.misExamenes>>>;
 
 function MisExamenesCargado({ datos }: { datos: Datos }) {
-  const router = useRouter();
-  const iniciar = useMutation(api.player.iniciarIntento);
-  const [error, setError] = useState<string | null>(null);
-  const [ocupada, setOcupada] = useState<string | null>(null);
+  const { comenzar, continuar, ocupada, error } = useComenzarSimulacro();
 
   const fronterasDe = useCallback(
     (t: number) => derivarMisExamenes(datos, t).fronteras,
@@ -72,21 +51,6 @@ function MisExamenesCargado({ datos }: { datos: Datos }) {
   );
   const ahora = useRelojAnclado(datos.ahoraServidor, fronterasDe);
   const d = useMemo(() => derivarMisExamenes(datos, ahora), [datos, ahora]);
-
-  const comenzar = async (asignacionId: AsignacionId) => {
-    setError(null);
-    setOcupada(asignacionId);
-    try {
-      const { intentoId } = await iniciar({ asignacionId });
-      // Mutation exitosa NAVEGA SIEMPRE (regla del repo).
-      router.push(`/examen/${intentoId}`);
-    } catch (e) {
-      setError(mensajeDeError(e));
-      setOcupada(null);
-    }
-  };
-
-  const continuar = (intentoId: IntentoId) => router.push(`/examen/${intentoId}`);
 
   const sinNada =
     d.pendientes.length === 0 &&
@@ -120,52 +84,13 @@ function MisExamenesCargado({ datos }: { datos: Datos }) {
             Pendientes
           </h2>
           {d.pendientes.map((p) => (
-            <Card
+            <CardPendiente
               key={p.asignacionId}
-              className="flex flex-col gap-2"
-              data-pendiente={p.asignacionId}
-            >
-              <div className="flex items-center gap-2">
-                <Badge tone={p.esModulo ? "purple" : "neutral"}>
-                  {p.tipoEtiqueta}
-                </Badge>
-                {p.enCurso && <Badge tone="blue">En curso</Badge>}
-              </div>
-              <h3 className="text-h3 text-ink">{p.titulo}</h3>
-              <p className="text-small text-muted">
-                {meta(p.duracionMin, p.numReactivos)}
-              </p>
-              <p
-                className={
-                  p.urgente
-                    ? "text-small font-semibold text-unx-orange-text"
-                    : "text-small text-muted"
-                }
-                data-deadline-urgente={p.urgente ? "si" : "no"}
-              >
-                {p.urgente
-                  ? `¡Cierra hoy a las ${fechaHoraMx(p.cierraEn).split(", ")[1]}!`
-                  : `Cierra el ${fechaHoraMx(p.cierraEn)}`}
-              </p>
-              {p.enCurso ? (
-                <Button
-                  className="w-full"
-                  onClick={() => continuar(p.enCurso as IntentoId)}
-                  data-cta="continuar"
-                >
-                  Continuar
-                </Button>
-              ) : (
-                <Button
-                  className="w-full"
-                  disabled={ocupada === p.asignacionId}
-                  onClick={() => comenzar(p.asignacionId)}
-                  data-cta="comenzar"
-                >
-                  Comenzar
-                </Button>
-              )}
-            </Card>
+              pendiente={p}
+              ocupada={ocupada}
+              onComenzar={() => comenzar(p.asignacionId)}
+              onContinuar={continuar}
+            />
           ))}
         </section>
       )}
