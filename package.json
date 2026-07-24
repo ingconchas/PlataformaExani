@@ -20,6 +20,7 @@
     "test:resultados": "tsx scripts/test-resultados.ts",
     "test:resumen": "tsx scripts/test-resumen.ts",
     "test:meta": "tsx scripts/test-meta-alumna.ts",
+    "test:inicio": "tsx scripts/test-inicio-alumna.ts",
     "test:imagenes": "node scripts/test-imagenes.mjs",
     "e2e:lui9": "node scripts/e2e-lui9.mjs",
     "e2e:lui14": "node scripts/e2e-lui14.mjs",

@@ -29,6 +29,7 @@ import type * as fechas from "../fechas.js";
 import type * as grupos from "../grupos.js";
 import type * as http from "../http.js";
 import type * as imagenes from "../imagenes.js";
+import type * as inicioAlumna from "../inicioAlumna.js";
 import type * as instructores from "../instructores.js";
 import type * as invitaciones from "../invitaciones.js";
 import type * as lecturaCompat from "../lecturaCompat.js";
@@ -90,6 +91,7 @@ declare const fullApi: ApiFromModules<{
   grupos: typeof grupos;
   http: typeof http;
   imagenes: typeof imagenes;
+  inicioAlumna: typeof inicioAlumna;
   instructores: typeof instructores;
   invitaciones: typeof invitaciones;
   lecturaCompat: typeof lecturaCompat;
