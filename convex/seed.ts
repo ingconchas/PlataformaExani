@@ -4501,3 +4501,388 @@ export const limpiarLui32 = internalMutation({
     };
   },
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers SOLO-DEV de `e2e:lui28` (LUI-36 · LUI-28)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Namespace marcado de la suite: todo lo que crea empieza así y su limpieza SOLO toca eso. */
+const MARCA_E2E_LUI28 = "[E2E LUI-28]";
+
+/** Centinela del intento de bordes: un puntaje que NINGÚN cálculo del producto produce con
+ *  el fixture, y que además es el caso de redondeo que la prueba necesita (→ 1150). Es la
+ *  llave EXACTA con la que la limpieza lo distingue de datos legítimos. */
+const PUNTAJE_BORDES_LUI28 = 1149.6;
+
+/**
+ * Precondiciones que el fixture NO da y que dos testigos ⭐ necesitan:
+ *
+ *  · **Borde del badge**: un área con **59 %** (se marca «A estudiar») y otra con **60 %
+ *    EXACTO** (NO se marca). El fixture solo produce 0/17/33/50/67/100 %, así que sin esto
+ *    la comparación estricta del umbral sería inasertable.
+ *  · **Invariante de redondeo**: un puntaje CRUDO de 1149.6 que se MUESTRA como 1150 — la
+ *    meta exacta de Fernanda. Comparar contra el crudo diría «A 1 punto» debajo de un 1150
+ *    junto a una meta de 1150.
+ *
+ * Es un intento **DIRECTO** (sin `asignacionId`) a propósito: así no entra en ninguna
+ * asignación y no mueve los oráculos de lui9/lui30/lui32 ni el de «Mis exámenes» (que
+ * excluye los directos por contrato). Fernanda no tiene ninguno en el fixture, así que la
+ * limpieza puede identificarlo sin ambigüedad. De regalo, ejerce la regla «un intento
+ * directo no ofrece repaso».
+ */
+export const sembrarBordesLui28 = internalMutation({
+  args: { confirmar: v.literal(CONFIRMACION_SOLO_DEV) },
+  handler: async (ctx) => {
+    exigirDeploymentDeDesarrollo();
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("email", (q) => q.eq("email", "fernanda.alumna@demo.unx.mx"))
+      .first();
+    if (!user) throw new Error("Falta la alumna demo; corre el seed base.");
+
+    const examen = (await ctx.db.query("examenes").collect()).find(
+      (e) => e.titulo === "Simulacro General 1",
+    );
+    if (!examen) throw new Error("Falta «Simulacro General 1»; corre el seed base.");
+
+    const seccionPorNombre = new Map(
+      (await ctx.db.query("secciones").collect()).map((s) => [s.nombre, s]),
+    );
+    const areaPorNombre = new Map(
+      (await ctx.db.query("areasTematicas").collect()).map((a) => [a.nombre, a]),
+    );
+    const alg = areaPorNombre.get("Álgebra");
+    const cel = areaPorNombre.get("Célula");
+    const mat = seccionPorNombre.get("Pensamiento matemático");
+    const bio = seccionPorNombre.get("Biología");
+    if (!alg || !cel || !mat || !bio) {
+      throw new Error("Falta temario demo (Álgebra/Célula/Pensamiento matemático/Biología).");
+    }
+
+    // Idempotente y ESTRECHO: la fila de esta suite se reconoce por su centinela exacto
+    // (directo ∧ puntaje `PUNTAJE_BORDES_LUI28`). Reutilizar «cualquier intento directo de
+    // Fernanda» haría que la limpieza pudiera llevarse por delante datos legítimos de dev.
+    const previos = await ctx.db
+      .query("intentos")
+      .withIndex("by_alumno", (q) => q.eq("alumnoId", user._id))
+      .collect();
+    const ya = previos.find(
+      (i) => i.asignacionId === undefined && i.puntaje === PUNTAJE_BORDES_LUI28,
+    );
+    if (ya) return { intentoId: ya._id, reusado: true };
+
+    const ahora = Date.now();
+    const intentoId = await ctx.db.insert("intentos", {
+      examenId: examen._id,
+      alumnoId: user._id,
+      estado: "enviado",
+      iniciadoEn: ahora - 30 * 60_000,
+      enviadoEn: ahora - 25 * 60_000,
+      // 1149.6 → `redondearPuntaje` da 1150, que es EXACTAMENTE su meta. Y es el CENTINELA
+      // por el que la limpieza reconoce esta fila.
+      puntaje: PUNTAJE_BORDES_LUI28,
+      numeroIntento: 1,
+      formaCierre: "manual",
+      aciertosPorSeccion: [
+        { seccionId: mat._id, aciertos: 59, total: 100 },
+        { seccionId: bio._id, aciertos: 6, total: 10 },
+      ],
+      aciertosPorArea: [
+        { areaId: alg._id, aciertos: 59, total: 100 }, // 59 % → «A estudiar»
+        { areaId: cel._id, aciertos: 6, total: 10 }, // 60 % EXACTO → NO
+      ],
+    });
+    return { intentoId, reusado: false };
+  },
+});
+
+/** (`finally`) Borra SOLO el intento sembrado por `sembrarBordesLui28`, reconocido por su
+ *  centinela (directo ∧ `PUNTAJE_BORDES_LUI28`). Un criterio más ancho —«todos los directos
+ *  de Fernanda»— podría borrar datos legítimos de este deployment. Idempotente. */
+export const limpiarBordesLui28 = internalMutation({
+  args: { confirmar: v.literal(CONFIRMACION_SOLO_DEV) },
+  handler: async (ctx) => {
+    exigirDeploymentDeDesarrollo();
+    const user = await ctx.db
+      .query("users")
+      .withIndex("email", (q) => q.eq("email", "fernanda.alumna@demo.unx.mx"))
+      .first();
+    if (!user) return { borrados: 0 };
+    const suyos = await ctx.db
+      .query("intentos")
+      .withIndex("by_alumno", (q) => q.eq("alumnoId", user._id))
+      .collect();
+    let borrados = 0;
+    for (const i of suyos) {
+      if (i.asignacionId !== undefined || i.puntaje !== PUNTAJE_BORDES_LUI28) continue;
+      // Cascada: las respuestas y el cursor del player cuelgan del intento.
+      for (const r of await ctx.db
+        .query("respuestas")
+        .withIndex("by_intento_reactivo", (q) => q.eq("intentoId", i._id))
+        .collect()) {
+        await ctx.db.delete(r._id);
+      }
+      const pos = await ctx.db
+        .query("posiciones")
+        .withIndex("by_intento", (q) => q.eq("intentoId", i._id))
+        .first();
+      if (pos) await ctx.db.delete(pos._id);
+      await ctx.db.delete(i._id);
+      borrados++;
+    }
+    return { borrados };
+  },
+});
+
+/**
+ * Rellena el catálogo de módulos ACTIVOS hasta `objetivo` con secciones marcadas, para poder
+ * ejercer la frontera `MAX_MODULOS_ACTIVOS` por sus bordes exactos (29 → 30 pasa → 31
+ * rechaza) sin depender de cuántos módulos tenga el deployment.
+ *
+ * NO usa `temario.crear`: crearlas por el CRUD chocaría contra la propia frontera que la
+ * prueba quiere medir. Insertar directo es correcto aquí porque el objetivo es DEJAR el
+ * sistema justo por debajo del techo — un estado legal — y la prueba verifica después que el
+ * CRUD respeta el borde. Rechaza `objetivo > MAX_MODULOS_ACTIVOS`: un helper de pruebas
+ * tampoco debe poder fabricar un estado inválido.
+ */
+export const sembrarModulosLui28 = internalMutation({
+  args: { confirmar: v.literal(CONFIRMACION_SOLO_DEV), objetivo: v.number() },
+  handler: async (ctx, { objetivo }) => {
+    exigirDeploymentDeDesarrollo();
+    if (!Number.isInteger(objetivo) || objetivo < 0 || objetivo > MAX_MODULOS_ACTIVOS) {
+      throw new Error(
+        `objetivo debe ser un entero entre 0 y ${MAX_MODULOS_ACTIVOS} (el techo del producto).`,
+      );
+    }
+    const activos = await ctx.db
+      .query("secciones")
+      .withIndex("by_tipo_activo_orden", (q) =>
+        q.eq("tipo", "modulo").eq("activo", true),
+      )
+      .take(MAX_MODULOS_ACTIVOS + 1);
+    let orden = 1000;
+    let creados = 0;
+    for (let n = activos.length; n < objetivo; n++) {
+      await ctx.db.insert("secciones", {
+        nombre: `${MARCA_E2E_LUI28} Módulo ${n}`,
+        tipo: "modulo",
+        activo: true,
+        orden: orden++,
+        reactivosCount: 0,
+      });
+      creados++;
+    }
+    return { creados, activosAhora: Math.max(activos.length, objetivo) };
+  },
+});
+
+/** (`finally`) Borra las secciones marcadas de esta suite. Solo toca nombres que empiezan con
+ *  la marca; jamás un módulo real del temario. Idempotente. */
+export const limpiarModulosLui28 = internalMutation({
+  args: { confirmar: v.literal(CONFIRMACION_SOLO_DEV) },
+  handler: async (ctx) => {
+    exigirDeploymentDeDesarrollo();
+    const todas = await ctx.db.query("secciones").collect();
+    let borradas = 0;
+    for (const s of todas) {
+      if (!s.nombre.startsWith(MARCA_E2E_LUI28)) continue;
+      await ctx.db.delete(s._id);
+      borradas++;
+    }
+    return { borradas };
+  },
+});
+
+/** Conteo de módulos ACTIVOS (para asertar la frontera sin depender de la UI). */
+export const contarModulosActivosLui28 = internalMutation({
+  args: { confirmar: v.literal(CONFIRMACION_SOLO_DEV) },
+  handler: async (ctx) => {
+    exigirDeploymentDeDesarrollo();
+    const filas = await ctx.db
+      .query("secciones")
+      .withIndex("by_tipo_activo_orden", (q) =>
+        q.eq("tipo", "modulo").eq("activo", true),
+      )
+      .take(MAX_MODULOS_ACTIVOS + 5);
+    return { activos: filas.length };
+  },
+});
+
+/** Perfil académico CRUDO de un correo (para asertar el upsert por fragmento y la unicidad
+ *  sin pasar por la query, que ya normaliza). Devuelve también CUÁNTAS filas hay: la
+ *  unicidad por `userId` la sostiene la disciplina sonda+insert, no el índice. */
+export const perfilAlumnaCrudoLui28 = internalMutation({
+  args: { confirmar: v.literal(CONFIRMACION_SOLO_DEV), correo: v.string() },
+  handler: async (ctx, { correo }) => {
+    exigirDeploymentDeDesarrollo();
+    const user = await ctx.db
+      .query("users")
+      .withIndex("email", (q) => q.eq("email", norm(correo)))
+      .first();
+    if (!user) return { filas: 0, fila: null };
+    const filas = await ctx.db
+      .query("perfilesAlumna")
+      .withIndex("by_user", (q) => q.eq("userId", user._id))
+      .collect();
+    const f = filas[0];
+    return {
+      filas: filas.length,
+      fila: f
+        ? {
+            institucionObjetivo: f.institucionObjetivo ?? null,
+            carreraObjetivo: f.carreraObjetivo ?? null,
+            metaPuntaje: f.metaPuntaje ?? null,
+            modulos: f.modulosIds.length,
+          }
+        : null,
+    };
+  },
+});
+
+/** Borra la fila del perfil académico de un correo (para probar la captura DESDE CERO en
+ *  ambos órdenes). El seed la restaura al final de la suite. */
+export const borrarPerfilAlumnaLui28 = internalMutation({
+  args: { confirmar: v.literal(CONFIRMACION_SOLO_DEV), correo: v.string() },
+  handler: async (ctx, { correo }) => {
+    exigirDeploymentDeDesarrollo();
+    const user = await ctx.db
+      .query("users")
+      .withIndex("email", (q) => q.eq("email", norm(correo)))
+      .first();
+    if (!user) return { borradas: 0 };
+    const filas = await ctx.db
+      .query("perfilesAlumna")
+      .withIndex("by_user", (q) => q.eq("userId", user._id))
+      .collect();
+    for (const f of filas) await ctx.db.delete(f._id);
+    return { borradas: filas.length };
+  },
+});
+
+/**
+ * Fabrica el estado ILEGAL que ningún escritor del producto puede producir: una fila de
+ * `perfilesAlumna` con DOS de los tres campos de la tripleta.
+ *
+ * Existe para poner en rojo la única rama de `metaAlumna.metaDe` que lanza, y con ella el
+ * boundary de `/perfil`: si un día alguien "arregla" ese `throw` devolviendo `null`, la
+ * corrupción se vería como un perfil vacío perfectamente normal y esta prueba lo cazaría.
+ * Escribe con `patch` directo justamente porque las mutations lo impiden por construcción.
+ */
+export const sembrarTripletaParcialLui28 = internalMutation({
+  args: { confirmar: v.literal(CONFIRMACION_SOLO_DEV), correo: v.string() },
+  handler: async (ctx, { correo }) => {
+    exigirDeploymentDeDesarrollo();
+    const user = await ctx.db
+      .query("users")
+      .withIndex("email", (q) => q.eq("email", norm(correo)))
+      .first();
+    if (!user) throw new Error(`No existe ${correo}.`);
+    const fila = await ctx.db
+      .query("perfilesAlumna")
+      .withIndex("by_user", (q) => q.eq("userId", user._id))
+      .first();
+    const datos = {
+      institucionObjetivo: "Universidad Rota",
+      carreraObjetivo: undefined,
+      metaPuntaje: 1150,
+      actualizadoEn: Date.now(),
+    };
+    if (fila) {
+      await ctx.db.patch(fila._id, datos);
+      return { filaId: fila._id, creada: false };
+    }
+    const filaId = await ctx.db.insert("perfilesAlumna", {
+      userId: user._id,
+      modulosIds: [],
+      ...datos,
+    });
+    return { filaId, creada: true };
+  },
+});
+
+/**
+ * (`finally`) Borra la asignación EXACTA que la suite creó en §7 y todo lo que cuelga de
+ * ella. La LLAVE es el par (examen, `cierraEn`): el E2E elige un `cierraEn` con precisión de
+ * milisegundos —`Date.now() + 100 s` en el instante de la corrida— que ninguna otra
+ * asignación del fixture comparte, así que ese par identifica una sola fila sin necesidad de
+ * mirar el destinatario. `asignaciones.asignar` NO es idempotente a propósito —siempre
+ * inserta filas nuevas— así que sin esta limpieza cada corrida dejaría una asignación cerrada
+ * más y el estado final NO sería idéntico entre corridas.
+ *
+ * Cascada completa: respuestas y posiciones del intento, el intento, y la asignación.
+ * También cancela el `cerrarVencido` que `iniciarIntento` haya agendado, para no dejar
+ * trabajo pendiente apuntando a filas borradas.
+ */
+export const limpiarAsignacionLui28 = internalMutation({
+  args: {
+    confirmar: v.literal(CONFIRMACION_SOLO_DEV),
+    examenTitulo: v.string(),
+    cierraEn: v.number(),
+  },
+  handler: async (ctx, { examenTitulo, cierraEn }) => {
+    exigirDeploymentDeDesarrollo();
+    const examen = (await ctx.db.query("examenes").collect()).find(
+      (e) => e.titulo === examenTitulo,
+    );
+    if (!examen) return { asignaciones: 0, intentos: 0 };
+
+    const candidatas = (await ctx.db.query("asignaciones").collect()).filter(
+      (a) => a.examenId === examen._id && a.cierraEn === cierraEn,
+    );
+    let intentosBorrados = 0;
+    for (const a of candidatas) {
+      const intentos = await ctx.db
+        .query("intentos")
+        .withIndex("by_asignacion", (q) => q.eq("asignacionId", a._id))
+        .collect();
+      for (const i of intentos) {
+        if (i.cierreJobId) await ctx.scheduler.cancel(i.cierreJobId);
+        for (const r of await ctx.db
+          .query("respuestas")
+          .withIndex("by_intento_reactivo", (q) => q.eq("intentoId", i._id))
+          .collect()) {
+          await ctx.db.delete(r._id);
+        }
+        const pos = await ctx.db
+          .query("posiciones")
+          .withIndex("by_intento", (q) => q.eq("intentoId", i._id))
+          .first();
+        if (pos) await ctx.db.delete(pos._id);
+        await ctx.db.delete(i._id);
+        intentosBorrados++;
+      }
+      await ctx.db.delete(a._id);
+    }
+    return { asignaciones: candidatas.length, intentos: intentosBorrados };
+  },
+});
+
+/**
+ * Inventario de las tablas que esta suite puede tocar, para comparar ANTES y DESPUÉS.
+ *
+ * Comprobar solo «el perfil de Ana volvió a cero» dejaba fuera lo que de verdad se acumulaba
+ * (asignaciones e intentos de §7). Un inventario numérico lo caza aunque la limpieza olvide
+ * una tabla nueva mañana.
+ */
+export const inventarioLui28 = internalMutation({
+  args: { confirmar: v.literal(CONFIRMACION_SOLO_DEV) },
+  handler: async (ctx) => {
+    exigirDeploymentDeDesarrollo();
+    const [asignaciones, intentos, perfilesAlumna, secciones, respuestas] =
+      await Promise.all([
+        ctx.db.query("asignaciones").collect(),
+        ctx.db.query("intentos").collect(),
+        ctx.db.query("perfilesAlumna").collect(),
+        ctx.db.query("secciones").collect(),
+        ctx.db.query("respuestas").collect(),
+      ]);
+    return {
+      asignaciones: asignaciones.length,
+      intentos: intentos.length,
+      perfilesAlumna: perfilesAlumna.length,
+      secciones: secciones.length,
+      respuestas: respuestas.length,
+    };
+  },
+});

@@ -32,6 +32,7 @@
     "e2e:lui21": "node scripts/e2e-lui21.mjs",
     "e2e:lui22": "node scripts/e2e-lui22.mjs",
     "e2e:lui26": "node scripts/e2e-lui26.mjs",
+    "e2e:lui28": "node scripts/e2e-lui28.mjs",
     "e2e:lui30": "node scripts/e2e-lui30.mjs",
     "e2e:lui32": "node scripts/e2e-lui32.mjs",
     "e2e:lui103": "node scripts/e2e-lui103.mjs"
