@@ -148,6 +148,28 @@ export function etiquetaResultado(
     : titulo;
 }
 
+/**
+ * Caption de la pantalla de Resultados (LUI-28 · Diseño 26): igual que `etiquetaResultado`
+ * pero nombrando también el diagnóstico — «Simulacro General 2 — primer intento».
+ *
+ * Función APARTE y no un parámetro de la anterior: en «Mis exámenes» la card ya vive bajo el
+ * encabezado «Completados», así que decir «primer intento» en cada fila sería ruido; en
+ * Resultados, en cambio, es la única señal de QUÉ intento estás viendo. Mismo dato, dos
+ * contextos con necesidades opuestas.
+ *
+ * El LEGADO (`numeroIntento === null`, anterior a la numeración de LUI-104) no afirma nada:
+ * no sabemos si fue el primero, y llamarlo «primer intento» sería inventarlo.
+ */
+export function captionDeResultado(
+  titulo: string,
+  numeroIntento: number | null,
+): string {
+  if (numeroIntento === null) return titulo;
+  return numeroIntento > 1
+    ? `${titulo} — repaso ${numeroIntento}`
+    : `${titulo} — primer intento`;
+}
+
 const porTexto = (a: string, b: string) => a.localeCompare(b, "es");
 
 /**

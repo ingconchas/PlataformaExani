@@ -1,7 +1,7 @@
-import { ResultadoMinimoClient } from "./resultado-client";
+import { ResultadoClient } from "./resultado-client";
 
 /**
- * Resultado de un intento (interino del paquete player; LUI-28 lo reemplaza).
+ * Resultados del simulacro (LUI-28).
  * `[id]` es el INTENTO: cada repaso tiene su propio resultado.
  */
 export default async function Page({
@@ -10,5 +10,5 @@ export default async function Page({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  return <ResultadoMinimoClient intentoId={id} />;
+  return <ResultadoClient intentoId={id} />;
 }

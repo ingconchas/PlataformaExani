@@ -1,11 +1,6 @@
-import { ScreenPlaceholder } from "@/components/dev/screen-placeholder";
+import { PerfilClient } from "./perfil-client";
 
+/** Mi perfil (LUI-36 · Diseño 30): meta de admisión, módulos y cuenta. */
 export default function Page() {
-  return (
-    <ScreenPlaceholder
-      titulo="Perfil"
-      diseno="30-perfil.html"
-      descripcion="Tus datos y preferencias."
-    />
-  );
+  return <PerfilClient />;
 }
