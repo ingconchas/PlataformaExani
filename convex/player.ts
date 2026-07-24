@@ -17,6 +17,12 @@ import { sanearMaterial } from "./material";
 import { sanear, textoPlanoAHtml } from "./sanitizar";
 import { proyectarIntento } from "./lecturasAnalitica";
 import {
+  esDiagnosticoElegible,
+  ganaPuntero,
+  tituloDeCierre,
+  type PunteroTupla,
+} from "./inicioAlumna";
+import {
   clasificacionesDistintas,
   derivarResultadoIntento,
   excedePresupuestoDeCatalogo,
@@ -473,6 +479,11 @@ async function finalizarIntento(
     }
   }
 
+  // READ-MODEL del ÚLTIMO DIAGNÓSTICO (LUI-24): el cierre de un DIAGNÓSTICO
+  // (`numeroIntento === 1`) hace competir su tupla por el puntero de la alumna. Un repaso
+  // ni siquiera lee el puntero (guard antes de la sonda).
+  await estamparPunteroDiagnostico(ctx, intento, ahora);
+
   // El cursor es UX de un intento vivo; cerrado, es basura.
   const posicion = await ctx.db
     .query("posiciones")
@@ -481,6 +492,57 @@ async function finalizarIntento(
   if (posicion) await ctx.db.delete(posicion._id);
 
   return { puntaje, formaCierre };
+}
+
+/**
+ * Hace competir el diagnóstico recién cerrado por el puntero `ultimosDiagnosticos` de su
+ * alumna (LUI-24). El puntaje puede ser `null` (examen sin reactivos vivos) sin afectar la
+ * elegibilidad: lo que importa es que sea un diagnóstico enviado con fecha.
+ *
+ * GUARD antes de la sonda: un repaso (`numeroIntento !== 1`) sale sin leer ni escribir nada
+ * (+0 rangos, +0 writes en su hot path — regla del dictamen). Un cierre legado sin
+ * `numeroIntento` tampoco estampa: no afirmamos «diagnóstico» sobre lo que no sabemos.
+ *
+ * Upsert por la tupla `(intentoId, enviadoEn)` vía `ganaPuntero`: escribe SOLO si el nuevo
+ * GANA, para no invalidar la query de Inicio de todas las alumnas en cada cierre ajeno.
+ */
+async function estamparPunteroDiagnostico(
+  ctx: MutationCtx,
+  intento: Doc<"intentos">,
+  ahora: number,
+): Promise<void> {
+  if (intento.numeroIntento !== 1) return;
+
+  const alumnoId = intento.alumnoId;
+  const nuevo: PunteroTupla = { intentoId: intento._id, enviadoEn: ahora };
+
+  const actual = await ctx.db
+    .query("ultimosDiagnosticos")
+    .withIndex("by_user", (q) => q.eq("alumnoId", alumnoId))
+    .first();
+
+  if (!actual) {
+    await ctx.db.insert("ultimosDiagnosticos", {
+      alumnoId,
+      intentoId: nuevo.intentoId,
+      enviadoEn: nuevo.enviadoEn,
+    });
+    return;
+  }
+
+  const ganador = ganaPuntero(
+    { intentoId: actual.intentoId, enviadoEn: actual.enviadoEn },
+    nuevo,
+  );
+  if (
+    ganador &&
+    (ganador.intentoId !== actual.intentoId || ganador.enviadoEn !== actual.enviadoEn)
+  ) {
+    await ctx.db.patch(actual._id, {
+      intentoId: ganador.intentoId,
+      enviadoEn: ganador.enviadoEn,
+    });
+  }
 }
 
 /**
@@ -999,6 +1061,85 @@ export const resultado = query({
       ...base,
       problema: null,
       desglose: derivarResultadoIntento(proyeccion, catalogo, ordenSecciones),
+    };
+  },
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ultimoDiagnostico — el puntaje que encabeza Inicio (LUI-24)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Estado imposible del read-model: se prefiere un fallo RUIDOSO (boundary de /inicio con
+ *  «Reintentar») a servir un dato ajeno o rancio. Mensaje CONSTANTE: no filtra nada. */
+const MSG_PUNTERO_INCOHERENTE =
+  "No pudimos cargar tu último resultado. Intenta de nuevo.";
+
+/**
+ * El diagnóstico más reciente de la alumna, para la tarjeta «Tu avance hacia la meta»
+ * (LUI-24). Sin argumentos: solo la sesión propia, sin parámetro por donde nombrar a otra
+ * alumna.
+ *
+ * El puntero NO es autorización (mayor 1 del dictamen v2→v3): tener el `intentoId` en el
+ * read-model no demuestra que ese intento sea de quien pregunta. Antes de serializar UN
+ * SOLO campo se valida TODO el dominio —igual que `player.resultado` pasa por
+ * `intentoPropio`—:
+ *   1. el intento existe;
+ *   2. `alumnoId === userId` (dueño);
+ *   3. `esDiagnosticoElegible` (el predicado canónico: enviado, `numeroIntento === 1`,
+ *      `formaCierre` presente, `enviadoEn` FINITO);
+ *   4. `enviadoEn === puntero.enviadoEn` (candado de FRESCURA contra punteros rancios).
+ * Cualquier violación LANZA con mensaje constante, sin datos del documento.
+ *
+ * El TÍTULO se deriva al leer con `tituloDeCierre` —no hay copia denormalizada que pueda
+ * divergir del examen—: camino de producto = 1 get (asignación con su snapshot
+ * `tituloExamen`); peor caso = 2 gets (asignación sin snapshot ⇒ cae al `titulo` del
+ * examen; sin ninguno ⇒ «Simulacro»).
+ *
+ * PRESUPUESTO: 2 (`requireAlumna`) + 1 (puntero) + 1 (intento) + ≤2 (asignación y examen)
+ * = ≤6 docs; 3 rangos + hasta 3 gets tras sesión/puntero. O(1) respecto a historial,
+ * repasos y cambios de grupo.
+ */
+export const ultimoDiagnostico = query({
+  args: {},
+  handler: async (ctx) => {
+    const { userId } = await requireAlumna(ctx);
+
+    const puntero = await ctx.db
+      .query("ultimosDiagnosticos")
+      .withIndex("by_user", (q) => q.eq("alumnoId", userId))
+      .first();
+    if (!puntero) return { ultimo: null };
+
+    const i = await ctx.db.get(puntero.intentoId);
+    if (
+      !i ||
+      i.alumnoId !== userId ||
+      !esDiagnosticoElegible(i) ||
+      i.enviadoEn !== puntero.enviadoEn
+    ) {
+      throw new ConvexError(MSG_PUNTERO_INCOHERENTE);
+    }
+
+    // Título derivado. Solo leemos el examen si la asignación no aporta el snapshot.
+    let tituloAsignacion: string | null = null;
+    if (i.asignacionId) {
+      const asignacion = await ctx.db.get(i.asignacionId);
+      tituloAsignacion = asignacion?.tituloExamen ?? null;
+    }
+    let tituloExamen: string | null = null;
+    if (tituloAsignacion === null) {
+      const examen = await ctx.db.get(i.examenId);
+      tituloExamen = examen?.titulo ?? null;
+    }
+
+    return {
+      ultimo: {
+        intentoId: i._id,
+        titulo: tituloDeCierre(tituloAsignacion, tituloExamen),
+        puntajeCrudo: i.puntaje ?? null,
+        enviadoEn: i.enviadoEn as number, // finito por `esDiagnosticoElegible`
+        numeroIntento: i.numeroIntento ?? null,
+      },
     };
   },
 });

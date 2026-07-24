@@ -976,16 +976,18 @@ try {
   // ════ §12 · Restauración EXACTA a la línea base ══════════════════════════
   console.log("\n12 · Línea base — independencia de la pizarra");
   const tras = jsonDe(await correrConvex("seed:contarLineaBase"));
-  const exactas = [
-    "grupos", "perfiles", "users", "asignaciones",
-    "respuestas", "posiciones", "secciones", "areasTematicas",
-  ];
-  const desviadas = exactas.filter((t) => tras[t] !== base[t]);
+  // `Object.keys(base)` en vez de una lista estática (baja del dictamen de LUI-24): así una
+  // tabla nueva —como `ultimosDiagnosticos`— entra a la aserción sin que haya que acordarse.
+  // El esperado se calcula POR TABLA: `intentos` conserva su excepción contractual (los
+  // repasos reales del fixture); el resto, incluida `ultimosDiagnosticos`, exacto.
+  const esperado = (t) =>
+    t === "intentos" ? base.intentos + intentosDeFixtureCreados : base[t];
+  const desviadas = Object.keys(base).filter((t) => tras[t] !== esperado(t));
   check(
-    "⭐⭐ SIN pizarra: todas las tablas vuelven EXACTO a la base (los únicos extras son " +
+    "⭐⭐ SIN pizarra: TODAS las tablas vuelven EXACTO a la base (los únicos extras son " +
       `${intentosDeFixtureCreados} repasos reales del fixture)`,
-    desviadas.length === 0 && tras.intentos === base.intentos + intentosDeFixtureCreados,
-    `desviadas: ${desviadas.map((t) => `${t} ${base[t]}→${tras[t]}`).join(", ")} · intentos ${base.intentos}→${tras.intentos}`,
+    desviadas.length === 0,
+    `desviadas: ${desviadas.map((t) => `${t} ${base[t]}→${tras[t]} (esperado ${esperado(t)})`).join(", ")}`,
   );
 } catch (e) {
   fallos++;

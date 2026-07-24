@@ -91,6 +91,36 @@ export default defineSchema({
     actualizadoEn: v.number(), // epoch ms de la última escritura
   }).index("by_user", ["userId"]),
 
+  // READ-MODEL del DIAGNÓSTICO más reciente de cada alumna (LUI-24 · Inicio).
+  //
+  // ⚠️ Existe porque «el diagnóstico (`numeroIntento === 1`) ENVIADO con `enviadoEn`
+  // máximo» NO es acotable desde una lista reciente: `intentos` solo tiene `by_alumno`
+  // (rango alumna × TODOS sus intentos; con repasos —techo 30 por serie— degrada sin
+  // cota), y `player.misExamenes` es una proyección de PRESENTE (grupo ACTUAL + 60
+  // individuales por cierre reciente) que un cambio de grupo o >60 individuales dejaría
+  // incompleta. Un agregado histórico exige una fuente EXACTA. Una fila por alumna,
+  // O(1) en lectura, inmune a cambios de grupo y ventanas.
+  //
+  // SIN campos denormalizados de presentación (el título se DERIVA al leer con
+  // `inicioAlumna.tituloDeCierre`): una copia del título sería una dimensión más que
+  // verificar y que podría divergir del examen real. La tabla guarda SOLO la tupla que
+  // ordena e identifica.
+  //
+  // El campo `enviadoEn` es copia del intento apuntado: sirve al compare monotónico
+  // (`inicioAlumna.ganaPuntero`) Y de CANDADO DE FRESCURA — la query
+  // `player.ultimoDiagnostico` rechaza el puntero si no coincide con el intento vivo,
+  // detectando re-anclajes o parcheos de dev. Unicidad por `alumnoId` sostenida por la
+  // disciplina sonda+`patch|insert` en la misma transacción (un índice de Convex NO es
+  // constraint único; mismo precedente que `respuestas`/`perfilesAlumna`).
+  //
+  // Escritores: `player.finalizarIntento` (producto, solo diagnósticos), el backfill y el
+  // recómputo del seed (dev). Verificador: `migracionesMetricas.verificarUltimosDiagnosticos`.
+  ultimosDiagnosticos: defineTable({
+    alumnoId: v.id("users"),
+    intentoId: v.id("intentos"),
+    enviadoEn: v.number(), // epoch ms del envío del diagnóstico apuntado (finito)
+  }).index("by_user", ["alumnoId"]),
+
   // Tokens de un solo uso para establecer/restablecer contraseña por correo
   // (LUI-103). La URL del correo lleva el token en claro; aquí SOLO se guarda su
   // hash SHA-256 (una fuga de BD no permite usar los enlaces). `tipo` separa la

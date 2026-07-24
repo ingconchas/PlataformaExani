@@ -21,6 +21,14 @@ import {
   type ConteoPorArea,
   type ConteoPorSeccion,
 } from "./simulacro";
+import {
+  BYTES_POR_PAGINA_PUNTEROS,
+  LOTE_PUNTEROS,
+  decisionTrasParche,
+  esDiagnosticoElegible,
+  ganaPuntero,
+  type PunteroTupla,
+} from "./inicioAlumna";
 
 /**
  * Datos de PRUEBA (ficticios) para desarrollo local.
@@ -925,6 +933,7 @@ export const limpiarContenidoDemo = internalMutation({
     // Orden: de las hojas hacia la raíz del grafo de contenido. `posiciones` (cursor del
     // player) va primero por lo mismo que `respuestas`: cuelga de `intentos`.
     const tablas = [
+      "ultimosDiagnosticos",
       "posiciones",
       "respuestas",
       "intentos",
@@ -957,6 +966,140 @@ export const limpiarContenidoDemo = internalMutation({
     return { borrado };
   },
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Mantenimiento dev del read-model `ultimosDiagnosticos` (LUI-24)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// El seed es un ESCRITOR más del puntero (como de `envioRegistradoEn`), y ADEMÁS parchea
+// y borra intentos —cosas que en prod jamás pasan— así que debe SOSTENER la invariante
+// «puntero == máximo elegible por alumna» sin re-leer los fixtures voluminosos (401 · 201 ·
+// 170×40 KiB) de forma que reviente los 16 MiB por transacción. Estrategia:
+//  · Sembradores que insertan intentos: `upsertPunteroLote` con el máximo del lote calculado
+//    EN MEMORIA (O(1), cero relecturas).
+//  · Limpiezas que borran intentos: como el intento apuntado puede quedar colgante, tras
+//    borrar recomputan el puntero de la alumna afectada, que POST-borrado es pequeña
+//    (`recomputarPunteroAcotado`), o —si la alumna misma se borra— eliminan su puntero.
+//  · `cargarDatosDePrueba` converge TODOS los punteros al final (con aserción global).
+//  · `recomputarPunteroDe` (paginado, más abajo) es el camino acotado para alumnas de cota.
+
+/** Compite UNA tupla elegible por el puntero de la alumna (mismo orden canónico que el
+ *  escritor de producto). O(1): una sonda + a lo más una escritura. */
+async function upsertPunteroLote(
+  ctx: MutationCtx,
+  alumnoId: Id<"users">,
+  nuevo: PunteroTupla,
+): Promise<void> {
+  const actual = await ctx.db
+    .query("ultimosDiagnosticos")
+    .withIndex("by_user", (q) => q.eq("alumnoId", alumnoId))
+    .first();
+  if (!actual) {
+    await ctx.db.insert("ultimosDiagnosticos", {
+      alumnoId,
+      intentoId: nuevo.intentoId,
+      enviadoEn: nuevo.enviadoEn,
+    });
+    return;
+  }
+  const ganador = ganaPuntero(
+    { intentoId: actual.intentoId, enviadoEn: actual.enviadoEn },
+    nuevo,
+  );
+  if (
+    ganador &&
+    (ganador.intentoId !== actual.intentoId || ganador.enviadoEn !== actual.enviadoEn)
+  ) {
+    await ctx.db.patch(actual._id, {
+      intentoId: ganador.intentoId,
+      enviadoEn: ganador.enviadoEn,
+    });
+  }
+}
+
+/** Recomputa el puntero de UNA alumna leyendo sus intentos por `by_alumno`. SOLO para
+ *  alumnas con POCOS intentos (fixture normal o post-limpieza); LANZA si excede `cap` —señal
+ *  de que es una alumna de cota y debe usarse `recomputarPunteroDe` paginado. */
+async function recomputarPunteroAcotado(
+  ctx: MutationCtx,
+  alumnoId: Id<"users">,
+  cap = 200,
+): Promise<void> {
+  const intentos = await ctx.db
+    .query("intentos")
+    .withIndex("by_alumno", (q) => q.eq("alumnoId", alumnoId))
+    .take(cap + 1);
+  if (intentos.length > cap) {
+    throw new Error(
+      `recomputarPunteroAcotado: la alumna ${alumnoId} tiene >${cap} intentos; ` +
+        "usa el recómputo paginado (recomputarPunteroDe).",
+    );
+  }
+  let maximo: PunteroTupla | null = null;
+  for (const i of intentos) {
+    if (!esDiagnosticoElegible(i)) continue;
+    maximo = ganaPuntero(maximo, {
+      intentoId: i._id,
+      enviadoEn: i.enviadoEn as number,
+    });
+  }
+  const actual = await ctx.db
+    .query("ultimosDiagnosticos")
+    .withIndex("by_user", (q) => q.eq("alumnoId", alumnoId))
+    .first();
+  if (!maximo) {
+    if (actual) await ctx.db.delete(actual._id);
+    return;
+  }
+  if (!actual) {
+    await ctx.db.insert("ultimosDiagnosticos", {
+      alumnoId,
+      intentoId: maximo.intentoId,
+      enviadoEn: maximo.enviadoEn,
+    });
+    return;
+  }
+  if (actual.intentoId !== maximo.intentoId || actual.enviadoEn !== maximo.enviadoEn) {
+    await ctx.db.patch(actual._id, {
+      intentoId: maximo.intentoId,
+      enviadoEn: maximo.enviadoEn,
+    });
+  }
+}
+
+/** Borra el puntero de una alumna que ella misma dejó de existir (o cuyo perfil se borra en
+ *  una limpieza). O(1). */
+async function borrarPunteroDe(
+  ctx: MutationCtx,
+  alumnoId: Id<"users">,
+): Promise<void> {
+  const p = await ctx.db
+    .query("ultimosDiagnosticos")
+    .withIndex("by_user", (q) => q.eq("alumnoId", alumnoId))
+    .first();
+  if (p) await ctx.db.delete(p._id);
+}
+
+/** Recorre los punteros y recomputa el de cada alumna cuyo intento apuntado quedó colgante,
+ *  ajeno, inelegible o rancio (tras una limpieza que borró intentos). Cada recómputo es
+ *  ACOTADO: las alumnas del fixture son pequeñas una vez borrados los intentos de cota.
+ *  Devuelve cuántos punteros reparó. */
+async function repararPunterosColgantes(ctx: MutationCtx): Promise<number> {
+  let reparados = 0;
+  for (const p of await ctx.db.query("ultimosDiagnosticos").collect()) {
+    const i = await ctx.db.get(p.intentoId);
+    if (
+      !i ||
+      i.alumnoId !== p.alumnoId ||
+      !esDiagnosticoElegible(i) ||
+      i.enviadoEn !== p.enviadoEn
+    ) {
+      await recomputarPunteroAcotado(ctx, p.alumnoId);
+      reparados++;
+    }
+  }
+  return reparados;
+}
 
 export const cargarDatosDePrueba = internalMutation({
   args: { confirmar: v.literal(CONFIRMACION_SOLO_DEV) },
@@ -2124,6 +2267,82 @@ export const cargarDatosDePrueba = internalMutation({
       }
     }
 
+    // ── 9e. READ-MODEL `ultimosDiagnosticos` (LUI-24) + ASERCIÓN ────────────
+    // El seed converge TODOS los punteros por RECÓMPUTO (no incremental: parchea y borra
+    // intentos, así que un estampado incremental quedaría obsoleto). Aquí `intentos` es
+    // pequeño —el fixture normal, mismo entorno que el `.collect()` de 9d—; las alumnas de
+    // cota (401/201/170) las siembran/limpian OTRAS funciones con su propio presupuesto.
+    // Después, aserción que LANZA: cada alumna tiene EXACTAMENTE el máximo elegible.
+    {
+      const intentosUD = await ctx.db.query("intentos").collect();
+      const maxPorAlumna = new Map<
+        string,
+        { alumnoId: Id<"users">; tupla: PunteroTupla }
+      >();
+      for (const i of intentosUD) {
+        if (!esDiagnosticoElegible(i)) continue;
+        const clave = i.alumnoId as string;
+        const cand: PunteroTupla = {
+          intentoId: i._id,
+          enviadoEn: i.enviadoEn as number,
+        };
+        const prev = maxPorAlumna.get(clave);
+        const g = ganaPuntero(prev?.tupla ?? null, cand);
+        if (g) maxPorAlumna.set(clave, { alumnoId: i.alumnoId, tupla: g });
+      }
+      const punteros = await ctx.db.query("ultimosDiagnosticos").collect();
+      const porAlumna = new Map(punteros.map((p) => [p.alumnoId as string, p]));
+      // Converge: upsert donde hay máximo, borra donde ya no.
+      for (const { alumnoId, tupla } of maxPorAlumna.values()) {
+        const existente = porAlumna.get(alumnoId as string);
+        if (!existente) {
+          await ctx.db.insert("ultimosDiagnosticos", {
+            alumnoId,
+            intentoId: tupla.intentoId,
+            enviadoEn: tupla.enviadoEn,
+          });
+        } else if (
+          existente.intentoId !== tupla.intentoId ||
+          existente.enviadoEn !== tupla.enviadoEn
+        ) {
+          await ctx.db.patch(existente._id, {
+            intentoId: tupla.intentoId,
+            enviadoEn: tupla.enviadoEn,
+          });
+        }
+      }
+      for (const p of punteros) {
+        if (!maxPorAlumna.has(p.alumnoId as string)) await ctx.db.delete(p._id);
+      }
+      // ASERCIÓN: puntero ⟺ máximo elegible, contra la BD real.
+      for (const p of await ctx.db.query("ultimosDiagnosticos").collect()) {
+        const esperado = maxPorAlumna.get(p.alumnoId as string);
+        if (
+          !esperado ||
+          p.intentoId !== esperado.tupla.intentoId ||
+          p.enviadoEn !== esperado.tupla.enviadoEn
+        ) {
+          throw new Error(
+            `Read-model roto: «ultimosDiagnosticos» de ${p.alumnoId} no es el ` +
+              "máximo elegible de sus intentos.",
+          );
+        }
+      }
+      const conPuntero = new Set(
+        (await ctx.db.query("ultimosDiagnosticos").collect()).map(
+          (p) => p.alumnoId as string,
+        ),
+      );
+      for (const clave of maxPorAlumna.keys()) {
+        if (!conPuntero.has(clave)) {
+          throw new Error(
+            `Read-model roto: la alumna ${clave} tiene un diagnóstico elegible ` +
+              "pero ningún puntero.",
+          );
+        }
+      }
+    }
+
     // ── Oráculo del panel (LUI-9) ──────────────────────────────────────────
     // Lo que /admin DEBE mostrar. Se calcula con el código de conteo PROPIO del
     // seed —una reimplementación independiente de `panel.resumen`, así que un
@@ -3043,7 +3262,8 @@ export const contarLineaBase = internalMutation({
         | "respuestas"
         | "posiciones"
         | "secciones"
-        | "areasTematicas",
+        | "areasTematicas"
+        | "ultimosDiagnosticos",
     ) => (await ctx.db.query(tabla).collect()).length;
     return {
       grupos: await cuenta("grupos"),
@@ -3055,6 +3275,7 @@ export const contarLineaBase = internalMutation({
       posiciones: await cuenta("posiciones"),
       secciones: await cuenta("secciones"),
       areasTematicas: await cuenta("areasTematicas"),
+      ultimosDiagnosticos: await cuenta("ultimosDiagnosticos"),
     };
   },
 });
@@ -3197,6 +3418,8 @@ export const sembrarIntentosParaCota = internalMutation({
       if (asignacion.envioRegistradoEn === undefined) {
         await ctx.db.patch(asignacion._id, { envioRegistradoEn: ahora });
       }
+      // Diagnóstico elegible: compite por el puntero de la alumna (lote de uno).
+      await upsertPunteroLote(ctx, alumna.userId, { intentoId, enviadoEn: ahora });
       return {
         grupoId,
         asignacionId: asignacion._id,
@@ -3238,19 +3461,22 @@ export const sembrarIntentosParaCota = internalMutation({
         .collect()
     ).length;
     let creados = 0;
+    let maxLote: PunteroTupla | null = null;
     for (let k = existentes; k < args.objetivo; k++) {
-      await ctx.db.insert("intentos", {
+      const enviadoEn = asignacion.abreEn + k + 1;
+      const intentoId = await ctx.db.insert("intentos", {
         examenId: examen._id,
         alumnoId: alumna.userId,
         asignacionId: asignacion._id,
         estado: "enviado",
         iniciadoEn: asignacion.abreEn + k,
-        enviadoEn: asignacion.abreEn + k + 1,
+        enviadoEn,
         puntaje: 1000,
         numeroIntento: 1,
         formaCierre: "manual",
         ...desgloseGordo,
       });
+      maxLote = ganaPuntero(maxLote, { intentoId, enviadoEn });
       creados++;
     }
     if (asignacion.envioRegistradoEn === undefined && args.objetivo > 0) {
@@ -3258,6 +3484,8 @@ export const sembrarIntentosParaCota = internalMutation({
         envioRegistradoEn: asignacion.abreEn + 1,
       });
     }
+    // El máximo del lote compite por el puntero de la alumna (O(1): sin releer los intentos).
+    if (maxLote) await upsertPunteroLote(ctx, alumna.userId, maxLote);
     return { grupoId, asignacionId: asignacion._id, creados };
   },
 });
@@ -3307,6 +3535,7 @@ export const sembrarAplicadasParaCota = internalMutation({
         .collect()
     ).length;
     let creadas = 0;
+    let maxLote: PunteroTupla | null = null;
     for (let k = existentes; k < args.objetivo; k++) {
       // Dentro del mes SIEMPRE (a minutos de `ahora`, con piso en el inicio de mes MX).
       const abreEn = Math.max(inicioMes, ahora - (k + 1) * 60_000);
@@ -3323,20 +3552,23 @@ export const sembrarAplicadasParaCota = internalMutation({
         ...(args.sinEnvios ? {} : { envioRegistradoEn: abreEn + 1 }),
       });
       if (!args.sinEnvios) {
-        await ctx.db.insert("intentos", {
+        const enviadoEn = abreEn + 1;
+        const intentoId = await ctx.db.insert("intentos", {
           examenId: examen._id,
           alumnoId: alumna.userId,
           asignacionId,
           estado: "enviado",
           iniciadoEn: abreEn,
-          enviadoEn: abreEn + 1,
+          enviadoEn,
           puntaje: 1000,
           numeroIntento: 1,
           formaCierre: "manual",
         });
+        maxLote = ganaPuntero(maxLote, { intentoId, enviadoEn });
       }
       creadas++;
     }
+    if (maxLote) await upsertPunteroLote(ctx, alumna.userId, maxLote);
     return { grupoId, creadas, totales: existentes + creadas };
   },
 });
@@ -3643,7 +3875,11 @@ export const limpiarGruposLui30 = internalMutation({
         );
       }
     }
-    return { ...conteo, quedan: false };
+    // Los intentos de cota borrados pudieron ser el diagnóstico apuntado de la alumna
+    // reutilizada (LUI-24): repara cualquier puntero colgante (las alumnas son pequeñas ya
+    // sin los intentos de cota). Solo en la corrida FINAL (quedan === false).
+    const punterosReparados = await repararPunterosColgantes(ctx);
+    return { ...conteo, quedan: false, punterosReparados };
   },
 });
 
@@ -3662,6 +3898,8 @@ export const limpiarPerfilesLui30 = internalMutation({
     let users = 0;
     for (const p of tanda) {
       const user = await ctx.db.get(p.userId);
+      // La alumna se borra entera: su puntero de diagnóstico se va con ella (LUI-24).
+      await borrarPunteroDe(ctx, p.userId);
       await ctx.db.delete(p._id);
       if (user && CORREO_E2E_LUI30_RE.test(user.email ?? "")) {
         await ctx.db.delete(user._id);
@@ -3805,7 +4043,7 @@ async function crearIntentoEnviadoLui32(
     correctas,
   );
   const ahora = Date.now();
-  await ctx.db.insert("intentos", {
+  const intentoId = await ctx.db.insert("intentos", {
     examenId: examen._id,
     alumnoId,
     asignacionId,
@@ -3822,6 +4060,9 @@ async function crearIntentoEnviadoLui32(
   if (asig && asig.envioRegistradoEn === undefined) {
     await ctx.db.patch(asignacionId, { envioRegistradoEn: ahora });
   }
+  // Diagnóstico elegible de una alumna sintética: mantiene el puntero (limpiarLui32 lo borra
+  // con la alumna).
+  await upsertPunteroLote(ctx, alumnoId, { intentoId, enviadoEn: ahora });
 }
 
 /** Conteos CRUDOS de todas las tablas que los sembradores de LUI-32 tocan — la LÍNEA BASE
@@ -3843,7 +4084,8 @@ export const contarLineaBaseLui32 = internalMutation({
         | "reactivos"
         | "subtemas"
         | "areasTematicas"
-        | "secciones",
+        | "secciones"
+        | "ultimosDiagnosticos",
     ) => (await ctx.db.query(tabla).collect()).length;
     return {
       grupos: await cuenta("grupos"),
@@ -3858,6 +4100,7 @@ export const contarLineaBaseLui32 = internalMutation({
       subtemas: await cuenta("subtemas"),
       areasTematicas: await cuenta("areasTematicas"),
       secciones: await cuenta("secciones"),
+      ultimosDiagnosticos: await cuenta("ultimosDiagnosticos"),
     };
   },
 });
@@ -4421,6 +4664,8 @@ export const limpiarLui32 = internalMutation({
           for (const a of await ctx.db.query("asignaciones").withIndex("by_alumno_cierra", (q) => q.eq("alumnoId", p.userId)).collect()) {
             await borrarAsignacionConDeps(a);
           }
+          // La alumna sintética se borra entera: su puntero de diagnóstico también (LUI-24).
+          await borrarPunteroDe(ctx, p.userId);
           const user = await ctx.db.get(p.userId);
           await ctx.db.delete(p._id);
           conteo.perfiles++;
@@ -4570,7 +4815,11 @@ export const sembrarBordesLui28 = internalMutation({
     const ya = previos.find(
       (i) => i.asignacionId === undefined && i.puntaje === PUNTAJE_BORDES_LUI28,
     );
-    if (ya) return { intentoId: ya._id, reusado: true };
+    if (ya) {
+      // El intento de bordes es un DIAGNÓSTICO elegible: mantiene el puntero (LUI-24).
+      await recomputarPunteroAcotado(ctx, user._id);
+      return { intentoId: ya._id, reusado: true };
+    }
 
     const ahora = Date.now();
     const intentoId = await ctx.db.insert("intentos", {
@@ -4593,6 +4842,8 @@ export const sembrarBordesLui28 = internalMutation({
         { areaId: cel._id, aciertos: 6, total: 10 }, // 60 % EXACTO → NO
       ],
     });
+    // El intento de bordes es un DIAGNÓSTICO elegible: compite por el puntero (LUI-24).
+    await recomputarPunteroAcotado(ctx, user._id);
     return { intentoId, reusado: false };
   },
 });
@@ -4631,6 +4882,9 @@ export const limpiarBordesLui28 = internalMutation({
       await ctx.db.delete(i._id);
       borrados++;
     }
+    // El intento borrado pudo ser el apuntado: recomputa el puntero de Fernanda (pequeña),
+    // que cae de nuevo a su diagnóstico real (LUI-24).
+    if (borrados > 0) await recomputarPunteroAcotado(ctx, user._id);
     return { borrados };
   },
 });
@@ -4831,12 +5085,14 @@ export const limpiarAsignacionLui28 = internalMutation({
       (a) => a.examenId === examen._id && a.cierraEn === cierraEn,
     );
     let intentosBorrados = 0;
+    const alumnasAfectadas = new Set<Id<"users">>();
     for (const a of candidatas) {
       const intentos = await ctx.db
         .query("intentos")
         .withIndex("by_asignacion", (q) => q.eq("asignacionId", a._id))
         .collect();
       for (const i of intentos) {
+        alumnasAfectadas.add(i.alumnoId);
         if (i.cierreJobId) await ctx.scheduler.cancel(i.cierreJobId);
         for (const r of await ctx.db
           .query("respuestas")
@@ -4854,6 +5110,11 @@ export const limpiarAsignacionLui28 = internalMutation({
       }
       await ctx.db.delete(a._id);
     }
+    // El diagnóstico borrado pudo ser el apuntado: recomputa cada alumna afectada (pequeña
+    // tras el borrado) para no dejar el puntero colgante (LUI-24).
+    for (const alumnoId of alumnasAfectadas) {
+      await recomputarPunteroAcotado(ctx, alumnoId);
+    }
     return { asignaciones: candidatas.length, intentos: intentosBorrados };
   },
 });
@@ -4869,20 +5130,757 @@ export const inventarioLui28 = internalMutation({
   args: { confirmar: v.literal(CONFIRMACION_SOLO_DEV) },
   handler: async (ctx) => {
     exigirDeploymentDeDesarrollo();
-    const [asignaciones, intentos, perfilesAlumna, secciones, respuestas] =
-      await Promise.all([
-        ctx.db.query("asignaciones").collect(),
-        ctx.db.query("intentos").collect(),
-        ctx.db.query("perfilesAlumna").collect(),
-        ctx.db.query("secciones").collect(),
-        ctx.db.query("respuestas").collect(),
-      ]);
+    const [
+      asignaciones,
+      intentos,
+      perfilesAlumna,
+      secciones,
+      respuestas,
+      ultimosDiagnosticos,
+    ] = await Promise.all([
+      ctx.db.query("asignaciones").collect(),
+      ctx.db.query("intentos").collect(),
+      ctx.db.query("perfilesAlumna").collect(),
+      ctx.db.query("secciones").collect(),
+      ctx.db.query("respuestas").collect(),
+      ctx.db.query("ultimosDiagnosticos").collect(),
+    ]);
     return {
       asignaciones: asignaciones.length,
       intentos: intentos.length,
       perfilesAlumna: perfilesAlumna.length,
       secciones: secciones.length,
       respuestas: respuestas.length,
+      ultimosDiagnosticos: ultimosDiagnosticos.length,
     };
+  },
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// LUI-24 · read-model `ultimosDiagnosticos`: recómputo paginado y andamiaje E2E
+// ═════════════════════════════════════════════════════════════════════════════
+
+/** Marca de las asignaciones sintéticas de `e2e-lui24` (su `tituloExamen`). */
+const MARCA_E2E_LUI24 = "[[E2E-LUI24]]";
+/** `iniciadoEn` centinela de los intentos DIRECTOS sintéticos de `e2e-lui24` (año ~2100:
+ *  imposible en datos reales, así que la limpieza los reconoce sin ambigüedad). */
+const INICIADO_LUI24 = 4_102_444_800_000;
+
+async function usuarioLui24(
+  ctx: MutationCtx,
+  correo: string,
+): Promise<{ userId: Id<"users"> }> {
+  const user = await ctx.db
+    .query("users")
+    .withIndex("email", (q) => q.eq("email", norm(correo)))
+    .first();
+  if (!user) throw new Error(`No existe ${correo}; corre el seed base.`);
+  return { userId: user._id };
+}
+
+async function examenLui24(ctx: MutationCtx): Promise<Doc<"examenes">> {
+  const examen = (await ctx.db.query("examenes").collect()).find(
+    (e) => e.titulo === "Simulacro General 1",
+  );
+  if (!examen) throw new Error("Falta «Simulacro General 1»; corre el seed base.");
+  return examen;
+}
+
+/**
+ * RECÓMPUTO PAGINADO del puntero de UNA alumna (LUI-24) — el camino ACOTADO para alumnas de
+ * cota (401/201/170×40 KiB), presupuestado por el contrato de página de `inicioAlumna`
+ * (`numItems` + `maximumBytesRead`/`maximumRowsRead`, `SplitRequired` imposible por
+ * aritmética y LANZADO si aparece). Los TRES estados viajan SEPARADOS: el `cursor` opaco de
+ * Convex (posición), el `maximoParcial` (acumulador, en ARGS validados) y el presupuesto (en
+ * el `paginate`).
+ *
+ * El conductor (`conducirRecomputoLui24` en el módulo común de las suites) encadena páginas
+ * con `{cursor, maximoParcial}` hasta `isDone`; si una página devuelve `reiniciar: true`,
+ * REINICIA desde el principio.
+ *
+ * COMMIT FINAL = CAS: entre páginas un cierre concurrente pudo mover el intento apuntado o el
+ * acumulado. Antes de escribir se REVALIDA el `maximoParcial` (si cambió ⇒ `reiniciar`) y se
+ * COMPITE contra el puntero vigente vía `ganaPuntero` (un puntero válido creado/adelantado
+ * durante el recorrido jamás se sobrescribe con un máximo viejo ni se borra por un acumulado
+ * nulo). `limiteBytesOverride` es el testigo SOLO-DEV de `SplitRequired`.
+ */
+export const recomputarPunteroDe = internalMutation({
+  args: {
+    confirmar: v.literal(CONFIRMACION_SOLO_DEV),
+    alumnoId: v.id("users"),
+    cursor: v.union(v.string(), v.null()),
+    maximoParcial: v.union(
+      v.object({ intentoId: v.id("intentos"), enviadoEn: v.number() }),
+      v.null(),
+    ),
+    limiteBytesOverride: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    exigirDeploymentDeDesarrollo();
+    const pagina = await ctx.db
+      .query("intentos")
+      .withIndex("by_alumno", (q) => q.eq("alumnoId", args.alumnoId))
+      .paginate({
+        numItems: LOTE_PUNTEROS,
+        cursor: args.cursor,
+        maximumRowsRead: LOTE_PUNTEROS,
+        maximumBytesRead: args.limiteBytesOverride ?? BYTES_POR_PAGINA_PUNTEROS,
+      });
+    if (pagina.pageStatus === "SplitRequired") {
+      throw new Error(
+        "recomputarPunteroDe: página incompleta (SplitRequired). La aritmética de " +
+          "límites de inicioAlumna debe impedirlo.",
+      );
+    }
+
+    let maximo: PunteroTupla | null = args.maximoParcial;
+    for (const i of pagina.page) {
+      if (!esDiagnosticoElegible(i)) continue;
+      maximo = ganaPuntero(maximo, {
+        intentoId: i._id,
+        enviadoEn: i.enviadoEn as number,
+      });
+    }
+
+    if (!pagina.isDone) {
+      return {
+        isDone: false,
+        reiniciar: false,
+        continueCursor: pagina.continueCursor,
+        maximoParcial: maximo,
+      };
+    }
+
+    // ── COMMIT FINAL (CAS) ──
+    // 1) Revalidar el ACUMULADO (pudo borrarse/retroceder/volverse inelegible entre páginas).
+    if (maximo) {
+      const im = await ctx.db.get(maximo.intentoId);
+      if (
+        !im ||
+        im.alumnoId !== args.alumnoId ||
+        !esDiagnosticoElegible(im) ||
+        im.enviadoEn !== maximo.enviadoEn
+      ) {
+        return { isDone: false, reiniciar: true, continueCursor: null, maximoParcial: null };
+      }
+    }
+    // 2) Competir contra el puntero VIGENTE (un cierre concurrente pudo adelantarlo).
+    const actual = await ctx.db
+      .query("ultimosDiagnosticos")
+      .withIndex("by_user", (q) => q.eq("alumnoId", args.alumnoId))
+      .first();
+    let vigente: PunteroTupla | null = null;
+    if (actual) {
+      const iv = await ctx.db.get(actual.intentoId);
+      if (
+        iv &&
+        iv.alumnoId === args.alumnoId &&
+        esDiagnosticoElegible(iv) &&
+        iv.enviadoEn === actual.enviadoEn
+      ) {
+        vigente = { intentoId: actual.intentoId, enviadoEn: actual.enviadoEn };
+      }
+    }
+    const ganador = ganaPuntero(vigente, maximo);
+    if (!ganador) {
+      if (actual) await ctx.db.delete(actual._id);
+    } else if (!actual) {
+      await ctx.db.insert("ultimosDiagnosticos", {
+        alumnoId: args.alumnoId,
+        intentoId: ganador.intentoId,
+        enviadoEn: ganador.enviadoEn,
+      });
+    } else if (
+      ganador.intentoId !== actual.intentoId ||
+      ganador.enviadoEn !== actual.enviadoEn
+    ) {
+      await ctx.db.patch(actual._id, {
+        intentoId: ganador.intentoId,
+        enviadoEn: ganador.enviadoEn,
+      });
+    }
+    return {
+      isDone: true,
+      reiniciar: false,
+      continueCursor: pagina.continueCursor,
+      maximoParcial: maximo,
+    };
+  },
+});
+
+/** Estado del puntero de una alumna, para las aserciones del E2E (incluye si su intento
+ *  apuntado sigue siendo elegible, para las pruebas del verificador). */
+export const estadoPunteroLui24 = internalMutation({
+  args: { confirmar: v.literal(CONFIRMACION_SOLO_DEV), correo: v.string() },
+  handler: async (ctx, { correo }) => {
+    exigirDeploymentDeDesarrollo();
+    const { userId } = await usuarioLui24(ctx, correo);
+    const p = await ctx.db
+      .query("ultimosDiagnosticos")
+      .withIndex("by_user", (q) => q.eq("alumnoId", userId))
+      .first();
+    if (!p) return { userId, tienePuntero: false, intentoId: null, enviadoEn: null };
+    return {
+      userId,
+      tienePuntero: true,
+      intentoId: p.intentoId,
+      enviadoEn: p.enviadoEn,
+    };
+  },
+});
+
+/** Un DIAGNÓSTICO elegible DIRECTO y marcado (centinela `INICIADO_LUI24`), con puntaje
+ *  opcional. Devuelve su id y `enviadoEn`; NO toca el puntero (el llamador decide). */
+async function insertarDirectoLui24(
+  ctx: MutationCtx,
+  examen: Doc<"examenes">,
+  alumnoId: Id<"users">,
+  enviadoEn: number,
+  puntaje: number | null,
+): Promise<{ intentoId: Id<"intentos">; enviadoEn: number }> {
+  const intentoId = await ctx.db.insert("intentos", {
+    examenId: examen._id,
+    alumnoId,
+    estado: "enviado",
+    iniciadoEn: INICIADO_LUI24,
+    enviadoEn,
+    numeroIntento: 1,
+    formaCierre: "manual",
+    ...(puntaje === null ? {} : { puntaje }),
+  });
+  return { intentoId, enviadoEn };
+}
+
+/** ⭐ Puntero CRUZADO (mayor 1 del dictamen v2→v3): apunta el puntero de `correoDueno` a un
+ *  intento elegible de `correoAjeno`. La query debe LANZAR sin filtrar dato ajeno. */
+export const sembrarPunteroCruzadoLui24 = internalMutation({
+  args: {
+    confirmar: v.literal(CONFIRMACION_SOLO_DEV),
+    correoDueno: v.string(),
+    correoAjeno: v.string(),
+  },
+  handler: async (ctx, { correoDueno, correoAjeno }) => {
+    exigirDeploymentDeDesarrollo();
+    const examen = await examenLui24(ctx);
+    const dueno = await usuarioLui24(ctx, correoDueno);
+    const ajeno = await usuarioLui24(ctx, correoAjeno);
+    const ahora = Date.now();
+    const { intentoId, enviadoEn } = await insertarDirectoLui24(
+      ctx,
+      examen,
+      ajeno.userId,
+      ahora,
+      900,
+    );
+    // Fuerza el puntero del DUEÑO a apuntar al intento del AJENO (estado imposible en prod).
+    const actual = await ctx.db
+      .query("ultimosDiagnosticos")
+      .withIndex("by_user", (q) => q.eq("alumnoId", dueno.userId))
+      .first();
+    if (actual) {
+      await ctx.db.patch(actual._id, { intentoId, enviadoEn });
+    } else {
+      await ctx.db.insert("ultimosDiagnosticos", {
+        alumnoId: dueno.userId,
+        intentoId,
+        enviadoEn,
+      });
+    }
+    return { intentoAjeno: intentoId, enviadoEn };
+  },
+});
+
+/** ⭐ Diagnóstico SIN calificación (mayor 2 del dictamen v1→v2): elegible con `puntaje`
+ *  ausente. Actualiza el puntero (es el más reciente por construcción). */
+export const sembrarDiagnosticoSinPuntajeLui24 = internalMutation({
+  args: { confirmar: v.literal(CONFIRMACION_SOLO_DEV), correo: v.string() },
+  handler: async (ctx, { correo }) => {
+    exigirDeploymentDeDesarrollo();
+    const examen = await examenLui24(ctx);
+    const { userId } = await usuarioLui24(ctx, correo);
+    const { intentoId, enviadoEn } = await insertarDirectoLui24(
+      ctx,
+      examen,
+      userId,
+      Date.now(),
+      null,
+    );
+    await upsertPunteroLote(ctx, userId, { intentoId, enviadoEn });
+    return { intentoId, enviadoEn };
+  },
+});
+
+/** ⭐ Un PAR de diagnósticos A y B con `enviadoEn` dados (para el retroceso del apuntado:
+ *  A@mayor apuntado, B@menor). Apunta el puntero al máximo. Devuelve ambos ids. */
+export const sembrarParLui24 = internalMutation({
+  args: {
+    confirmar: v.literal(CONFIRMACION_SOLO_DEV),
+    correo: v.string(),
+    enviadoA: v.number(),
+    enviadoB: v.number(),
+  },
+  handler: async (ctx, { correo, enviadoA, enviadoB }) => {
+    exigirDeploymentDeDesarrollo();
+    const examen = await examenLui24(ctx);
+    const { userId } = await usuarioLui24(ctx, correo);
+    const a = await insertarDirectoLui24(ctx, examen, userId, enviadoA, 1000);
+    const b = await insertarDirectoLui24(ctx, examen, userId, enviadoB, 900);
+    await recomputarPunteroAcotado(ctx, userId);
+    return { intentoA: a.intentoId, intentoB: b.intentoId };
+  },
+});
+
+/** ⭐ Re-ancla un intento (mueve su `enviadoEn`) y aplica `decisionTrasParche`: si el
+ *  apuntado RETROCEDE o deja de ser elegible, borra y recomputa (LUI-24, mayor 1 v4→v5). */
+export const reanclarLui24 = internalMutation({
+  args: {
+    confirmar: v.literal(CONFIRMACION_SOLO_DEV),
+    correo: v.string(),
+    intentoId: v.id("intentos"),
+    nuevoEnviadoEn: v.number(),
+  },
+  handler: async (ctx, { correo, intentoId, nuevoEnviadoEn }) => {
+    exigirDeploymentDeDesarrollo();
+    const { userId } = await usuarioLui24(ctx, correo);
+    const intento = await ctx.db.get(intentoId);
+    if (!intento || intento.alumnoId !== userId) {
+      throw new Error("El intento no es de esa alumna.");
+    }
+    await ctx.db.patch(intentoId, { enviadoEn: nuevoEnviadoEn });
+
+    // `decisionTrasParche` (módulo puro) GOBIERNA qué pasa con el puntero tras el re-anclaje.
+    const parchado = { ...intento, enviadoEn: nuevoEnviadoEn };
+    const puntero = await ctx.db
+      .query("ultimosDiagnosticos")
+      .withIndex("by_user", (q) => q.eq("alumnoId", userId))
+      .first();
+    const punteroTupla = puntero
+      ? { intentoId: puntero.intentoId, enviadoEn: puntero.enviadoEn }
+      : null;
+    const decision = decisionTrasParche(punteroTupla, {
+      intentoId,
+      elegible: esDiagnosticoElegible(parchado),
+      enviadoEn: nuevoEnviadoEn,
+    });
+
+    if (decision === "actualizar" && puntero) {
+      // El apuntado avanzó y sigue elegible: O(1).
+      await ctx.db.patch(puntero._id, { intentoId, enviadoEn: nuevoEnviadoEn });
+      return { decision, recomputoPendiente: [] as Id<"users">[] };
+    }
+    if (decision === "comparar") {
+      // Un intento NO apuntado que pudo promoverse: compite si es elegible.
+      if (esDiagnosticoElegible(parchado)) {
+        await upsertPunteroLote(ctx, userId, { intentoId, enviadoEn: nuevoEnviadoEn });
+      }
+      return { decision, recomputoPendiente: [] as Id<"users">[] };
+    }
+    // "borrarYRecomputar": el apuntado retrocedió o dejó de ser elegible. Borra fail-safe y
+    // delega el máximo al RECÓMPUTO PAGINADO (`recomputarPunteroDe`), que el conductor de la
+    // suite maneja hasta `isDone` — la alumna puede ser de cota.
+    if (puntero) await ctx.db.delete(puntero._id);
+    return { decision, recomputoPendiente: [userId] };
+  },
+});
+
+/** ⭐ Fixture VOLUMINOSO (mayores 2/3 v4/v5 + SplitRequired v6): `n` diagnósticos elegibles
+ *  bajo UNA asignación marcada, opcionalmente con desglose GORDO (~40 KiB). El máximo por
+ *  `enviadoEn` queda en la posición `maxEn` ('primera' | 'ultima'). Mantiene el puntero por
+ *  LOTE (sin releer). Devuelve el id del intento máximo. */
+export const sembrarVoluminosoLui24 = internalMutation({
+  args: {
+    confirmar: v.literal(CONFIRMACION_SOLO_DEV),
+    correo: v.string(),
+    n: v.number(),
+    gordo: v.optional(v.boolean()),
+    maxEn: v.optional(v.union(v.literal("primera"), v.literal("ultima"))),
+  },
+  handler: async (ctx, { correo, n, gordo, maxEn }) => {
+    exigirDeploymentDeDesarrollo();
+    const examen = await examenLui24(ctx);
+    const { userId } = await usuarioLui24(ctx, correo);
+    const admin = await ctx.db
+      .query("perfiles")
+      .withIndex("by_rol", (q) => q.eq("rol", "admin"))
+      .first();
+    if (!admin) throw new Error("No hay administradora para `creadoPor`.");
+    const ahora = Date.now();
+    const asignacionId = await ctx.db.insert("asignaciones", {
+      examenId: examen._id,
+      ...camposDestino({ alumnoId: userId }),
+      abreEn: ahora - 60_000,
+      cierraEn: ahora + 30 * DIA,
+      creadoPor: admin.userId,
+      tituloExamen: `${MARCA_E2E_LUI24} Voluminoso`,
+      numReactivos: examen.reactivoIds.length,
+      duracionMin: examen.duracionMin,
+      tipoExamen: normalizarTipo(examen.tipo),
+    });
+    const seccionRef = (await ctx.db.query("secciones").collect())[0]?._id;
+    const areaRef = (await ctx.db.query("areasTematicas").collect())[0]?._id;
+    if (gordo && (!seccionRef || !areaRef)) {
+      throw new Error("No hay temario para el desglose gordo.");
+    }
+    const desgloseGordo = gordo
+      ? {
+          aciertosPorSeccion: Array.from({ length: 240 }, (_, i) => ({
+            seccionId: seccionRef!,
+            aciertos: i % 2,
+            total: 1,
+          })),
+          aciertosPorArea: Array.from({ length: 240 }, (_, i) => ({
+            areaId: areaRef!,
+            aciertos: i % 2,
+            total: 1,
+          })),
+        }
+      : {};
+    // El MÁXIMO por `enviadoEn` en la primera o la última posición de inserción.
+    const base = ahora - n;
+    const enviadoDe = (k: number) =>
+      maxEn === "primera" ? base + (n - k) : base + k;
+    let maxTupla: PunteroTupla | null = null;
+    let maxIntentoId: Id<"intentos"> | null = null;
+    let minEnviado = Infinity;
+    let minIntentoId: Id<"intentos"> | null = null;
+    let minEnviadoEn = 0;
+    for (let k = 0; k < n; k++) {
+      const enviadoEn = enviadoDe(k);
+      const intentoId = await ctx.db.insert("intentos", {
+        examenId: examen._id,
+        alumnoId: userId,
+        asignacionId,
+        estado: "enviado",
+        iniciadoEn: enviadoEn - 1,
+        enviadoEn,
+        numeroIntento: 1,
+        puntaje: 1000,
+        formaCierre: "manual",
+        ...desgloseGordo,
+      });
+      const cand: PunteroTupla = { intentoId, enviadoEn };
+      const g = ganaPuntero(maxTupla, cand);
+      if (g && g.intentoId === intentoId) {
+        maxTupla = g;
+        maxIntentoId = intentoId;
+      } else if (!maxTupla) {
+        maxTupla = cand;
+        maxIntentoId = intentoId;
+      }
+      if (enviadoEn < minEnviado) {
+        minEnviado = enviadoEn;
+        minIntentoId = intentoId;
+        minEnviadoEn = enviadoEn;
+      }
+    }
+    await ctx.db.patch(asignacionId, { envioRegistradoEn: base });
+    if (maxTupla) await upsertPunteroLote(ctx, userId, maxTupla);
+    return { asignacionId, maxIntentoId, minIntentoId, minEnviadoEn, creados: n };
+  },
+});
+
+/** Borra el puntero de una alumna (para probar el recómputo/backfill DESDE CERO). */
+export const borrarPunteroLui24 = internalMutation({
+  args: { confirmar: v.literal(CONFIRMACION_SOLO_DEV), correo: v.string() },
+  handler: async (ctx, { correo }) => {
+    exigirDeploymentDeDesarrollo();
+    const { userId } = await usuarioLui24(ctx, correo);
+    await borrarPunteroDe(ctx, userId);
+    return { ok: true };
+  },
+});
+
+/** Fuerza el puntero de una alumna a una tupla dada (para probar el recómputo/verificador
+ *  DESDE UN PUNTERO NO-MÁXIMO pero válido). */
+export const forzarPunteroLui24 = internalMutation({
+  args: {
+    confirmar: v.literal(CONFIRMACION_SOLO_DEV),
+    correo: v.string(),
+    intentoId: v.id("intentos"),
+    enviadoEn: v.number(),
+  },
+  handler: async (ctx, { correo, intentoId, enviadoEn }) => {
+    exigirDeploymentDeDesarrollo();
+    const { userId } = await usuarioLui24(ctx, correo);
+    const actual = await ctx.db
+      .query("ultimosDiagnosticos")
+      .withIndex("by_user", (q) => q.eq("alumnoId", userId))
+      .first();
+    if (actual) await ctx.db.patch(actual._id, { intentoId, enviadoEn });
+    else await ctx.db.insert("ultimosDiagnosticos", { alumnoId: userId, intentoId, enviadoEn });
+    return { userId };
+  },
+});
+
+/** Una asignación individual ABIERTA (sin intentos), para que la alumna origine un cierre
+ *  REAL (`iniciarIntento` + `enviar`) — el testigo del cierre concurrente durante el
+ *  recómputo. Marcada para limpieza. */
+export const sembrarAsignacionAbiertaLui24 = internalMutation({
+  args: { confirmar: v.literal(CONFIRMACION_SOLO_DEV), correo: v.string() },
+  handler: async (ctx, { correo }) => {
+    exigirDeploymentDeDesarrollo();
+    const examen = await examenLui24(ctx);
+    const { userId } = await usuarioLui24(ctx, correo);
+    const admin = await ctx.db
+      .query("perfiles")
+      .withIndex("by_rol", (q) => q.eq("rol", "admin"))
+      .first();
+    if (!admin) throw new Error("No hay administradora para `creadoPor`.");
+    const ahora = Date.now();
+    const asignacionId = await ctx.db.insert("asignaciones", {
+      examenId: examen._id,
+      ...camposDestino({ alumnoId: userId }),
+      abreEn: ahora - 60_000,
+      cierraEn: ahora + 30 * DIA,
+      creadoPor: admin.userId,
+      tituloExamen: `${MARCA_E2E_LUI24} Abierta`,
+      numReactivos: examen.reactivoIds.length,
+      duracionMin: examen.duracionMin,
+      tipoExamen: normalizarTipo(examen.tipo),
+    });
+    return { asignacionId };
+  },
+});
+
+/** Borra UN intento (sin tocar el puntero): simula una modificación concurrente del máximo
+ *  acumulado ENTRE páginas del recómputo — el testigo de la revalidación del acumulado. */
+export const borrarIntentoLui24 = internalMutation({
+  args: { confirmar: v.literal(CONFIRMACION_SOLO_DEV), intentoId: v.id("intentos") },
+  handler: async (ctx, { intentoId }) => {
+    exigirDeploymentDeDesarrollo();
+    for (const r of await ctx.db
+      .query("respuestas")
+      .withIndex("by_intento_reactivo", (q) => q.eq("intentoId", intentoId))
+      .collect()) {
+      await ctx.db.delete(r._id);
+    }
+    const pos = await ctx.db
+      .query("posiciones")
+      .withIndex("by_intento", (q) => q.eq("intentoId", intentoId))
+      .first();
+    if (pos) await ctx.db.delete(pos._id);
+    await ctx.db.delete(intentoId);
+    return { ok: true };
+  },
+});
+
+/** ⭐ Historial individual GRANDE (mayor 1 v1→v2): 61 asignaciones individuales CERRADAS; el
+ *  ÚNICO diagnóstico elegible vive en la MÁS ANTIGUA, que la ventana de 60 de «Mis exámenes»
+ *  excluye — Inicio la muestra igual desde el read-model. Marcadas para limpieza. */
+export const sembrarHistorialLui24 = internalMutation({
+  args: { confirmar: v.literal(CONFIRMACION_SOLO_DEV), correo: v.string() },
+  handler: async (ctx, { correo }) => {
+    exigirDeploymentDeDesarrollo();
+    const examen = await examenLui24(ctx);
+    const { userId } = await usuarioLui24(ctx, correo);
+    const admin = await ctx.db
+      .query("perfiles")
+      .withIndex("by_rol", (q) => q.eq("rol", "admin"))
+      .first();
+    if (!admin) throw new Error("No hay administradora para `creadoPor`.");
+    const ahora = Date.now();
+    let diagnosticoId: Id<"intentos"> | null = null;
+    let diagEnviadoEn = 0;
+    // 61 individuales CERRADAS (cierre en el pasado). La MÁS ANTIGUA lleva el diagnóstico.
+    for (let k = 0; k < 61; k++) {
+      const cierraEn = ahora - (k + 1) * DIA; // k=60 es la más antigua
+      const asignacionId = await ctx.db.insert("asignaciones", {
+        examenId: examen._id,
+        ...camposDestino({ alumnoId: userId }),
+        abreEn: cierraEn - DIA,
+        cierraEn,
+        creadoPor: admin.userId,
+        tituloExamen: `${MARCA_E2E_LUI24} Historial ${k}`,
+        numReactivos: examen.reactivoIds.length,
+        duracionMin: examen.duracionMin,
+        tipoExamen: normalizarTipo(examen.tipo),
+      });
+      if (k === 60) {
+        diagEnviadoEn = cierraEn - 60_000;
+        diagnosticoId = await ctx.db.insert("intentos", {
+          examenId: examen._id,
+          alumnoId: userId,
+          asignacionId,
+          estado: "enviado",
+          iniciadoEn: cierraEn - 120_000,
+          enviadoEn: diagEnviadoEn,
+          numeroIntento: 1,
+          puntaje: 1000,
+          formaCierre: "manual",
+        });
+        await ctx.db.patch(asignacionId, { envioRegistradoEn: diagEnviadoEn });
+      }
+    }
+    if (diagnosticoId) {
+      await upsertPunteroLote(ctx, userId, {
+        intentoId: diagnosticoId,
+        enviadoEn: diagEnviadoEn,
+      });
+    }
+    return { diagnosticoId };
+  },
+});
+
+/** Rotura del verificador (fase 2): fabrica UN estado inconsistente de `ultimosDiagnosticos`
+ *  para `correo`. `tipo`:
+ *   · `duplicado`  — inserta una segunda fila para la misma alumna.
+ *   · `colgante`   — apunta a un intento inexistente (id de otra fila ya borrada).
+ *   · `extra`      — crea un puntero para una alumna sin diagnóstico elegible.
+ *   · `malformado` — inserta un intento enviado+1 SIN `formaCierre` (candidato malformado).
+ *  Devuelve datos para limpiar. */
+export const romperVerificadorLui24 = internalMutation({
+  args: {
+    confirmar: v.literal(CONFIRMACION_SOLO_DEV),
+    correo: v.string(),
+    tipo: v.union(
+      v.literal("duplicado"),
+      v.literal("colgante"),
+      v.literal("extra"),
+      v.literal("malformado"),
+    ),
+  },
+  handler: async (ctx, { correo, tipo }) => {
+    exigirDeploymentDeDesarrollo();
+    const examen = await examenLui24(ctx);
+    const { userId } = await usuarioLui24(ctx, correo);
+    const ahora = Date.now();
+    if (tipo === "duplicado") {
+      const p = await ctx.db
+        .query("ultimosDiagnosticos")
+        .withIndex("by_user", (q) => q.eq("alumnoId", userId))
+        .first();
+      if (!p) throw new Error("La alumna no tiene puntero que duplicar.");
+      const id = await ctx.db.insert("ultimosDiagnosticos", {
+        alumnoId: userId,
+        intentoId: p.intentoId,
+        enviadoEn: p.enviadoEn,
+      });
+      return { punteroExtra: id };
+    }
+    if (tipo === "colgante") {
+      // Inserta un intento, apunta el puntero a él, y BORRA el intento → puntero colgante.
+      const { intentoId } = await insertarDirectoLui24(ctx, examen, userId, ahora, 1000);
+      const p = await ctx.db
+        .query("ultimosDiagnosticos")
+        .withIndex("by_user", (q) => q.eq("alumnoId", userId))
+        .first();
+      if (p) await ctx.db.patch(p._id, { intentoId, enviadoEn: ahora });
+      else
+        await ctx.db.insert("ultimosDiagnosticos", {
+          alumnoId: userId,
+          intentoId,
+          enviadoEn: ahora,
+        });
+      await ctx.db.delete(intentoId);
+      return { colganteIntento: intentoId };
+    }
+    if (tipo === "extra") {
+      // Puntero para una alumna SIN diagnóstico elegible: apunta a un intento LEGADO
+      // (sin numeroIntento) que no es candidato.
+      const legado = await ctx.db.insert("intentos", {
+        examenId: examen._id,
+        alumnoId: userId,
+        estado: "enviado",
+        iniciadoEn: INICIADO_LUI24,
+        enviadoEn: ahora,
+        // sin numeroIntento ni formaCierre: NO elegible
+      });
+      const p = await ctx.db
+        .query("ultimosDiagnosticos")
+        .withIndex("by_user", (q) => q.eq("alumnoId", userId))
+        .first();
+      if (p) await ctx.db.patch(p._id, { intentoId: legado, enviadoEn: ahora });
+      else
+        await ctx.db.insert("ultimosDiagnosticos", {
+          alumnoId: userId,
+          intentoId: legado,
+          enviadoEn: ahora,
+        });
+      return { extraIntento: legado };
+    }
+    // malformado: candidato enviado+1 SIN formaCierre (no elegible; verificador lo cuenta
+    // como `malformados`, no como discrepancia).
+    const malformado = await ctx.db.insert("intentos", {
+      examenId: examen._id,
+      alumnoId: userId,
+      estado: "enviado",
+      iniciadoEn: INICIADO_LUI24,
+      enviadoEn: ahora,
+      numeroIntento: 1,
+      // sin formaCierre → malformado
+    });
+    return { malformado };
+  },
+});
+
+/**
+ * LIMPIEZA integral de `e2e-lui24`: borra todos los intentos DIRECTOS centinela y los
+ * intentos de asignaciones marcadas, sus asignaciones, y RECOMPUTA los punteros de las
+ * alumnas afectadas (que quedan pequeñas). Idempotente. Deja `ultimosDiagnosticos` como el
+ * seed base lo dejaría (las alumnas demo con su diagnóstico real; sin residuos sintéticos).
+ */
+export const limpiarLui24 = internalMutation({
+  args: { confirmar: v.literal(CONFIRMACION_SOLO_DEV) },
+  handler: async (ctx) => {
+    exigirDeploymentDeDesarrollo();
+    const afectadas = new Set<string>();
+    const borrarIntento = async (i: Doc<"intentos">) => {
+      afectadas.add(i.alumnoId as string);
+      for (const r of await ctx.db
+        .query("respuestas")
+        .withIndex("by_intento_reactivo", (q) => q.eq("intentoId", i._id))
+        .collect()) {
+        await ctx.db.delete(r._id);
+      }
+      const pos = await ctx.db
+        .query("posiciones")
+        .withIndex("by_intento", (q) => q.eq("intentoId", i._id))
+        .first();
+      if (pos) await ctx.db.delete(pos._id);
+      await ctx.db.delete(i._id);
+    };
+
+    let intentos = 0;
+    let asignaciones = 0;
+
+    // 1) Asignaciones marcadas + sus intentos.
+    for (const a of await ctx.db.query("asignaciones").collect()) {
+      if (!(a.tituloExamen ?? "").startsWith(MARCA_E2E_LUI24)) continue;
+      for (const i of await ctx.db
+        .query("intentos")
+        .withIndex("by_asignacion", (q) => q.eq("asignacionId", a._id))
+        .collect()) {
+        await borrarIntento(i);
+        intentos++;
+      }
+      await ctx.db.delete(a._id);
+      asignaciones++;
+    }
+    // 2) Intentos DIRECTOS centinela (por `iniciadoEn`).
+    for (const i of await ctx.db.query("intentos").collect()) {
+      if (i.iniciadoEn !== INICIADO_LUI24) continue;
+      await borrarIntento(i);
+      intentos++;
+    }
+    // 3) Punteros colgantes/duplicados/extra → recomputa cada alumna afectada + repara el
+    //    resto de la tabla (por si una rotura de verificador dejó residuo).
+    for (const alumnoStr of afectadas) {
+      const alumnoId = alumnoStr as Id<"users">;
+      await recomputarPunteroAcotado(ctx, alumnoId);
+    }
+    const reparados = await repararPunterosColgantes(ctx);
+    // Elimina punteros duplicados (dejando el que el recómputo dejó vigente).
+    const vistos = new Set<string>();
+    let dupBorrados = 0;
+    for (const p of await ctx.db.query("ultimosDiagnosticos").collect()) {
+      const clave = p.alumnoId as string;
+      if (vistos.has(clave)) {
+        await ctx.db.delete(p._id);
+        dupBorrados++;
+      } else {
+        vistos.add(clave);
+      }
+    }
+    return { intentos, asignaciones, reparados, dupBorrados };
   },
 });
