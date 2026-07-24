@@ -36,6 +36,8 @@ export function TarjetaPuntajeMeta({
   meta,
   nombre,
   mostrarMeta = true,
+  pie,
+  tamanoPuntaje = 56,
 }: {
   /** «{examen} — primer intento» / «— repaso 2». */
   caption: string;
@@ -47,7 +49,16 @@ export function TarjetaPuntajeMeta({
   /** `false` en un repaso: su resultado no se compara con la meta (el oficial es el del
    *  diagnóstico), así que la barra sobra y confundiría. */
   mostrarMeta?: boolean;
+  /** Caption al pie de la card («{carrera} — {institución}» del Diseño 23). Aditivo. */
+  pie?: string;
+  /** Tamaño del número grande: 48 px en Inicio (Diseño 23), 56 px en Resultados (Diseño 26,
+   *  el default para no tocar su call site). */
+  tamanoPuntaje?: 48 | 56;
 }) {
+  const claseNumero =
+    tamanoPuntaje === 48
+      ? "text-[48px] leading-[52px]"
+      : "text-[56px] leading-[58px]";
   if (puntajeCrudo === null) {
     return (
       <Card>
@@ -55,6 +66,7 @@ export function TarjetaPuntajeMeta({
         <p className="mt-2 text-body text-ink">
           Tu examen se registró, pero no pudo calificarse.
         </p>
+        {pie && <p className="mt-2 text-caption text-muted" data-pie-meta>{pie}</p>}
       </Card>
     );
   }
@@ -70,7 +82,8 @@ export function TarjetaPuntajeMeta({
       <p className="text-caption text-muted">{caption}</p>
       <p
         className={cn(
-          "font-condensed mt-1 text-[56px] font-semibold leading-[58px] tabular-nums",
+          "font-condensed mt-1 font-semibold tabular-nums",
+          claseNumero,
           celebra ? "text-unx-green" : "text-ink",
         )}
         data-resultado-puntaje
@@ -123,6 +136,8 @@ export function TarjetaPuntajeMeta({
           para ver qué tan cerca estás.
         </p>
       )}
+
+      {pie && <p className="mt-3 text-caption text-muted" data-pie-meta>{pie}</p>}
     </Card>
   );
 }

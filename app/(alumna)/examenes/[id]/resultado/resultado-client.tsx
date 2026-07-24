@@ -43,8 +43,9 @@ function mensajeDeError(e: unknown): string {
  *
  * FUERA de esta entrega, a propósito: «Revisar mis respuestas» (LUI-29) y «Ver mi progreso»
  * (LUI-34). Sus pantallas todavía son placeholders y una CTA visible que lleva a un callejón
- * es peor que la ausencia del botón. La salida contractual a Inicio llega con LUI-24;
- * mientras tanto se vuelve a «Mis exámenes», que sí existe.
+ * es peor que la ausencia del botón. La salida contractual a Inicio ya EXISTE (LUI-24): el
+ * enlace de cierre lleva a `/inicio`. (La ruta de recuperación del estado «resultado no
+ * disponible» sí vuelve a «Mis exámenes», de donde vino quien llegó ahí.)
  */
 export function ResultadoClient({ intentoId }: { intentoId: string }) {
   const { isAuthenticated } = useConvexAuth();
@@ -205,8 +206,8 @@ function ResultadoCargado({ r, perfil }: { r: Resultado; perfil: Perfil }) {
         </p>
       )}
 
-      <Link href="/examenes" className={LINK_SECONDARY}>
-        Volver a Mis exámenes
+      <Link href="/inicio" className={LINK_SECONDARY}>
+        Ir a Inicio
       </Link>
     </div>
   );
