@@ -7,9 +7,13 @@ import {
 } from "./_generated/server";
 import { type Doc, type Id } from "./_generated/dataModel";
 import { v, ConvexError } from "convex/values";
-import { requireAdmin, requireStaff } from "./authz";
+import { requireAdmin, requireAlumna, requireStaff } from "./authz";
 import { canonizar } from "./texto";
-import { validarNombreTemario } from "./temarioReglas";
+import {
+  MAX_MODULOS_ACTIVOS,
+  MSG_MODULOS_LLENO,
+  validarNombreTemario,
+} from "./temarioReglas";
 import { CONFIRMACION_SOLO_DEV, exigirDeploymentDeDesarrollo } from "./entorno";
 
 /**
@@ -350,6 +354,87 @@ export const listarParaStaff = query({
   },
 });
 
+// ── Módulos activos: UN rango, UNA frontera (LUI-36) ────────────────────────
+
+/**
+ * Los módulos ACTIVOS por el índice `by_tipo_activo_orden`, con centinela `take(MAX + 1)`.
+ *
+ * Punto ÚNICO de lectura del dominio: lo llaman el selector de la alumna
+ * (`modulosParaAlumna`) y la frontera de escritura (`exigirCupoDeModulos`). Compartirlo es
+ * lo que garantiza que «cuántos caben» y «cuántos hay» se respondan contra el MISMO rango —
+ * dos consultas distintas podrían discrepar por un `.filter()` mal puesto.
+ *
+ * El rango incluye `activo` como columna del índice, no como filtro posterior: un
+ * `.filter()` de Convex no reduce los documentos escaneados, así que filtrar después haría
+ * que cada módulo retirado encareciera para siempre una pantalla de la alumna.
+ */
+async function leerModulosActivos(
+  ctx: Ctx,
+): Promise<{ filas: Doc<"secciones">[]; desbordado: boolean }> {
+  const filas = await ctx.db
+    .query("secciones")
+    .withIndex("by_tipo_activo_orden", (q) =>
+      q.eq("tipo", "modulo").eq("activo", true),
+    )
+    .take(MAX_MODULOS_ACTIVOS + 1);
+  return {
+    filas: filas.slice(0, MAX_MODULOS_ACTIVOS),
+    desbordado: filas.length > MAX_MODULOS_ACTIVOS,
+  };
+}
+
+/**
+ * Frontera de ESCRITURA del dominio «módulos activos», para los escritores que agregan DE
+ * UNO EN UNO: `crear` (un módulo nace activo) y `cambiarEstado` (reactivación). Responde
+ * «¿cabe uno más?»: se llama ANTES de escribir y rechaza cuando ya hay
+ * `MAX_MODULOS_ACTIVOS`, de modo que el módulo 30 entra y el 31 no.
+ *
+ * ⚠️ El TERCER escritor —el seed, que inserta secciones saltándose el CRUD— NO usa esta
+ * función, y no es un olvido: siembra VARIOS módulos en una pasada, así que su pregunta es
+ * otra («¿el estado FINAL respeta el techo?») y la comprueba tras insertar, dentro de la
+ * misma transacción, contra la MISMA constante `MAX_MODULOS_ACTIVOS`. Lo compartido entre
+ * los tres es la constante, que vive en el módulo neutral `temarioReglas.ts`; esta función
+ * es solo la forma que toma la regla para el alta unitaria. Por eso NO se exporta: fuera de
+ * este archivo no hay ningún escritor unitario al que sirva.
+ *
+ * Dos escrituras simultáneas leen y escriben el mismo rango del índice, así que la
+ * serialización de Convex hace reintentar a una y el reintento vuelve a contar: el estado
+ * final nunca excede el techo aunque dos administradores actúen a la vez.
+ */
+async function exigirCupoDeModulos(ctx: MutationCtx): Promise<void> {
+  const { filas, desbordado } = await leerModulosActivos(ctx);
+  if (desbordado || filas.length >= MAX_MODULOS_ACTIVOS) {
+    throw new ConvexError(MSG_MODULOS_LLENO);
+  }
+}
+
+/**
+ * Catálogo de módulos para el selector de la alumna (LUI-36). Es la ÚNICA lectura del
+ * temario que un rol `alumno` puede hacer: no expone áreas ni subtemas ni contadores, solo
+ * el nombre de las secciones tipo módulo vigentes.
+ *
+ * Al desbordar el centinela devuelve la lista VACÍA con `catalogoIncompleto: true` — jamás
+ * un prefijo. Un prefijo aquí sería preciso y falso a la vez: escondería justo el módulo que
+ * la alumna busca y ella no tendría forma de saberlo. Con la frontera de escritura puesta el
+ * desborde es inalcanzable con datos válidos; el centinela solo protege del legado.
+ *
+ * PRESUPUESTO: 2 docs (sesión) + 1 rango de ≤31 docs ⇒ trivial.
+ */
+export const modulosParaAlumna = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireAlumna(ctx);
+    const { filas, desbordado } = await leerModulosActivos(ctx);
+    if (desbordado) return { modulos: [], catalogoIncompleto: true };
+    return {
+      modulos: filas
+        .sort(porOrden)
+        .map((s) => ({ id: s._id, nombre: s.nombre })),
+      catalogoIncompleto: false,
+    };
+  },
+});
+
 // ── CRUD (LUI-18 Entrega 2) ──────────────────────────────────────────────────
 // Toda escritura exige sesión de administrador (`requireAdmin`), primera línea.
 //
@@ -508,6 +593,10 @@ export const crear = mutation({
         throw new ConvexError("Una sección o módulo no tiene elemento padre.");
       }
       await exigirNombreSeccionUnico(ctx, nombre);
+      // Un módulo NACE activo (abajo, `activo: true`), así que crear uno consume cupo del
+      // dominio acotado por `MAX_MODULOS_ACTIVOS`. El núcleo no: son 3 y los fija el
+      // bootstrap.
+      if (tipo === "modulo") await exigirCupoDeModulos(ctx);
       const ultimo = await ctx.db
         .query("secciones")
         .withIndex("by_tipo_orden", (q) => q.eq("tipo", tipo))
@@ -610,9 +699,15 @@ export const cambiarEstado = mutation({
     switch (args.nivel) {
       case "seccion": {
         const id = ctx.db.normalizeId("secciones", args.id);
-        if (!id || !(await ctx.db.get(id))) {
-          throw new ConvexError("Sección no encontrada.");
-        }
+        const doc = id && (await ctx.db.get(id));
+        if (!id || !doc) throw new ConvexError("Sección no encontrada.");
+        // NO-OP ANTES de la frontera: «reactivar» algo que ya está activo no es una
+        // transición y no puede consumir cupo. Sin esta salida, con el catálogo lleno el
+        // admin no podría re-guardar el estado que YA tiene — un rechazo absurdo.
+        if (doc.activo === args.activo) return { id, activo: args.activo };
+        // Solo la REACTIVACIÓN de un módulo suma al dominio acotado; desactivar nunca
+        // desborda.
+        if (args.activo && doc.tipo === "modulo") await exigirCupoDeModulos(ctx);
         await ctx.db.patch(id, { activo: args.activo });
         return { id, activo: args.activo };
       }

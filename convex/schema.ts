@@ -49,6 +49,48 @@ export default defineSchema({
     .index("by_rol", ["rol"])
     .index("by_grupo", ["grupoId"]),
 
+  // Perfil ACADÉMICO de la alumna (LUI-36): su meta de admisión y los módulos que su proceso
+  // pide. Tabla APARTE de `perfiles` por PRESUPUESTO, no por estilo.
+  //
+  // `panel.alumnos` (LUI-30) cuenta el alumnado paginando `perfiles.by_rol` con DOS topes —
+  // 2,001 filas y `ALUMNOS_BYTES_PANEL` (1 MiB) — y responde «—» (`incompleto: true`) al
+  // cortar. Hoy manda el corte por FILAS. Colgar institución + carrera + módulos de cada
+  // perfil (~1 KB/fila) cambiaría el modo de corte a BYTES y adelantaría ese «—» de ~2,000
+  // alumnas a ~700: una regresión a una pantalla ya entregada. Mismo razonamiento con el que
+  // `posiciones` se separó de `intentos`.
+  //
+  // División semántica: `perfiles` = perfil de CUENTA (rol, nombre, grupo, activo), que el
+  // STAFF lee en bloque; `perfilesAlumna` = perfil ACADÉMICO, que solo la alumna escribe y
+  // solo sus pantallas leen.
+  //
+  // ══ CUATRO ESTADOS LEGALES ══ (`metaAlumna.metaDe` es su guardián)
+  //  1. SIN FILA — alumna nueva; es el estado de todas las de producción hoy.
+  //  2. fila con módulos y SIN tripleta.
+  //  3. fila con tripleta y `modulosIds: []`.
+  //  4. fila con tripleta y módulos.
+  //
+  // `institucionObjetivo` + `carreraObjetivo` + `metaPuntaje` son una TRIPLETA indivisible:
+  // las tres o ninguna. Lo sostiene que UNA sola mutation (`perfilAlumna.guardarMeta`) las
+  // escribe, siempre juntas, y ninguna otra las toca; `metaDe` LANZA si encuentra dos de tres
+  // (dato imposible ⇒ falla ruidosa, jamás un vacío que parezca normal).
+  //
+  // `modulosIds` NO es opcional a propósito: ausencia y `[]` significarían lo mismo y
+  // abrirían un quinto estado inútil. Sus ids pueden quedar colgando si el temario retira o
+  // borra un módulo — Convex no protege referencias — y por eso `perfilAlumna.mio` devuelve
+  // los vivos y CUENTA los que ya no están (`modulosNoDisponibles`), sin encogerse en
+  // silencio. Su tamaño está acotado por `temarioReglas.MAX_MODULOS_ACTIVOS`.
+  //
+  // La unicidad por `userId` la sostiene la disciplina sonda+`patch|insert` dentro de la
+  // misma transacción (igual que `respuestas`): un índice de Convex no es constraint único.
+  perfilesAlumna: defineTable({
+    userId: v.id("users"),
+    institucionObjetivo: v.optional(v.string()),
+    carreraObjetivo: v.optional(v.string()),
+    metaPuntaje: v.optional(v.number()), // entero en la escala EXANI 700–1300
+    modulosIds: v.array(v.id("secciones")),
+    actualizadoEn: v.number(), // epoch ms de la última escritura
+  }).index("by_user", ["userId"]),
+
   // Tokens de un solo uso para establecer/restablecer contraseña por correo
   // (LUI-103). La URL del correo lleva el token en claro; aquí SOLO se guarda su
   // hash SHA-256 (una fuga de BD no permite usar los enlaces). `tipo` separa la
@@ -158,7 +200,15 @@ export default defineSchema({
     activo: v.boolean(),
     orden: v.number(),
     reactivosCount: v.number(),
-  }).index("by_tipo_orden", ["tipo", "orden"]),
+  })
+    .index("by_tipo_orden", ["tipo", "orden"])
+    // Módulos ACTIVOS en UN rango (LUI-36). `by_tipo_orden` no sirve: obligaría a filtrar
+    // `activo` DESPUÉS del rango, y un `.filter()` de Convex no reduce los documentos
+    // escaneados — con el tiempo, cada módulo retirado encarecería el selector que ve la
+    // alumna. Este índice es además la sonda de la frontera `MAX_MODULOS_ACTIVOS`, que los
+    // TRES escritores del dominio (`temario.crear`, `temario.cambiarEstado` y el seed)
+    // consultan con `take(MAX + 1)`.
+    .index("by_tipo_activo_orden", ["tipo", "activo", "orden"]),
 
   areasTematicas: defineTable({
     seccionId: v.id("secciones"),

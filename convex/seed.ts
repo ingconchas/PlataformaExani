@@ -7,6 +7,7 @@ import { inicioDeMesMx } from "./fechas";
 import { CONFIRMACION_SOLO_DEV, exigirDeploymentDeDesarrollo } from "./entorno";
 import { canonizar } from "./texto";
 import { construirTemario, recalcular, resolverClasificacion } from "./temario";
+import { MAX_MODULOS_ACTIVOS } from "./temarioReglas";
 import { validarMaterial, type MaterialDeReactivo } from "./material";
 import {
   normalizarTipo,
@@ -143,6 +144,34 @@ const ALUMNOS: AlumnoSeed[] = [
   // el fixture para que el seed le repare el grupo y todo converja.
   { nombre: "Fernanda", apellidos: "López", correo: "fernanda.alumna@demo.unx.mx", grupo: "Matutino A", activo: true, ultimoAccesoDias: 7 },
 ];
+
+/**
+ * Perfil ACADÉMICO del fixture (LUI-36). Solo entra aquí quien TIENE credenciales demo
+ * (`seedAuth.CORREOS_DEMO`): un estado que ninguna suite puede alcanzar no prueba nada.
+ *
+ * `null` significa **sin fila** en `perfilesAlumna` — el estado 1 de la máquina de estados,
+ * el de toda alumna recién dada de alta. Que Ana lo tenga es DELIBERADO: hace alcanzable, con
+ * credenciales reales, la variante «sin meta» de Resultados (LUI-28), que si no sería una
+ * rama imposible de poner en rojo.
+ *
+ * ⚠️ CONVERGENCIA, no upsert: el seed BORRA la fila de quien debe estar sin ella. Sin eso, una
+ * corrida del E2E que le fije meta a Ana dejaría el fixture sucio y la siguiente daría un
+ * verde falso sobre un estado que ya no es el que la prueba cree.
+ */
+const PERFILES_ALUMNA: Record<
+  string,
+  { institucion: string; carrera: string; puntaje: number; modulos: string[] } | null
+> = {
+  // La alumna del player: es la única con intentos reales, así que es la que da el oráculo
+  // de la barra de meta y del delta. Sus módulos son los DOS del fixture (`TEMARIO_DEMO`).
+  "fernanda.alumna@demo.unx.mx": {
+    institucion: "Universidad de Guadalajara (UDG)",
+    carrera: "Medicina",
+    puntaje: 1150,
+    modulos: ["Biología", "Matemáticas financieras"],
+  },
+  "ana.lopez@correo.com": null,
+};
 
 // ── Temario demo (LUI-18) ──────────────────────────────────────────────────
 // SOLO dev. Producción recibe únicamente las 3 secciones del núcleo, por
@@ -1127,6 +1156,24 @@ export const cargarDatosDePrueba = internalMutation({
       for (const [clave, s] of seccionPorNombre) {
         seccionIdPorNombre.set(clave, s._id);
       }
+
+      // El seed es el TERCER escritor de `secciones` (inserta saltándose el CRUD), así que
+      // debe respetar la MISMA frontera que `temario.crear` y `temario.cambiarEstado`: un
+      // fixture no puede fabricar un estado que el producto considera inválido — sería una
+      // trampa perfecta, con el E2E verde sobre datos imposibles.
+      // La mutation es transaccional: este `throw` deshace también las inserciones de arriba.
+      const modulosActivos = await ctx.db
+        .query("secciones")
+        .withIndex("by_tipo_activo_orden", (q) =>
+          q.eq("tipo", "modulo").eq("activo", true),
+        )
+        .take(MAX_MODULOS_ACTIVOS + 1);
+      if (modulosActivos.length > MAX_MODULOS_ACTIVOS) {
+        throw new Error(
+          `El fixture dejaría más de ${MAX_MODULOS_ACTIVOS} módulos activos (techo del producto). ` +
+            `Desactiva o elimina módulos sobrantes de este deployment antes de sembrar.`,
+        );
+      }
     }
 
     // ── 3b. Lecturas (upsert por título) — LUI-14/17 ───────────────────────
@@ -1310,6 +1357,61 @@ export const cargarDatosDePrueba = internalMutation({
         await ctx.db.insert("perfiles", { userId, ...datosPerfil });
         alumnoUserIdPorCorreo.set(correo, userId);
         insertado.push(`alumno:${a.nombre}`);
+      }
+    }
+
+    // ── 5b. Perfil ACADÉMICO de la alumna (LUI-36) ─────────────────────────
+    // Converge a `PERFILES_ALUMNA`: escribe la meta de quien debe tenerla y BORRA la fila de
+    // quien debe estar sin ella. Escribe la fila COMPLETA (tripleta + módulos), nunca un
+    // fragmento: el fixture no debe poder producir el estado parcial que `metaDe` prohíbe.
+    for (const [correoBruto, meta] of Object.entries(PERFILES_ALUMNA)) {
+      const correo = norm(correoBruto);
+      const userId = alumnoUserIdPorCorreo.get(correo);
+      if (!userId) {
+        throw new Error(`Perfil académico: no existe la alumna «${correoBruto}».`);
+      }
+      const fila = await ctx.db
+        .query("perfilesAlumna")
+        .withIndex("by_user", (q) => q.eq("userId", userId))
+        .first();
+
+      if (meta === null) {
+        if (fila) {
+          await ctx.db.delete(fila._id);
+          reparado.push(`perfil-academico-borrado:${correoBruto}`);
+        }
+        continue;
+      }
+
+      // Los módulos se resuelven por NOMBRE contra el temario recién sembrado y se validan
+      // igual que en `perfilAlumna.guardarModulos`: activos y de tipo módulo. Un fixture que
+      // apuntara a una sección de núcleo pasaría el schema (mismo tipo de id) y rompería el
+      // selector sin que nada avisara.
+      const modulosIds: Id<"secciones">[] = [];
+      for (const nombre of meta.modulos) {
+        const id = seccionIdPorNombre.get(canonizar(nombre));
+        const doc = id ? await ctx.db.get(id) : null;
+        if (!doc || doc.tipo !== "modulo" || !doc.activo) {
+          throw new Error(
+            `Perfil académico de ${correoBruto}: «${nombre}» no es un módulo activo del temario.`,
+          );
+        }
+        modulosIds.push(doc._id);
+      }
+
+      const datos = {
+        institucionObjetivo: meta.institucion,
+        carreraObjetivo: meta.carrera,
+        metaPuntaje: meta.puntaje,
+        modulosIds,
+        actualizadoEn: ahora,
+      };
+      if (fila) {
+        await ctx.db.patch(fila._id, datos);
+        reparado.push(`perfil-academico:${correoBruto}`);
+      } else {
+        await ctx.db.insert("perfilesAlumna", { userId, ...datos });
+        insertado.push(`perfil-academico:${correoBruto}`);
       }
     }
 
@@ -2429,10 +2531,74 @@ export const cargarDatosDePrueba = internalMutation({
       }),
     };
 
+    // ── Oráculo de RESULTADOS de la alumna (LUI-28) ────────────────────────
+    // Un renglón por intento ENVIADO de cada alumna con credenciales, con su desglose ya
+    // resuelto a NOMBRES (los ids de dev cambian en cada pizarra) y los porcentajes
+    // recalculados A MANO.
+    //
+    // El recálculo es una RÉPLICA DELIBERADA: este bloque NO importa `resultados.ts` ni
+    // `metaAlumna.ts` a propósito — si lo hiciera, un error de signo en `pctDeFraccion` o en
+    // `compararConMeta` aparecería idéntico en el oráculo y en la pantalla, y la prueba lo
+    // bendeciría. Por eso aquí van `Math.round` y el 0.6 literales.
+    //
+    // `meta` viaja junto para que el spec derive el delta esperado sin volver a leer la BD;
+    // `null` es el estado «sin fila» (Ana), que es justo la variante sin marcador de barra.
+    const metaPorCorreo = new Map(
+      Object.entries(PERFILES_ALUMNA).map(([correo, m]) => [
+        norm(correo),
+        m === null ? null : m.puntaje,
+      ]),
+    );
+    const resultadoAlumnaEsperado = Object.fromEntries(
+      Object.keys(PERFILES_ALUMNA).map((correo) => {
+        const userId = alumnoUserIdPorCorreo.get(norm(correo));
+        const pct = (aciertos: number, total: number) =>
+          total > 0 ? Math.round((aciertos / total) * 100) : null;
+        return [
+          correo,
+          {
+            meta: metaPorCorreo.get(norm(correo)) ?? null,
+            intentos: intentosFinal
+              .filter((i) => i.alumnoId === userId && i.estado === "enviado")
+              .sort((x, y) => x.iniciadoEn - y.iniciadoEn || (x._id < y._id ? -1 : 1))
+              .map((i) => ({
+                intentoId: i._id,
+                examen: examenPorId.get(i.examenId) ?? "?",
+                numeroIntento: i.numeroIntento ?? null,
+                // CRUDO y MOSTRADO por separado: la pantalla debe mostrar el redondeado y
+                // comparar contra la meta con ESE mismo número (invariante de `metaAlumna`).
+                puntajeCrudo: i.puntaje ?? null,
+                puntajeMostrado: i.puntaje === undefined ? null : Math.round(i.puntaje),
+                // Un intento sin asignación no tiene ventana ⇒ jamás ofrece repaso.
+                asignado: i.asignacionId !== undefined,
+                sinDesglose:
+                  i.aciertosPorSeccion === undefined || i.aciertosPorArea === undefined,
+                porSeccion: (i.aciertosPorSeccion ?? []).map((c) => ({
+                  nombre: nombrePorSeccionId.get(c.seccionId as string) ?? null,
+                  aciertos: c.aciertos,
+                  total: c.total,
+                  pct: pct(c.aciertos, c.total),
+                })),
+                porArea: (i.aciertosPorArea ?? []).map((c) => ({
+                  nombre: nombrePorAreaId.get(c.areaId as string) ?? null,
+                  aciertos: c.aciertos,
+                  total: c.total,
+                  pct: pct(c.aciertos, c.total),
+                  // Espejo literal de `UMBRAL_REFUERZO_AREA`, comparación ESTRICTA: 60.00 %
+                  // exacto NO se marca.
+                  reforzar: (c.total > 0 ? c.aciertos / c.total : 0) < 0.6,
+                })),
+              })),
+          },
+        ];
+      }),
+    );
+
     return {
       insertado,
       reparado,
       resultadosEsperado,
+      resultadoAlumnaEsperado,
       misExamenesEsperado: {
         "fernanda.alumna@demo.unx.mx": oraculoAlumna(
           "fernanda.alumna@demo.unx.mx",
